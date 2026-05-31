@@ -33,6 +33,23 @@ kubectl get pod -n app-services -l app=sip-app \
 
 Both Pods report `Ready = True`. That condition is what readiness flips and what Endpoints watches.
 
+## See what the probe sees — `exec` and ephemeral debug
+
+The readiness probe does an `httpGet` on `/`. You can run the same check by hand. If the image has a shell, `kubectl exec` runs a command *inside* the container:
+
+```bash
+kubectl exec deploy/sip-app -n app-services -- nginx -v
+```{{exec}}
+
+That runs one-shot in the running container (add `-it -- sh` for an interactive shell). But many production images are **distroless** — no shell, no `curl` — so `exec` has nothing to run. For those, attach an **ephemeral container** with `kubectl debug`: a throwaway container that joins the Pod's namespaces, bringing its own tools without changing the Pod.
+
+```bash
+POD=$(kubectl get pod -n app-services -l app=sip-app -o jsonpath='{.items[0].metadata.name}')
+kubectl debug -it $POD -n app-services --image=busybox:1.36 -- wget -qO- http://localhost:80/
+```{{exec}}
+
+Because the ephemeral container shares the Pod's network namespace, `localhost:80` *is* the app container — so you're hitting exactly the endpoint the readiness probe hits, and you'll see nginx's HTML (an HTTP `200`). That's the probe's-eye view, and `kubectl debug` is how you get it on a Pod you can't `exec` into. (Ctrl-D to exit; the ephemeral container stays in the Pod's spec — they're stopped, never removed.)
+
 ## Verify
 
 ```bash

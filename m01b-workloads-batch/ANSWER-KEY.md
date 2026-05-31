@@ -10,6 +10,7 @@ M01b teaches the batch half of the workload family — controllers whose goal is
 - `breakfix-01-cronjob-never-fires` — *a suspended CronJob creates nothing; work the silent-CronJob differential*
 - `breakfix-02-job-backofflimit` — *a Job whose every attempt fails; retrying vs given-up, and Job immutability*
 - `breakfix-03-completions-shortfall` — *a Job that reports Complete but did a fraction of the work; `Complete` ≠ correct*
+- `breakfix-04-sidecar-blocks-job` — *a Job hangs at 0/1 because an ordinary sidecar never exits; multi-container Pods complete only when every container does*
 
 Two through-lines worth naming: **`Complete` ≠ correct** (the batch sibling of M01's `Running` ≠ `Ready`), and **Jobs are immutable** (fix by delete + recreate) while **CronJobs are patchable** for run-governing fields.
 
@@ -177,6 +178,8 @@ kubectl get job schema-migrate -n provisioning    # COMPLETIONS 1/1
 
 **`activeDeadlineSeconds`** is the other bound: a wall-clock cap that overrides `backoffLimit` and fails a Job that runs too long — the right control for a migration that must not bleed into the maintenance window's end.
 
+**`podFailurePolicy`** (stable since v1.31) is the modern complement to `backoffLimit`. This scenario's typo exits `127` every time — a guaranteed failure that `backoffLimit` still dutifully retries six times. A `podFailurePolicy` rule that does `FailJob` on that exit code would fail the Job on the *first* attempt, surfacing the bug in seconds. The mirror case: a rule that does `Ignore` on the `DisruptionTarget` condition so a node preemption or spot reclaim doesn't burn a retry. `podFailurePolicy` classifies *why* a Pod failed; `backoffLimit` caps how many countable failures you tolerate. See `LESSON.md` for the full breakdown.
+
 </details>
 
 **Expected time:** 3–5 min once you read logs before guessing; 8–15 min the first time (longer if you fight the immutable-field error instead of recreating).
@@ -270,9 +273,100 @@ Note this scenario's bug — wrong `completions` — would still be a bug under 
 
 **Production thinking:** This is the most dangerous failure in the module because it's invisible to every health check — the Job is `Complete`, so liveness of the *pipeline* looks fine. Detection has to come from the *output*, not the Job: reconcile row counts (does the export have 4 partitions?), or assert the expected `completions` in a policy check before deploy. The durable fix corrects `completions` in `platform-gitops`; the real deliverable is a data-completeness check so "the job is green but the data is short" can't reach finance again. Consider Indexed mode so future partial failures name the missing shard.
 
+---
+
+## Break/fix 04 — Sidecar Blocks Job Completion
+
+**Symptom:** The `cdr-archive` Job in `cdr-storage` never completes — `COMPLETIONS 0/1`, hour after hour — even though the archive work itself finishes in seconds. No crash, no error. A duplicate fires the next night on top of it.
+
+**Root cause:** The Job's Pod has two containers — `archive` (does the work, exits 0) and `log-shipper` (an ordinary container running `tail -f`, which never exits). A Job tracks *Pod* success, and a Pod is `Succeeded` only when **every** container terminates<sup><a href="https://kubernetes.io/docs/concepts/workloads/controllers/job/">[1]</a></sup>. The perpetual log-shipper pins the Pod in `Running` after the archive finished, so the Job never counts a completion and hangs at `0/1` indefinitely. The work succeeded; the Pod just can't complete.
+
+**Diagnostic commands (the canonical path):**
+
+```bash
+# 1. Stuck Job, and a Pod that's Running but only 1/2 READY (two containers!)
+kubectl get job cdr-archive -n cdr-storage
+kubectl get pods -n cdr-storage -l app=cdr-archive
+```
+
+```bash
+# 2. Per-container truth: archive Terminated/Completed, log-shipper still Running
+kubectl get pod -n cdr-storage -l app=cdr-archive \
+  -o jsonpath='{range .items[0].status.containerStatuses[*]}{.name}{": "}{.state}{"\n"}{end}'
+# archive:     {"terminated":{"reason":"Completed","exitCode":0,...}}
+# log-shipper: {"running":{...}}
+```
+
+```bash
+# 3. Root cause in the spec — log-shipper is an ordinary container, not a sidecar
+kubectl get job cdr-archive -n cdr-storage \
+  -o jsonpath='containers={range .spec.template.spec.containers[*]}{.name}{" "}{end}{"\n"}initContainers={.spec.template.spec.initContainers}{"\n"}'
+# containers=archive log-shipper   initContainers=   (empty)
+```
+
+**Fix:** Make the helper a **native sidecar** — move `log-shipper` from `spec.containers` to `spec.initContainers` and give it `restartPolicy: Always`. The kubelet then terminates it once the main container exits, so the Pod completes. Jobs are immutable, so delete and recreate (needs k8s ≥ v1.29; the lab cluster is v1.30):
+
+```bash
+kubectl delete job cdr-archive -n cdr-storage
+cat <<'EOF' | kubectl apply -f -
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cdr-archive
+  namespace: cdr-storage
+  labels: { app: cdr-archive, plane: control, tier: lab }
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: { app: cdr-archive, plane: control, tier: lab }
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: log-shipper
+          image: busybox:1.36
+          restartPolicy: Always        # makes it a native sidecar
+          command: ["/bin/sh","-c","echo '[log-shipper] streaming logs'; tail -f /dev/null"]
+      containers:
+        - name: archive
+          image: busybox:1.36
+          command: ["/bin/sh","-c","echo '[cdr-archive] archiving'; sleep 5; echo '[cdr-archive] archive complete'"]
+EOF
+```
+
+**Verify:**
+
+```bash
+kubectl wait --for=condition=complete job/cdr-archive -n cdr-storage --timeout=60s
+kubectl get job cdr-archive -n cdr-storage    # COMPLETIONS 1/1
+```
+
+**What this scenario tests:** Multi-container Pod completion semantics, and recognizing a sidecar lifecycle problem. Self-grading questions:
+
+- Did you read the `READY 1/2` and drop to `containerStatuses` to see that the *work* container had completed and a *different* container was holding the Pod open?
+- Did you conclude the Pod couldn't terminate because a container wasn't terminating — rather than hunting for a failure in the archive logs (there isn't one)?
+- Did you fix it with a *native sidecar* (the helper still runs, just stops at the end) rather than deleting the log-shipper outright (which would lose log shipping)?
+
+<details>
+<summary>📖 Going deeper: the completion rule and native-sidecar shutdown ordering<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/">[7]</a></sup></summary>
+
+The rule that breaks this Job is simple and absolute: a Pod reaches `Succeeded`/`Failed` only when **all** of its (non-sidecar) containers have terminated. An ordinary container that never exits keeps the Pod alive forever — fine for a Deployment (that's the point), fatal for a Job (it can never complete).
+
+Native sidecars<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/">[7]</a></sup> change the accounting: a container in `initContainers` with `restartPolicy: Always` is a *sidecar*, and the Pod's completion no longer waits on it. When the last main container exits, the kubelet sends the sidecars `SIGTERM` (in reverse start order) and the Pod terminates. The same mechanism gives you correct **shutdown ordering** — the sidecar (a proxy, a log shipper) outlives the app's drain instead of dying first and cutting it off, which is the multi-container extension of M01's graceful-shutdown lesson.
+
+The real-world version of this bug is almost always an injected **service-mesh proxy**: before native sidecars, an Envoy sidecar would keep every Job Pod `Running` forever, and teams resorted to hacks (a `preStop` that curled the proxy's quitquitquit endpoint, or a shared `emptyDir` exit-signal file). Native sidecars make those hacks obsolete — which is why mesh projects moved to them as soon as the feature gate was on by default (v1.29).
+
+</details>
+
+**Expected time:** 4–7 min once you think to read per-container state; 10–20 min the first time (the "no error anywhere, work clearly succeeded" framing is what stalls people).
+
+**Production thinking:** The durable fix is a native sidecar in `platform-gitops`, but the systemic question is how an ordinary long-running sidecar reached a *Job* at all — most often a mesh auto-injection webhook that doesn't distinguish Jobs from Deployments. Either exclude Jobs from injection, or ensure the injector emits native sidecars. And add detection: a Job whose `activeDeadlineSeconds` is unset can hang forever silently — alert on Jobs `Active` longer than their expected runtime so "stuck at 0/1" pages someone instead of quietly spawning duplicates.
+
 ## References
 
 1. Kubernetes — Jobs: https://kubernetes.io/docs/concepts/workloads/controllers/job/
 2. Kubernetes — CronJob: https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/
 3. Kubernetes — Pod Lifecycle (restart policy): https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#restart-policy
 6. Kubernetes — Indexed Job for Parallel Processing: https://kubernetes.io/docs/tasks/job/indexed-parallel-processing-static/
+7. Kubernetes — Sidecar Containers: https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/
