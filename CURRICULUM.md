@@ -119,7 +119,7 @@ See `_internal/style-guide.md` for the full conventions.
 | Module                 | LESSON | ANSWER-KEY | baseline/ | breakfix/ | Notes |
 |------------------------|--------|------------|-----------|-----------|-------|
 | M00 Foundations        | ✅     | ✅         | ✅        | 3 shipped (`context-blindness`, `event-only-failure`, `namespace-blindness`) | Canonical template — match its shape going forward |
-| M01 Workloads I        | —      | —          | —         | —         | Next up |
+| M01 Workloads I        | ✅     | ✅         | ✅        | 3 shipped (`liveness-restart-loop`, `readiness-traffic-blackhole`, `prestop-truncation`) | Lifecycle + 3 probes + graceful shutdown; `sip-app` upgraded to gold-standard in baseline |
 | M02 Images & Registries| —      | —          | —         | —         | |
 | M03 Configuration      | —      | —          | —         | —         | |
 | M04 Networking I       | —      | —          | —         | —         | |
