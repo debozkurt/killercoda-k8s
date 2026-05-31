@@ -1,0 +1,21 @@
+{
+  "title": "M01b — Workloads: Jobs & CronJobs — Baseline",
+  "description": "Tour healthy batch workloads: the Job → Pod and CronJob → Job → Pod owner chains, run-to-completion and restartPolicy, completions/parallelism, and a CronJob firing on schedule.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "The batch owner chains", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "Run-to-completion and restartPolicy", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "completions and parallelism", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "CronJob scheduling", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

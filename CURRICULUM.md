@@ -30,6 +30,8 @@ You are an SRE at **Polyphone**, a fictional real-time communications SaaS. Poly
 
 The full fleet boots in every lesson's `baseline/` scenario. Each module's break/fix scenarios mutate one or two of these workloads to create a learnable failure.
 
+**Module-layered workloads.** A module may layer extra workloads onto the standard fleet when its topic needs an archetype the base 17 don't cover — appended via a fenced enhancement in that module's `background.sh`, not added to `_baseline/`. M01b layers three batch workloads (run-to-completion / scheduled): `schema-migrate` (Job, `provisioning`), `usage-export` (parallel Job, `analytics`), `cdr-rollup` (CronJob, `cdr-storage`). They run `busybox` rather than the fleet's long-lived `nginx`, because batch pods must exit to complete.
+
 ## Module map
 
 ### Tier 1 — Foundations (linear)
@@ -121,7 +123,7 @@ See `_internal/style-guide.md` for the full conventions.
 |------------------------|--------|------------|-----------|-----------|-------|
 | M00 Foundations        | ✅     | ✅         | ✅        | 3 shipped (`context-blindness`, `event-only-failure`, `namespace-blindness`) | Canonical template — match its shape going forward |
 | M01 Workloads I        | ✅     | ✅         | ✅        | 3 shipped (`liveness-restart-loop`, `readiness-traffic-blackhole`, `prestop-truncation`) | Lifecycle + 3 probes + graceful shutdown; `sip-app` upgraded to gold-standard in baseline |
-| M01b Workloads: Batch  | —      | —          | —         | —         | Planned — Jobs & CronJobs split out of M07 (lifecycle-only, taught right after M01). Not yet built |
+| M01b Workloads: Batch  | ✅     | ✅         | ✅        | 3 shipped (`cronjob-never-fires`, `job-backofflimit`, `completions-shortfall`) | Jobs & CronJobs (lifecycle-only, split from M07). Layers 3 batch workloads onto the fleet: `schema-migrate` (Job), `usage-export` (parallel Job), `cdr-rollup` (CronJob) |
 | M02 Images & Registries| —      | —          | —         | —         | |
 | M03 Configuration      | —      | —          | —         | —         | |
 | M04 Networking I       | —      | —          | —         | —         | |

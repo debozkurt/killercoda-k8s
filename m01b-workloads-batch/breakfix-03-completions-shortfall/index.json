@@ -1,0 +1,19 @@
+{
+  "title": "M01b — Break/fix 03: Completions Shortfall",
+  "description": "usage-export reports Complete, but downstream sees only a fraction of the data. A green Job that's still wrong — read completions against the real work size, and recreate.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the green-but-wrong Job", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
