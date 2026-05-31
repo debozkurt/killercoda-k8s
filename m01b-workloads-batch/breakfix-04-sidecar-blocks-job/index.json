@@ -1,0 +1,19 @@
+{
+  "title": "M01b — Break/fix 04: Sidecar Blocks Job Completion",
+  "description": "A cdr-archive Job hangs at 0/1 — the archive finished, but a log-shipper sidecar runs forever and the Pod can never complete. Fix it with a native sidecar.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the Job that won't finish", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
