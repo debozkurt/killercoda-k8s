@@ -1,0 +1,21 @@
+{
+  "title": "M01 — Workloads I — Baseline",
+  "description": "Tour a well-configured workload: the Deployment → ReplicaSet → Pod chain, the Pod lifecycle, all three probes, and a clean graceful shutdown.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "The owner chain", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "Pod lifecycle and restartPolicy", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "The three probes", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "Graceful shutdown", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
