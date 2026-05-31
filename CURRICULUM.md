@@ -38,12 +38,13 @@ The full fleet boots in every lesson's `baseline/` scenario. Each module's break
 |-----|-------------------------------------------|-----------------------------------------------------------------|
 | M00 | Mental Model & kubectl Fluency            | Cluster anatomy, contexts, namespaces, the resource model       |
 | M01 | Workloads I — Pods, Deployments, ReplicaSets | Lifecycle, probes, controllers, declarative reconciliation     |
+| M01b | Workloads: Jobs & CronJobs               | Run-to-completion + scheduled batch, `restartPolicy` OnFailure/Never, completions/parallelism, `backoffLimit`. Split from M07 so the lifecycle-only batch controllers are taught right after M01 |
 | M02 | Container Images & Registries             | Image anatomy, references vs digests, pull semantics, imagePullSecrets, registry auth, mirrors, promotion, scanning, signing |
 | M03 | Configuration                             | ConfigMaps, Secrets (basic), env injection, projected volumes   |
 | M04 | Networking I — Services & DNS             | Service types, Endpoints, kube-proxy, CoreDNS                   |
 | M05 | Storage                                   | PV/PVC, StorageClass, CSI, RWO vs RWX, dynamic provisioning     |
 | M06 | Scheduling                                | Requests/limits, QoS, affinity, taints, topology spread         |
-| M07 | Workloads II — StatefulSets, DaemonSets, Jobs | Stable identity, ordered rollout, node-local agents, batch    |
+| M07 | Workloads II — StatefulSets & DaemonSets | Stable identity, ordered rollout, per-Pod storage, node-local agents (batch moved to M01b)    |
 | M08 | CRDs & Operators                          | The controller pattern, CRDs vs built-ins, owner references, reading operator-managed state, debugging stuck reconciliation |
 
 ### Tier 2 — Operational Depth (linear)
@@ -120,12 +121,13 @@ See `_internal/style-guide.md` for the full conventions.
 |------------------------|--------|------------|-----------|-----------|-------|
 | M00 Foundations        | ✅     | ✅         | ✅        | 3 shipped (`context-blindness`, `event-only-failure`, `namespace-blindness`) | Canonical template — match its shape going forward |
 | M01 Workloads I        | ✅     | ✅         | ✅        | 3 shipped (`liveness-restart-loop`, `readiness-traffic-blackhole`, `prestop-truncation`) | Lifecycle + 3 probes + graceful shutdown; `sip-app` upgraded to gold-standard in baseline |
+| M01b Workloads: Batch  | —      | —          | —         | —         | Planned — Jobs & CronJobs split out of M07 (lifecycle-only, taught right after M01). Not yet built |
 | M02 Images & Registries| —      | —          | —         | —         | |
 | M03 Configuration      | —      | —          | —         | —         | |
 | M04 Networking I       | —      | —          | —         | —         | |
 | M05 Storage            | —      | —          | —         | —         | |
 | M06 Scheduling         | —      | —          | —         | —         | |
-| M07 Workloads II       | —      | —          | —         | —         | |
+| M07 Workloads II       | —      | —          | —         | —         | StatefulSets & DaemonSets only (batch → M01b) |
 | M08 CRDs & Operators   | —      | —          | —         | —         | |
 | M09 Resilience & Autoscaling | —| —          | —         | —         | |
 | M10 Security I (RBAC)  | —      | —          | —         | —         | |

@@ -20,7 +20,7 @@ At Polyphone these are not hypotheticals. `session-broker` holds in-flight media
 
 **Covers:** the Pod lifecycle (phases, container states, `restartPolicy`, `CrashLoopBackOff`), the three probes and their distinct jobs, the Deployment → ReplicaSet → Pod controller chain and declarative reconciliation, and graceful termination (`SIGTERM`, `preStop`, `terminationGracePeriodSeconds`).
 
-**Doesn't cover:** rollout strategy tuning and rollbacks in depth (M09), Services and how readiness feeds Endpoints in depth (M04 — touched here because readiness only makes sense alongside it), images and pull semantics (M02), StatefulSets/DaemonSets/Jobs (M07), scheduling and resources (M06).
+**Doesn't cover:** rollout strategy tuning and rollbacks in depth (M09), Services and how readiness feeds Endpoints in depth (M04 — touched here because readiness only makes sense alongside it), images and pull semantics (M02), Jobs and CronJobs (M01b), StatefulSets and DaemonSets (M07), scheduling and resources (M06).
 
 **Assumes:** you finished M00 — the `spec`/`status` model, the `get → describe → events → logs` loop, and the owner-chain idea (a controller's failure event lands on the controller, not the thing it failed to create). You know a container is a packaged process.
 
@@ -90,6 +90,21 @@ flowchart TB
 A Deployment is a contract: "always keep N copies of this Pod template running." The Deployment controller owns a ReplicaSet; the ReplicaSet controller keeps exactly N Pods alive<sup><a href="https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/">[2]</a></sup>. Delete a Pod and the ReplicaSet makes a new one within seconds. Change the Pod template — a new image, a fixed probe — and the Deployment creates a *new* ReplicaSet and shifts replicas over: a **rolling update**.
 
 This is why the owner chain matters for diagnosis (the M00 instinct): when a Pod can't be created, the failure event lands on the ReplicaSet, not on a Pod that doesn't exist. And it's why `kubectl edit`-ing a live Pod is almost always wrong — the ReplicaSet will replace it and your change vanishes. Edit the Deployment; let it roll.
+
+### The workload-controller family
+
+Deployment is one of several controllers that manage Pods. They split cleanly by what they depend on, which is also the order you'll learn them:
+
+| Controller | Use when | Where it's taught |
+|------------|----------|-------------------|
+| **ReplicaSet** | Never write one directly — a Deployment owns it | M01 (this module) |
+| **Deployment** | Stateless, fungible Pods; rolling updates | M01 (this module) |
+| **Job** | Run-to-completion batch work | M01b — Workloads: Batch |
+| **CronJob** | Scheduled / recurring batch work | M01b — Workloads: Batch |
+| **StatefulSet** | Stable identity + per-Pod storage + ordered start/stop | M07 (needs Services M04 + Storage M05) |
+| **DaemonSet** | Exactly one Pod per node (node-local agents) | M07 (needs Scheduling M06) |
+
+The first four — Deployment, ReplicaSet, Job, CronJob — need only the Pod lifecycle you're learning here, so they live in the "Workloads I" cluster (this module plus M01b). StatefulSets and DaemonSets are deferred to M07 because they only make sense once you've met headless Services (M04), PersistentVolumes (M05), and Scheduling (M06) — they're the *payoff* of those modules, not a prerequisite for them.
 
 ### How the Pod lives — phases, states, and restartPolicy
 

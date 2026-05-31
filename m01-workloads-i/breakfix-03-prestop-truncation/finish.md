@@ -8,4 +8,4 @@ The principle to carry: graceful shutdown is only as good as the budget you give
 
 - Check [`ANSWER-KEY.md`](../ANSWER-KEY.md) — the exact grace-period accounting, the PID-1 signal-forwarding trap, and how to *measure* the right number instead of guessing.
 - For the *why*, see [`LESSON.md`](../LESSON.md) § graceful termination.
-- That's all three M01 break/fix scenarios. You've now seen the Pod lifecycle break at startup (liveness), in steady state (readiness), and at shutdown (grace period). Next on the linear path: **M02 — Container Images & Registries**.
+- That's all three M01 break/fix scenarios. You've now seen the Pod lifecycle break at startup (liveness), in steady state (readiness), and at shutdown (grace period). Next on the linear path: **M01b — Workloads: Jobs & CronJobs** (the other lifecycle-only controllers), then **M02 — Container Images & Registries**.
