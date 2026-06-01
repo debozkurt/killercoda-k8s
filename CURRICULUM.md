@@ -30,7 +30,7 @@ You are an SRE at **Polyphone**, a fictional real-time communications SaaS. Poly
 
 The full fleet boots in every lesson's `baseline/` scenario. Each module's break/fix scenarios mutate one or two of these workloads to create a learnable failure.
 
-**Module-layered workloads.** A module may layer extra workloads onto the standard fleet when its topic needs an archetype the base 17 don't cover — appended via a fenced enhancement in that module's `background.sh`, not added to `_baseline/`. M01b layers batch workloads (run-to-completion / scheduled): `schema-migrate` (Job, `provisioning`), `usage-export` (parallel Job, `analytics`), `cdr-rollup` (CronJob, `cdr-storage`), and `cdr-archive` (Job with a sidecar, `cdr-storage`, only in breakfix-04). They run `busybox` rather than the fleet's long-lived `nginx`, because batch pods must exit to complete.
+**Module-layered workloads.** A module may layer extra workloads onto the standard fleet when its topic needs an archetype the base 17 don't cover — appended via a fenced enhancement in that module's `background.sh`, not added to `_baseline/`. M01b layers three batch workloads (run-to-completion / scheduled): `schema-migrate` (Job, `provisioning`), `usage-export` (parallel Job, `analytics`), `cdr-rollup` (CronJob, `cdr-storage`). They run `busybox` rather than the fleet's long-lived `nginx`, because batch pods must exit to complete. M02 layers `media-recorder` (`media`) plus an in-cluster private `registry` (registry:2 + htpasswd at `localhost:5000`) for its baseline tour and the registry-auth scenario, demonstrating an authenticated pull of a proprietary image.
 
 ## Module map
 
@@ -97,7 +97,7 @@ The full fleet boots in every lesson's `baseline/` scenario. Each module's break
 
 **One concept per break/fix scenario.** A scenario tests one diagnostic skill. Combining multiple bugs into one scenario teaches frustration, not Kubernetes.
 
-**Depth scales with break/fix scenarios, not with LESSON.md length.** Each module identifies 2–3 load-bearing concepts (the ones an SRE needs cold at 3am) and gives each of them full prose + an optional `<details>` deep dive + at least one break/fix scenario. Secondary concepts get covered in Vocabulary and the walkthrough but don't get dedicated depth treatment. A module with 3 load-bearing concepts ships ~3 break/fix scenarios; a module with 2 ships ~2. Don't pad scenarios for symmetry; don't omit them to keep things short. See `_internal/lesson-template.md` for the load-bearing-concepts pre-authoring step.
+**Depth scales with break/fix scenarios, not with LESSON.md length.** Each module identifies its load-bearing concepts — the ones an SRE needs cold at 3am — typically 2–3, occasionally 4 — and gives each of them full prose + an optional `<details>` deep dive + at least one break/fix scenario. Secondary concepts get covered in Vocabulary and the walkthrough but don't get dedicated depth treatment. The concept count is a default, not a cap: a module extends to a 4th scenario when it stays bite-sized and earns its place — most cleanly when the scenarios complete one coherent set (e.g. M02's four-branch pull-failure differential). Don't pad scenarios for symmetry; don't omit them to keep things short; prefer more small bites over one overstuffed scenario. Bite-sizedness is held by the per-scenario time budget and the LESSON length cap, not by a low scenario count.
 
 **The platform is always the same.** Every lesson uses the same Polyphone fleet. Learners build familiarity with the same namespaces, the same workloads, the same vocabulary. By M10 they know the platform as well as they know their own production system.
 
@@ -122,9 +122,9 @@ See `_internal/style-guide.md` for the full conventions.
 | Module                 | LESSON | ANSWER-KEY | baseline/ | breakfix/ | Notes |
 |------------------------|--------|------------|-----------|-----------|-------|
 | M00 Foundations        | ✅     | ✅         | ✅        | 3 shipped (`context-blindness`, `event-only-failure`, `namespace-blindness`) | Canonical template — match its shape going forward |
-| M01 Workloads I        | ✅     | ✅         | ✅        | 3 shipped (`liveness-restart-loop`, `readiness-traffic-blackhole`, `prestop-truncation`) | Lifecycle + 3 probes + graceful shutdown + multi-container Pods/native sidecars + `exec`/`kubectl debug`; `sip-app` upgraded to gold-standard in baseline |
-| M01b Workloads: Batch  | ✅     | ✅         | ✅        | 4 shipped (`cronjob-never-fires`, `job-backofflimit`, `completions-shortfall`, `sidecar-blocks-job`) | Jobs & CronJobs (lifecycle-only, split from M07). Layers batch workloads onto the fleet: `schema-migrate` (Job), `usage-export` (parallel Job), `cdr-rollup` (CronJob), `cdr-archive` (Job + sidecar, in breakfix-04). Covers run-to-completion, completions/parallelism, backoffLimit, `podFailurePolicy`, and native sidecars |
-| M02 Images & Registries| —      | —          | —         | —         | |
+| M01 Workloads I        | ✅     | ✅         | ✅        | 3 shipped (`liveness-restart-loop`, `readiness-traffic-blackhole`, `prestop-truncation`) | Lifecycle + 3 probes + graceful shutdown; `sip-app` upgraded to gold-standard in baseline |
+| M01b Workloads: Batch  | ✅     | ✅         | ✅        | 3 shipped (`cronjob-never-fires`, `job-backofflimit`, `completions-shortfall`) | Jobs & CronJobs (lifecycle-only, split from M07). Layers 3 batch workloads onto the fleet: `schema-migrate` (Job), `usage-export` (parallel Job), `cdr-rollup` (CronJob) |
+| M02 Images & Registries| ✅     | ✅         | ✅        | 4 shipped (`never-pull`, `registry-unreachable`, `imagepull-auth`, `digest-mismatch`) | Pull-failure differential (ErrImageNeverPull / no-such-host / 401 / manifest-unknown). Layers `media-recorder` + an in-cluster private `registry` (registry:2 + htpasswd) for baseline + the auth scenario; the other three mutate fleet workloads in place |
 | M03 Configuration      | —      | —          | —         | —         | |
 | M04 Networking I       | —      | —          | —         | —         | |
 | M05 Storage            | —      | —          | —         | —         | |

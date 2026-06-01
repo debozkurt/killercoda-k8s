@@ -1,0 +1,19 @@
+{
+  "title": "M02 — Break/fix 03: 401 Unauthorized",
+  "description": "media-recorder is in ImagePullBackOff against the private registry. The event says 401 Unauthorized. Wire an imagePullSecret and recover the pull.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the rejected pull", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
