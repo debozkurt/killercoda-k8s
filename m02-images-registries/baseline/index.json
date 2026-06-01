@@ -1,0 +1,21 @@
+{
+  "title": "M02 — Container Images & Registries — Baseline",
+  "description": "Tour healthy image mechanics: the anatomy of an image reference, tags vs digests, imagePullPolicy and the node cache, and a healthy authenticated pull from an in-cluster private registry.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Anatomy of an image reference", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "Tags move, digests don't", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "imagePullPolicy and the node cache", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "A healthy private-registry pull", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

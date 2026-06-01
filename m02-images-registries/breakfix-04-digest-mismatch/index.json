@@ -1,0 +1,19 @@
+{
+  "title": "M02 — Break/fix 04: Digest Mismatch",
+  "description": "A digest-pinned workload fails with 'manifest unknown'. The registry is reachable and authenticated — the reference resolves to nothing. Re-pin it correctly.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the unresolvable reference", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
