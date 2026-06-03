@@ -28,10 +28,9 @@ If this were genuinely an air-gapped node where pulling isn't allowed, the fix i
 
 ```bash
 kubectl get pods -n analytics
-kubectl get deploy metrics-aggregator -n analytics \
-  -o jsonpath='policy={.spec.template.spec.containers[0].imagePullPolicy}{"\n"}'
+kubectl get deploy metrics-aggregator -n analytics -o yaml
 ```{{exec}}
 
-`metrics-aggregator` is `Running` `1/1`, and the policy is no longer `Never`. The pull happened because you let it.
+`metrics-aggregator` is `Running` `1/1`, and in the Deployment YAML the container's `imagePullPolicy:` line now reads `IfNotPresent` — no longer `Never`. The pull happened because you let it.
 
 For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.

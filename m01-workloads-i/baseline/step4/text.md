@@ -4,11 +4,24 @@ Deleting a Pod is not instant, and it shouldn't be. The kubelet runs an ordered 
 
 ## Read the shutdown controls
 
+Both controls are spec-only — `describe` doesn't print them, so read them off the Deployment's YAML:
+
 ```bash
-kubectl get deploy sip-app -n app-services -o jsonpath='{.spec.template.spec.terminationGracePeriodSeconds}{"\n"}{.spec.template.spec.containers[0].lifecycle.preStop}{"\n"}'
+kubectl get deploy sip-app -n app-services -o yaml
 ```{{exec}}
 
-Two controls print: `terminationGracePeriodSeconds: 30` and a `preStop` hook running `sleep 5`. Together they define the termination sequence:
+In the pod template's `spec:`, find these two lines (the `preStop` sits under the container's `lifecycle:`):
+
+```text
+      terminationGracePeriodSeconds: 30
+...
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh", "-c", "sleep 5"]
+```
+
+A 30-second grace budget and a `preStop` hook running `sleep 5`. Together they define the termination sequence:
 
 ```text
 delete issued

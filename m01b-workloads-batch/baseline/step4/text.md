@@ -24,11 +24,18 @@ kubectl get jobs -n cdr-storage -l app=cdr-rollup
 One Job per fire, named `cdr-rollup-<timestamp>`. Wait a minute and re-run — a new one appears. The CronJob keeps a bounded history so you can inspect recent runs:
 
 ```bash
-kubectl get cronjob cdr-rollup -n cdr-storage \
-  -o jsonpath='history(success/failed)={.spec.successfulJobsHistoryLimit}/{.spec.failedJobsHistoryLimit} concurrency={.spec.concurrencyPolicy}{"\n"}'
+kubectl describe cronjob cdr-rollup -n cdr-storage
 ```{{exec}}
 
-`history=3/1`, `concurrency=Forbid`. It keeps the last 3 successful and 1 failed Job (older ones are garbage-collected), and `Forbid` means if a run is still going when the next is due, the new one is skipped rather than overlapping — right for a rollup, where two runs racing the same data is worse than skipping one.
+`describe` lays the scheduling policy out as named lines near the top:
+
+```text
+Concurrency Policy:            Forbid
+Successful Job History Limit:  3
+Failed Job History Limit:      1
+```
+
+It keeps the last 3 successful and 1 failed Job (older ones are garbage-collected), and `Forbid` means if a run is still going when the next is due, the new one is skipped rather than overlapping — right for a rollup, where two runs racing the same data is worse than skipping one.
 
 ## Run it on demand
 
@@ -45,11 +52,10 @@ That creates `cdr-rollup-manual` immediately, independent of the schedule. It's 
 ## Verify
 
 ```bash
-kubectl get cronjob cdr-rollup -n cdr-storage \
-  -o jsonpath='suspend={.spec.suspend}{"\n"}'
-kubectl get jobs -n cdr-storage -l app=cdr-rollup --no-headers | wc -l
+kubectl get cronjob cdr-rollup -n cdr-storage
+kubectl get jobs -n cdr-storage -l app=cdr-rollup
 ```{{exec}}
 
-`suspend` is empty/false, and at least one scheduled Job exists. That's a healthy CronJob: not suspended, firing on schedule, keeping history. In `breakfix-01` you'll find one that creates nothing — and learn the short differential for why.
+The CronJob's `SUSPEND` column reads `False`, and at least one scheduled `cdr-rollup-<timestamp>` Job is listed. That's a healthy CronJob: not suspended, firing on schedule, keeping history. In `breakfix-01` you'll find one that creates nothing — and learn the short differential for why.
 
 For the *why* behind all of it, read [`LESSON.md`](../LESSON.md). When you're ready to be tested, start **`breakfix-01-cronjob-never-fires`**.

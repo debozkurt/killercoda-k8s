@@ -121,8 +121,8 @@ When a container exits, `restartPolicy` decides what happens. It's set per Pod a
 Restarts aren't instant. The kubelet backs off exponentially — 10s, 20s, 40s, … capped at 5 minutes — and a container stuck in that cycle reports `CrashLoopBackOff`<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#restart-policy">[3]</a></sup>. Read the name precisely: `CrashLoopBackOff` is not the crash. It's the kubelet *waiting between restart attempts*. The crash reason is one level down, in the container's last state:
 
 ```bash
-kubectl get pod <pod> -n <ns> -o jsonpath='{.status.containerStatuses[0].lastState.terminated}'
-kubectl logs <pod> -n <ns> --previous    # what the dead container said before it died
+kubectl describe pod <pod> -n <ns>        # in Containers:, read the Last State: block — Reason, Exit Code
+kubectl logs <pod> -n <ns> --previous     # what the dead container said before it died
 ```
 
 `--previous` is the key flag: the current container may have just started, so its logs are empty; `--previous` reads the *terminated* one that actually failed.

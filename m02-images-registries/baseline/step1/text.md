@@ -27,13 +27,19 @@ So `nginx:1.25` is really `docker.io/library/nginx:1.25` — the registry and th
 
 ## See the defaults made explicit
 
-The pod's status shows the fully-qualified image the runtime resolved:
+The pod's *status* shows the fully-qualified image the runtime resolved — read it off the YAML:
 
 ```bash
-kubectl get pod -n analytics -l app=metrics-aggregator \
-  -o jsonpath='{.items[0].status.containerStatuses[0].image}{"\n"}'
+kubectl get pod -n analytics -l app=metrics-aggregator -o yaml
 ```{{exec}}
 
-You'll see `docker.io/library/nginx:1.25` — the same `nginx:1.25` with its defaults filled in. The reference you *write* is shorthand; the reference the runtime *resolves* is fully qualified.
+Down in `status:`, under `containerStatuses:`, find the `image:` line:
+
+```text
+  containerStatuses:
+  - image: docker.io/library/nginx:1.25
+```
+
+That's the same `nginx:1.25` you wrote, with its defaults filled in. The reference you *write* is shorthand; the reference the runtime *resolves* is fully qualified.
 
 Reading references fluently is the foundation: every break/fix in this module is a reference that the kubelet couldn't turn into bytes, and the fix always starts with knowing exactly which part of the reference — or the credentials behind it — is wrong.

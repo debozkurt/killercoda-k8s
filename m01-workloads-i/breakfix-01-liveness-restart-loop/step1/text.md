@@ -41,8 +41,13 @@ Read the `Events:` section and the container's `Last State`. The smoking gun:
 ## Read the probe that's lying
 
 ```bash
-kubectl get deploy route-engine -n call-routing \
-  -o jsonpath='{.spec.template.spec.containers[0].livenessProbe.httpGet}'; echo
+kubectl describe deploy route-engine -n call-routing
 ```{{exec}}
 
-It prints `{"path":"/healthz","port":"http"}`. There's the bug: the probe checks `/healthz`, but this app (nginx) serves `/`, not `/healthz` — so every check gets a `404`, and only `2xx`/`3xx` pass. The probe is killing a container that was never sick. On to the fix.
+In the `Pod Template` section, the container's `Liveness:` line spells out what's being checked:
+
+```text
+    Liveness:  http-get http://:http/healthz delay=0s timeout=1s period=10s #success=1 #failure=3
+```
+
+There's the bug: the probe checks `/healthz`, but this app (nginx) serves `/`, not `/healthz` — so every check gets a `404`, and only `2xx`/`3xx` pass. The probe is killing a container that was never sick. On to the fix.

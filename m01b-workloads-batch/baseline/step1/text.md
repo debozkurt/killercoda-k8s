@@ -17,11 +17,10 @@ Job  ── creates ──▶  Pod        (run to completion, exit 0)
 The Pod shows `STATUS Completed` and the Job shows `COMPLETIONS 1/1` — it ran, succeeded, and stopped. Confirm the ownership is recorded, not just implied by the name:
 
 ```bash
-kubectl get pod -n provisioning -l app=schema-migrate \
-  -o jsonpath='{.items[0].metadata.ownerReferences[0].kind}/{.items[0].metadata.ownerReferences[0].name}'; echo
+kubectl describe pod -n provisioning -l app=schema-migrate
 ```{{exec}}
 
-That prints `Job/schema-migrate` — the Pod knows its owner. Same M01 instinct: a failure creating the Pod lands as an event on the Job, not on a Pod that doesn't exist.
+Near the top, the `Controlled By:` line reads `Controlled By: Job/schema-migrate` — the Pod knows its owner. Same M01 instinct: a failure creating the Pod lands as an event on the Job, not on a Pod that doesn't exist.
 
 ## A CronJob owns Jobs, which own Pods
 
@@ -39,11 +38,10 @@ You'll see one CronJob (`cdr-rollup`), one or more Jobs named `cdr-rollup-<times
 
 ```bash
 JOB=$(kubectl get jobs -n cdr-storage -l app=cdr-rollup -o jsonpath='{.items[0].metadata.name}')
-kubectl get job $JOB -n cdr-storage \
-  -o jsonpath='{.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name}'; echo
+kubectl describe job $JOB -n cdr-storage
 ```{{exec}}
 
-That prints `CronJob/cdr-rollup` — the Job knows the CronJob created it. (If no Job exists yet, the CronJob hasn't hit its first minute boundary — wait and re-run.)
+Its `Controlled By:` line reads `Controlled By: CronJob/cdr-rollup` — the Job knows the CronJob created it. (If no Job exists yet, the CronJob hasn't hit its first minute boundary — wait and re-run.)
 
 ## Why the chains matter
 

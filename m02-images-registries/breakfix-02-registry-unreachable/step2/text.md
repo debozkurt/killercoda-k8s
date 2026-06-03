@@ -26,10 +26,9 @@ Here the fix is "use Docker Hub," but the real diagnostic question is *what regi
 
 ```bash
 kubectl get pods -n provisioning
-kubectl get deploy account-provisioner -n provisioning \
-  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+kubectl describe deploy account-provisioner -n provisioning
 ```{{exec}}
 
-`account-provisioner` is `Running` `1/1`, and the image now names a registry that resolves. The pull reached the registry because the registry exists.
+`account-provisioner` is `Running` `1/1`, and in the `Pod Template` the `Image:` line now reads `nginx:1.25` — a registry that resolves. The pull reached the registry because the registry exists.
 
 For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.

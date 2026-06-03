@@ -32,10 +32,9 @@ The Deployment rolls a new pod; this time the kubelet sends the credentials with
 
 ```bash
 kubectl get pods -n media -l app=media-recorder
-kubectl get pod -n media -l app=media-recorder \
-  -o jsonpath='pullSecrets={.items[0].spec.imagePullSecrets[*].name}{"\n"}'
+kubectl get pod -n media -l app=media-recorder -o yaml
 ```{{exec}}
 
-`media-recorder` is `Running` `1/1`, and the pod now lists `regcred` as an `imagePullSecret`. The pull authenticated.
+`media-recorder` is `Running` `1/1`, and the pod's `spec:` now carries `imagePullSecrets:` with `- name: regcred`. The pull authenticated. The pull authenticated.
 
 For self-grading, the credential-rotation production angle, and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.

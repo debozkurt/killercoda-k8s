@@ -18,13 +18,18 @@ Anonymous returns `401`; authenticated returns `200`. That `401` is the exact fa
 `media-recorder` pulls successfully because its pod carries an `imagePullSecret` — a Secret of type `dockerconfigjson` holding the registry credentials:
 
 ```bash
-kubectl get secret regcred -n media \
-  -o jsonpath='{.type}{"\n"}'
-kubectl get pod -n media -l app=media-recorder \
-  -o jsonpath='{.items[0].spec.imagePullSecrets[*].name}{"\n"}'
+kubectl describe secret regcred -n media
+kubectl get pod -n media -l app=media-recorder -o yaml
 ```{{exec}}
 
-The secret is type `kubernetes.io/dockerconfigjson`, and the pod references it by name (`regcred`). Two facts decide most auth incidents: the secret is **namespaced** (a `regcred` in `media` does nothing for a pod in `signaling`), and its registry server must **match the image host exactly** (`localhost:5000`).
+In the `describe secret` output, the `Type:` line reads `kubernetes.io/dockerconfigjson`. In the pod YAML, the pod's `spec:` carries the reference:
+
+```text
+  imagePullSecrets:
+  - name: regcred
+```
+
+The secret is the right type, and the pod references it by name (`regcred`). Two facts decide most auth incidents: the secret is **namespaced** (a `regcred` in `media` does nothing for a pod in `signaling`), and its registry server must **match the image host exactly** (`localhost:5000`). Two facts decide most auth incidents: the secret is **namespaced** (a `regcred` in `media` does nothing for a pod in `signaling`), and its registry server must **match the image host exactly** (`localhost:5000`).
 
 ## Confirm the healthy result
 

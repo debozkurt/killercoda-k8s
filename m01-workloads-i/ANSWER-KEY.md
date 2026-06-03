@@ -49,10 +49,10 @@ kubectl describe pod $POD -n call-routing
 ```
 
 ```bash
-# 4. Read the offending probe
-kubectl get deploy route-engine -n call-routing \
-  -o jsonpath='{.spec.template.spec.containers[0].livenessProbe.httpGet}'; echo
-# {"path":"/healthz","port":"http"}
+# 4. Read the offending probe — Pod Template's Liveness: line
+kubectl describe deploy route-engine -n call-routing
+#   Liveness:  http-get http://:http/healthz delay=0s timeout=1s period=10s #success=1 #failure=3
+#   nginx serves / , not /healthz → every probe 404s
 ```
 
 **Fix:**
@@ -119,17 +119,18 @@ kubectl get endpoints directory -n app-services
 ```
 
 ```bash
-# 3. Why isn't it Ready? connection refused, and NO Killing event (readiness ≠ restart)
+# 3. Why isn't it Ready? Conditions: Ready False, and NO Killing event (readiness ≠ restart)
 POD=$(kubectl get pod -n app-services -l app=directory -o jsonpath='{.items[0].metadata.name}')
-kubectl describe pod $POD -n app-services | grep -A3 -E 'Readiness|Ready'
-# Readiness probe failed: dial tcp 10.x.x.x:8080: connect: connection refused
+kubectl describe pod $POD -n app-services
+# Conditions:  Ready  False
+# Events:      Readiness probe failed: dial tcp 10.x.x.x:8080: connect: connection refused
 ```
 
 ```bash
-# 4. Read the probe vs the served port
-kubectl get deploy directory -n app-services \
-  -o jsonpath='{.spec.template.spec.containers[0].readinessProbe.httpGet}{"\n"}{.spec.template.spec.containers[0].ports}'; echo
-# {"path":"/","port":8080}   ...   [{"containerPort":80,"name":"http"}]
+# 4. Read the probe vs the served port — Pod Template's Port: and Readiness: lines
+kubectl describe deploy directory -n app-services
+#   Port:       80/TCP
+#   Readiness:  http-get http://:8080/ ...   ← probes 8080, container serves 80
 ```
 
 **Fix:**
@@ -186,10 +187,10 @@ The general principle: a health check that all replicas evaluate identically aga
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. The bug is in the shutdown path — read the controls, not the pod status
-kubectl get deploy session-broker -n media \
-  -o jsonpath='grace={.spec.template.spec.terminationGracePeriodSeconds}{"\n"}preStop={.spec.template.spec.containers[0].lifecycle.preStop}{"\n"}'
-# grace=1   preStop={"exec":{"command":["/bin/sleep","15"]}}   <- 1s budget, 15s drain
+# 1. The bug is in the shutdown path — read the controls in the spec (describe hides them)
+kubectl get deploy session-broker -n media -o yaml
+#   terminationGracePeriodSeconds: 1        <- 1s budget
+#   lifecycle: { preStop: { exec: { command: ["/bin/sleep","15"] } } }   <- 15s drain
 ```
 
 ```bash

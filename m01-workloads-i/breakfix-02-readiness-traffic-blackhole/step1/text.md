@@ -24,10 +24,10 @@ The `ENDPOINTS` column reads `<none>` (or shows only `notReadyAddresses` under `
 
 ```bash
 POD=$(kubectl get pod -n app-services -l app=directory -o jsonpath='{.items[0].metadata.name}')
-kubectl describe pod $POD -n app-services | grep -A3 -E 'Readiness|Conditions|Ready'
+kubectl describe pod $POD -n app-services
 ```{{exec}}
 
-You'll see `Ready  False` in the conditions and, in the events:
+In the `Conditions:` block you'll see `Ready  False`, and at the bottom the `Events:` section shows:
 
 ```text
   Warning  Unhealthy  ...  Readiness probe failed: dial tcp 10.x.x.x:8080: connect: connection refused
@@ -38,8 +38,14 @@ You'll see `Ready  False` in the conditions and, in the events:
 ## Read the probe that's wrong
 
 ```bash
-kubectl get deploy directory -n app-services \
-  -o jsonpath='{.spec.template.spec.containers[0].readinessProbe.httpGet}'; echo
+kubectl describe deploy directory -n app-services
 ```{{exec}}
 
-It prints `{"path":"/","port":8080}`. The container serves on port `80` (`kubectl get deploy directory -n app-services -o jsonpath='{.spec.template.spec.containers[0].ports}'` confirms it) — but the readiness probe checks `8080`. Wrong port, so the probe can never pass, so the Pod is never Ready, so the Service blackholes. On to the fix.
+In the `Pod Template` section, compare two lines — the port the container exposes against the port the readiness probe checks:
+
+```text
+    Port:       80/TCP
+    Readiness:  http-get http://:8080/ delay=0s timeout=1s period=10s #success=1 #failure=3
+```
+
+The container serves on `80`, but the readiness probe checks `8080`. Wrong port, so the probe can never pass, so the Pod is never Ready, so the Service blackholes. On to the fix.

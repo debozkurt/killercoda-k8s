@@ -34,10 +34,9 @@ time kubectl delete pod $POD -n media
 The delete now blocks for **~15 seconds** — the full drain running to completion before the pod exits. That's the difference between a clean rollout and dropped calls. The budget fits the work.
 
 ```bash
-kubectl get deploy session-broker -n media \
-  -o jsonpath='{.spec.template.spec.terminationGracePeriodSeconds}'; echo
+kubectl get deploy session-broker -n media -o yaml
 ```{{exec}}
 
-`30` — the drain has room to finish.
+In the pod template's `spec:`, the line now reads `terminationGracePeriodSeconds: 30` — the drain has room to finish.
 
 For self-grading, the precise grace-period accounting, the PID-1 signal-forwarding trap, and the production angle (how to *measure* the right grace period rather than guess), see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
