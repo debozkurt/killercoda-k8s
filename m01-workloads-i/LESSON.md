@@ -59,12 +59,25 @@ A Pod moves through **phases**, but the phase is coarse. The fine-grained truth 
   'background':'#0f0f0f'
 }}}%%
 stateDiagram-v2
-    [*] --> Pending: scheduled, images pulling
+    direction TB
+    [*] --> Pending: scheduled,<br/>images pulling
     Pending --> Running: containers started
-    Running --> Running: liveness fails → restart<br/>readiness fails → not Ready
-    Running --> Succeeded: all containers exit 0<br/>(restartPolicy permitting)
-    Running --> Failed: container exits non-zero<br/>(restartPolicy Never/OnFailure)
-    Running --> [*]: deleted → graceful termination
+    Running --> Succeeded: all exit 0
+    Running --> Failed: exit non-zero
+    Running --> [*]: deleted
+
+    note right of Running
+      Running ≠ healthy — the phase holds while:
+      · liveness fails → kubelet restarts the container (→ CrashLoopBackOff)
+      · readiness fails → Ready=False, pod pulled from Service endpoints
+    end note
+
+    note left of Succeeded
+      Terminal phases need restartPolicy
+      Never / OnFailure (Jobs). With Always
+      (Deployments) the container restarts
+      instead — the pod stays Running.
+    end note
 ```
 
 The load-bearing insight for this module: **a `Running` phase does not mean healthy.** A Pod can be `Running` and `0/1 READY` for an hour because its readiness probe fails. A Pod can be `Running` with 47 restarts because its liveness probe keeps killing it. The phase is the headline; the probes and container state are the story.
@@ -165,14 +178,26 @@ Deletion is not instant, and it shouldn't be. When a Pod is deleted (directly, o
 ```text
 delete issued
    │
-   ├─ Pod marked Terminating; removed from Service Endpoints (stops new traffic)
+   ▼
+Pod marked "Terminating"  →  dropped from Service Endpoints
+                             (new traffic stops arriving)
    │
-   ├─ preStop hook runs (if defined) ──────────────┐
-   │                                                │  these happen INSIDE the
-   ├─ SIGTERM sent to PID 1 ────────────────────────┤  terminationGracePeriodSeconds
-   │     app should drain & exit                     │  window (default 30s)
-   │                                                │
-   └─ grace period expires → SIGKILL (forced) ──────┘
+   ▼
+┌─ terminationGracePeriodSeconds  (default 30s) ───────────────┐
+│                                                              │
+│ preStop hook runs (if defined)                               │
+│       │                                                      │
+│       ▼                                                      │
+│ SIGTERM → PID 1   app should drain in-flight                 │
+│                   work, then exit                            │
+│       │                                                      │
+│       ▼                                                      │
+│ grace period expires                                         │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+   │
+   ▼
+SIGKILL (forced)  ─ container killed, pod object removed
 ```
 
 Two controls shape this:
