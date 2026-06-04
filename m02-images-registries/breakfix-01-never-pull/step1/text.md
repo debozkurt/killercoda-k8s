@@ -13,10 +13,10 @@ kubectl get pods -n analytics
 ## Confirm from the events
 
 ```bash
-kubectl describe pod -n analytics -l app=metrics-aggregator | sed -n '/Events/,$p'
+kubectl describe pod -n analytics -l app=metrics-aggregator
 ```{{exec}}
 
-The event spells it out:
+Scroll to the `Events:` section at the bottom — the message spells it out:
 
 ```text
 Container image "nginx:1.27" is not present with pull policy of Never
@@ -28,9 +28,15 @@ Compare this to a real pull failure: there's no `Pulling`, no `Failed to pull`, 
 
 `ErrImageNeverPull` is always the same pair: `imagePullPolicy: Never` plus an image that isn't cached on the node. Read both:
 
+`describe` doesn't print the pull policy, so read both off the Deployment's YAML:
+
 ```bash
-kubectl get deploy metrics-aggregator -n analytics \
-  -o jsonpath='image={.spec.template.spec.containers[0].image}  policy={.spec.template.spec.containers[0].imagePullPolicy}{"\n"}'
+kubectl get deploy metrics-aggregator -n analytics -o yaml
 ```{{exec}}
 
-You'll see `image=nginx:1.27  policy=Never`. The fleet only ever pulled `nginx:1.25`, so `nginx:1.27` was never cached on this node — and `Never` means the kubelet won't fetch it. Either half alone is harmless (`Never` is fine for a *cached* image; `nginx:1.27` is fine with a *normal* policy). It's the combination that stalls the pod. On to the fix.
+In the pod template's container, two lines tell the story:
+
+```text
+        image: nginx:1.27
+        imagePullPolicy: Never
+``` The fleet only ever pulled `nginx:1.25`, so `nginx:1.27` was never cached on this node — and `Never` means the kubelet won't fetch it. Either half alone is harmless (`Never` is fine for a *cached* image; `nginx:1.27` is fine with a *normal* policy). It's the combination that stalls the pod. On to the fix.

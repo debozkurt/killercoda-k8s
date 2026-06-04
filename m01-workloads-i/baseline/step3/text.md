@@ -5,10 +5,18 @@
 ## Read the probes off the live spec
 
 ```bash
-kubectl describe pod -n app-services -l app=sip-app | grep -A1 -E 'Liveness|Readiness|Startup'
+kubectl describe pod -n app-services -l app=sip-app
 ```{{exec}}
 
-You'll see three lines like `http-get http://:http/ delay=0s timeout=1s period=...`. Three probes, one container:
+Under the `Containers:` section, three lines sit together — one per probe:
+
+```text
+    Liveness:   http-get http://:http/ delay=0s timeout=1s period=10s ...
+    Readiness:  http-get http://:http/ delay=0s timeout=1s period=10s ...
+    Startup:    http-get http://:http/ delay=0s timeout=1s period=10s ...
+```
+
+Three probes, one container:
 
 - **Startup** — "has it finished booting?" Until it passes once, liveness and readiness are suppressed. Protects slow starters without inflating liveness delays.
 - **Readiness** — "can it serve traffic right now?" On failure the Pod is pulled from Service Endpoints. **No restart.**
@@ -27,11 +35,18 @@ You'll see two `IP:80` entries — one per ready Pod. Those addresses *are* the 
 ## Confirm the Ready condition
 
 ```bash
-kubectl get pod -n app-services -l app=sip-app \
-  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}'
+kubectl describe pod -n app-services -l app=sip-app
 ```{{exec}}
 
-Both Pods report `Ready = True`. That condition is what readiness flips and what Endpoints watches.
+This time read the `Conditions:` block (above `Containers:`):
+
+```text
+Conditions:
+  Type              Status
+  Ready             True
+```
+
+Both Pods report `Ready  True`. That condition is what readiness flips and what Endpoints watches — and it's the same value the `READY 1/1` column in `kubectl get pods` summarizes.
 
 ## See what the probe sees — `exec` and ephemeral debug
 
@@ -53,7 +68,7 @@ Because the ephemeral container shares the Pod's network namespace, `localhost:8
 ## Verify
 
 ```bash
-kubectl get endpoints sip-app -n app-services -o jsonpath='{.subsets[0].addresses[*].ip}'; echo
+kubectl get endpoints sip-app -n app-services
 ```{{exec}}
 
-Two IPs listed — both replicas in rotation. That's a healthy, serving workload. In `breakfix-02` you'll find this list *empty* while the Pods are still `Running`: the readiness-vs-liveness distinction made painfully concrete.
+The `ENDPOINTS` column lists two `IP:80` entries — both replicas in rotation. That's a healthy, serving workload. In `breakfix-02` you'll find this list *empty* while the Pods are still `Running`: the readiness-vs-liveness distinction made painfully concrete.

@@ -36,12 +36,12 @@ No broken state. Expected output per step:
 ```bash
 # 1. The status itself is the first clue — Never, not BackOff
 kubectl get pods -n analytics
-# 2. The event confirms no pull was tried
-kubectl describe pod -n analytics -l app=metrics-aggregator | sed -n '/Events/,$p'
+# 2. The event confirms no pull was tried (Events: section at the bottom of describe)
+kubectl describe pod -n analytics -l app=metrics-aggregator
 #    "Container image \"nginx:1.27\" is not present with pull policy of Never"
-# 3. The two fields that cause it, together
-kubectl get deploy metrics-aggregator -n analytics \
-  -o jsonpath='image={..containers[0].image} policy={..containers[0].imagePullPolicy}{"\n"}'
+# 3. The two fields that cause it, together (describe hides pull policy → read the yaml)
+kubectl get deploy metrics-aggregator -n analytics -o yaml
+#    image: nginx:1.27  /  imagePullPolicy: Never
 ```
 
 **Fix:** Let the kubelet pull (the right fix when the image is meant to come from a registry):
@@ -82,12 +82,12 @@ kubectl get pods -n analytics   # metrics-aggregator Running 1/1
 ```bash
 # 1. Status says pull problem — category, not cause
 kubectl get pods -n provisioning
-# 2. The event message is the diagnosis: "no such host"
-kubectl describe pod -n provisioning -l app=account-provisioner | sed -n '/Events/,$p'
+# 2. The event message is the diagnosis: "no such host" (Events: section of describe)
+kubectl describe pod -n provisioning -l app=account-provisioner
 #    Failed to pull ... dial tcp: lookup registry.polyphone.example ... no such host
-# 3. Read the reference; the registry host is the broken part
-kubectl get deploy account-provisioner -n provisioning \
-  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+# 3. Read the reference; the registry host is the broken part (Pod Template's Image: line)
+kubectl describe deploy account-provisioner -n provisioning
+#    Image:  registry.polyphone.example/library/nginx:1.25
 ```
 
 **Fix:** Point the reference at a registry that resolves (for this image, Docker Hub):
@@ -123,15 +123,15 @@ kubectl get pods -n provisioning   # account-provisioner Running 1/1
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. The event message: 401, not "no such host" or "manifest unknown"
-kubectl describe pod -n media -l app=media-recorder | sed -n '/Events/,$p'
+# 1. The event message: 401, not "no such host" or "manifest unknown" (Events: in describe)
+kubectl describe pod -n media -l app=media-recorder
 #    ... unexpected status from HEAD request: 401 Unauthorized
 # 2. Prove it's an auth gate, not a broken registry
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:5000/v2/                  # 401
 curl -s -o /dev/null -w "%{http_code}\n" -u polyphone:reg-pass http://localhost:5000/v2/   # 200
 # 3. Confirm no pull secret is wired and none exists
-kubectl get pod -n media -l app=media-recorder -o jsonpath='{.items[0].spec.imagePullSecrets}{"\n"}'
-kubectl get secret -n media | grep regcred || echo "no regcred"
+kubectl get pod -n media -l app=media-recorder -o yaml   # no imagePullSecrets: field in spec
+kubectl get secret -n media                              # no regcred row
 ```
 
 **Fix:** Create a `docker-registry` secret in the pod's namespace, matched to the registry host, and attach it:
@@ -173,12 +173,12 @@ kubectl get pods -n media -l app=media-recorder   # Running 1/1
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. The event message: manifest unknown / not found
-kubectl describe pod -n app-services -l app=directory | sed -n '/Events/,$p'
+# 1. The event message: manifest unknown / not found (Events: section of describe)
+kubectl describe pod -n app-services -l app=directory
 #    failed to resolve reference ... nginx@sha256:0000...: not found
-# 2. The reference is digest-pinned; the digest is the wrong part
-kubectl get deploy directory -n app-services \
-  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+# 2. The reference is digest-pinned; the digest is the wrong part (Pod Template's Image: line)
+kubectl describe deploy directory -n app-services
+#    Image:  nginx@sha256:0000000000…0000
 # 3. Find a digest that actually exists
 crane digest nginx:1.25
 ```

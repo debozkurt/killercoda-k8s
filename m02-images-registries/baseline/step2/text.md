@@ -14,14 +14,19 @@ You'll get something like `sha256:9f2a…`. That hash names *exactly those bytes
 
 ## See the digest the node actually pulled
 
-The kubelet records the resolved digest in the pod's `imageID`:
+The kubelet records the resolved digest in the pod's `imageID`, which `describe` surfaces as the `Image ID:` line:
 
 ```bash
-kubectl get pod -n analytics -l app=metrics-aggregator \
-  -o jsonpath='{.items[0].status.containerStatuses[0].imageID}{"\n"}'
+kubectl describe pod -n analytics -l app=metrics-aggregator
 ```{{exec}}
 
-That `...@sha256:...` is the immutable identity of what's running — independent of the `nginx:1.25` tag it was requested by. Two nodes that both pulled `nginx:1.25` will show the same `imageID` only if the tag hadn't moved between their pulls.
+In the `Containers:` section, read the line below `Image:`:
+
+```text
+    Image ID:  docker.io/library/nginx@sha256:9f2a…
+```
+
+That `…@sha256:…` is the immutable identity of what's running — independent of the `nginx:1.25` tag it was requested by. Two nodes that both pulled `nginx:1.25` will show the same `imageID` only if the tag hadn't moved between their pulls.
 
 ## Why production pins by digest
 

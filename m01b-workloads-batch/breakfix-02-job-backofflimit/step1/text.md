@@ -11,11 +11,21 @@ kubectl get job schema-migrate -n provisioning
 `COMPLETIONS 0/1` — zero successes after one required. Now find out whether it's still trying. Read the spec bound and the live status together:
 
 ```bash
-kubectl get job schema-migrate -n provisioning \
-  -o jsonpath='backoffLimit={.spec.backoffLimit} restartPolicy={.spec.template.spec.restartPolicy}{"\n"}failed={.status.failed} conditions={.status.conditions[*].type}{"\n"}'
+kubectl get job schema-migrate -n provisioning -o yaml
 ```{{exec}}
 
-`backoffLimit=6`, `restartPolicy=OnFailure`. The `failed` count and `conditions` tell you which state you're in:
+The YAML carries both the spec bound and the live status. In `spec:` find `backoffLimit: 6` and (in the pod template) `restartPolicy: OnFailure`; in `status:` find the `failed` count and any `conditions:`:
+
+```text
+spec:
+  backoffLimit: 6
+status:
+  failed: 3
+  conditions:        # present only once it gives up
+  - type: Failed
+```
+
+The `failed` count and whether a `Failed` condition exists tell you which state you're in:
 
 - `conditions` empty or no `Failed` → still **retrying** (attempts remain under the limit)
 - `conditions=Failed` → **given up**; `backoffLimit` exhausted, no more attempts coming
@@ -46,7 +56,15 @@ There it is. The final migration step calls `ecaho` — a typo for `echo` — wh
 
 ```bash
 POD=$(kubectl get pod -n provisioning -l app=schema-migrate -o jsonpath='{.items[0].metadata.name}')
-kubectl describe pod $POD -n provisioning | grep -A4 'Last State'
+kubectl describe pod $POD -n provisioning
 ```{{exec}}
+
+In the `Containers:` section, read the container's `Last State:` block:
+
+```text
+    Last State:     Terminated
+      Reason:       Error
+      Exit Code:    127
+```
 
 `Reason: Error`, `Exit Code: 127`. The app *is* failing — it's a broken command, and no number of retries will fix a typo. On to the fix.

@@ -53,10 +53,9 @@ kubectl wait --for=condition=complete job/usage-export -n analytics --timeout=60
 ## Verify
 
 ```bash
-kubectl get job usage-export -n analytics \
-  -o jsonpath='completions={.spec.completions} succeeded={.status.succeeded}{"\n"}'
+kubectl get job usage-export -n analytics
 ```{{exec}}
 
-`completions=4`, `succeeded=4` — `COMPLETIONS 4/4`. All four shards exported; downstream gets the full day. This time `Complete` and `correct` agree.
+`COMPLETIONS 4/4`, `STATUS Complete`. All four shards exported; downstream gets the full day. This time `Complete` and `correct` agree.
 
 For self-grading, why this bug is so dangerous, and the `completionMode: Indexed` technique for making sharded work diagnosable, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.

@@ -5,31 +5,41 @@ A Pod has a coarse **phase** and a finer-grained **container state**. Healthy lo
 ## Read the phase
 
 ```bash
-kubectl get pods -n app-services -l app=sip-app \
-  -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount
+kubectl get pods -n app-services -l app=sip-app
 ```{{exec}}
 
-Both Pods: `PHASE=Running`, `READY=true`, `RESTARTS=0`. The phase (`Pending → Running → Succeeded/Failed`) is the headline. `READY` and `RESTARTS` are where the truth lives — a Pod can be `Running` and `READY=false`, or `Running` with dozens of restarts. Phase alone never means healthy.
+Both Pods: `STATUS=Running`, `READY=1/1`, `RESTARTS=0`. The status (`Pending → Running → Succeeded/Failed`, or a reason like `CrashLoopBackOff`) is the headline. `READY` and `RESTARTS` are where the truth lives — a Pod can be `Running` and `0/1 READY`, or `Running` with dozens of restarts. Status alone never means healthy.
 
 ## Look at the container state
 
 ```bash
-kubectl get pod -n app-services -l app=sip-app \
-  -o jsonpath='{.items[0].status.containerStatuses[0].state}'; echo
+kubectl describe pod -n app-services -l app=sip-app
 ```{{exec}}
 
-You'll see `{"running":{"startedAt":"..."}}`. A container is always in one of three states — `waiting`, `running`, `terminated` — and when something's wrong, `waiting.reason` or `terminated.reason` carries the diagnosis (`CrashLoopBackOff`, `ImagePullBackOff`, `OOMKilled`, `Error`). This field is the first thing to read on a sick Pod.
+Under the `Containers:` section, find the container's `State:` line:
+
+```text
+    State:          Running
+      Started:      ...
+```
+
+A container is always in one of three states — `Waiting`, `Running`, `Terminated` — and when something's wrong, the `Reason:` beneath `State:` (or under `Last State:`) carries the diagnosis (`CrashLoopBackOff`, `ImagePullBackOff`, `OOMKilled`, `Error`). This is the first thing to read on a sick Pod.
 
 ## Check the restartPolicy
 
-When a container exits, `restartPolicy` decides what happens next.
+When a container exits, `restartPolicy` decides what happens next. It's a spec field, so read it off the Deployment's YAML:
 
 ```bash
-kubectl get pod -n app-services -l app=sip-app \
-  -o jsonpath='{.items[0].spec.restartPolicy}'; echo
+kubectl get deploy sip-app -n app-services -o yaml
 ```{{exec}}
 
-It prints `Always` — the default, and the only value a Deployment permits. `Always` means any exit (clean or not) gets restarted, with exponential backoff between attempts. (Jobs use `OnFailure`/`Never`; you'll meet those in M07.) The backoff is what surfaces as `CrashLoopBackOff` — the kubelet *waiting* between restarts, not the crash itself.
+Scroll to the pod template's `spec:` (just below `containers:`) and find:
+
+```text
+      restartPolicy: Always
+```
+
+`Always` is the default, and the only value a Deployment permits. `Always` means any exit (clean or not) gets restarted, with exponential backoff between attempts. (Jobs use `OnFailure`/`Never`; you'll meet those in M07.) The backoff is what surfaces as `CrashLoopBackOff` — the kubelet *waiting* between restarts, not the crash itself.
 
 ## Verify
 

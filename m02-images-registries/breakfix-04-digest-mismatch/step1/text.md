@@ -6,10 +6,10 @@ Fourth `ImagePullBackOff`, fourth distinct cause. The event message tells you wh
 
 ```bash
 kubectl get pods -n app-services -l app=directory
-kubectl describe pod -n app-services -l app=directory | sed -n '/Events/,$p'
+kubectl describe pod -n app-services -l app=directory
 ```{{exec}}
 
-The `Failed` event reads:
+Scroll to the `Events:` section at the bottom — the `Failed` event reads:
 
 ```text
 Failed to pull image "nginx@sha256:000000...0000":
@@ -22,11 +22,16 @@ Failed to pull image "nginx@sha256:000000...0000":
 ## Look at the reference
 
 ```bash
-kubectl get deploy directory -n app-services \
-  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+kubectl describe deploy directory -n app-services
 ```{{exec}}
 
-`nginx@sha256:0000000000…0000`. It's pinned by **digest** (`@sha256:`), not by tag. The repository (`nginx`) is correct and the registry is fine — the *digest* is the broken part. A digest names exact bytes; this one names bytes the registry has never stored, so the pull fails closed.
+In the `Pod Template` section, the container's `Image:` line reads:
+
+```text
+    Image:  nginx@sha256:0000000000…0000
+```
+
+It's pinned by **digest** (`@sha256:`), not by tag. The repository (`nginx`) is correct and the registry is fine — the *digest* is the broken part. A digest names exact bytes; this one names bytes the registry has never stored, so the pull fails closed.
 
 ## Find the digest that should be there
 

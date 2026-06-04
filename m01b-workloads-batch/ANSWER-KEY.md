@@ -40,16 +40,15 @@ kubectl get jobs -n cdr-storage -l app=cdr-rollup
 ```
 
 ```bash
-# 2. Work the differential in one read
-kubectl get cronjob cdr-rollup -n cdr-storage \
-  -o custom-columns=NAME:.metadata.name,SCHEDULE:.spec.schedule,SUSPEND:.spec.suspend,ACTIVE:'.status.active[*].name',LAST:.status.lastScheduleTime
-# SUSPEND=true  → that's it
+# 2. Work the differential — the default columns ARE the differential
+kubectl get cronjob cdr-rollup -n cdr-storage
+# SCHEDULE / SUSPEND / ACTIVE / LAST SCHEDULE → SUSPEND=True, that's it
 ```
 
 ```bash
-# 3. Confirm the suspend flag directly
-kubectl get cronjob cdr-rollup -n cdr-storage -o jsonpath='{.spec.suspend}'; echo
-# true
+# 3. Confirm it on the resource itself — describe spells out the flag and shows events
+kubectl describe cronjob cdr-rollup -n cdr-storage
+# Suspend:  True
 ```
 
 **Fix:**
@@ -105,11 +104,11 @@ The reflex: a silent CronJob is almost never a broken controller. It's a spec fi
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. Read the bound + live status: retrying, or given up?
+# 1. Read the bound + live status: retrying, or given up? (yaml carries both spec + status)
 kubectl get job schema-migrate -n provisioning
-kubectl get job schema-migrate -n provisioning \
-  -o jsonpath='backoffLimit={.spec.backoffLimit} restartPolicy={.spec.template.spec.restartPolicy}{"\n"}failed={.status.failed} conditions={.status.conditions[*].type}{"\n"}'
-# conditions empty = still retrying; conditions=Failed = backoffLimit exhausted
+kubectl get job schema-migrate -n provisioning -o yaml
+# spec.backoffLimit: 6 , template restartPolicy: OnFailure
+# status: no Failed condition = still retrying; conditions[].type=Failed = backoffLimit exhausted
 ```
 
 ```bash
@@ -125,9 +124,10 @@ kubectl logs job/schema-migrate -n provisioning
 ```
 
 ```bash
-# 4. Confirm a real non-zero exit (not a probe kill): Reason Error, Exit Code 127
+# 4. Confirm a real non-zero exit (not a probe kill): in Containers:, the Last State: block
 POD=$(kubectl get pod -n provisioning -l app=schema-migrate -o jsonpath='{.items[0].metadata.name}')
-kubectl describe pod $POD -n provisioning | grep -A4 'Last State'
+kubectl describe pod $POD -n provisioning
+#   Last State:  Terminated   Reason: Error   Exit Code: 127
 ```
 
 **Fix:** A Job's pod template is immutable — `kubectl patch` of the command returns `field is immutable`. Delete and recreate with the corrected command:
@@ -203,10 +203,10 @@ kubectl get job usage-export -n analytics
 ```
 
 ```bash
-# 2. Compare the target against the real work (4 shards)
-kubectl get job usage-export -n analytics \
-  -o jsonpath='completions={.spec.completions} parallelism={.spec.parallelism}{"\n"}succeeded={.status.succeeded}{"\n"}'
-# completions=1  ← should be 4
+# 2. Compare the target against the real work (4 shards) — describe shows the sizing + result
+kubectl describe job usage-export -n analytics
+#   Completions: 1   ← should be 4
+#   Pods Statuses: 0 Active / 1 Succeeded / 0 Failed
 ```
 
 ```bash
@@ -247,9 +247,8 @@ EOF
 
 ```bash
 kubectl wait --for=condition=complete job/usage-export -n analytics --timeout=60s
-kubectl get job usage-export -n analytics \
-  -o jsonpath='completions={.spec.completions} succeeded={.status.succeeded}{"\n"}'
-# completions=4  succeeded=4  → COMPLETIONS 4/4
+kubectl get job usage-export -n analytics
+# COMPLETIONS 4/4  Complete
 ```
 
 **What this scenario tests:** Not trusting a green status, and understanding `completions`/`parallelism`. Self-grading questions:

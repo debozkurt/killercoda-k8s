@@ -45,7 +45,7 @@ That's your root cause: the Deployment is referencing an image that doesn't exis
 ## Verify what you found
 
 ```bash
-kubectl get deployment metrics-aggregator -n analytics -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
+kubectl describe deployment metrics-aggregator -n analytics
 ```{{exec}}
 
-You should see the bad image string. Move to step 2.
+In the `Pod Template` section, the container's `Image:` line shows the bad image string (`nginx:doesnotexist-1.25-foobar`). Move to step 2.

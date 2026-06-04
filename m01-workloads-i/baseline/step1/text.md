@@ -12,14 +12,19 @@ You'll see one Deployment (`sip-app`), one ReplicaSet (`sip-app-<hash>`), and tw
 
 ## Confirm ownership directly
 
-The chain isn't just a naming convention; it's recorded in each object's `ownerReferences`.
+The chain isn't just a naming convention; it's recorded in each object's `ownerReferences`. `describe` surfaces that as a one-line `Controlled By:` field — no need to dig through YAML.
 
 ```bash
-kubectl get rs -n app-services -l app=sip-app \
-  -o jsonpath='{.items[0].metadata.ownerReferences[0].kind}/{.items[0].metadata.ownerReferences[0].name}'; echo
+kubectl describe rs -n app-services -l app=sip-app
 ```{{exec}}
 
-That prints `Deployment/sip-app` — the ReplicaSet knows who owns it. Pods carry the same reference pointing at the ReplicaSet. This is the chain M00 told you to climb when a controller fails to create something: the failure event lands on the *owner*, not the missing child.
+Near the top of the output, find the line:
+
+```text
+Controlled By:  Deployment/sip-app
+```
+
+The ReplicaSet knows who owns it. Run the same `describe` against a Pod (`kubectl describe pod -n app-services -l app=sip-app`) and its `Controlled By:` points at the ReplicaSet. This is the chain M00 told you to climb when a controller fails to create something: the failure event lands on the *owner*, not the missing child.
 
 ## Watch reconciliation happen
 

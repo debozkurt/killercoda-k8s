@@ -6,10 +6,10 @@
 
 ```bash
 kubectl get pods -n media -l app=media-recorder
-kubectl describe pod -n media -l app=media-recorder | sed -n '/Events/,$p'
+kubectl describe pod -n media -l app=media-recorder
 ```{{exec}}
 
-The `Failed` event reads:
+Scroll to the `Events:` section at the bottom — the `Failed` event reads:
 
 ```text
 Failed to pull image "localhost:5000/polyphone/media-recorder:1.4.2":
@@ -34,9 +34,8 @@ Anonymous → `401`; with credentials → `200`. The registry is healthy; it sim
 The kubelet authenticates a pull using an `imagePullSecret` on the pod (or its ServiceAccount). Check whether `media-recorder` has one — and whether the secret even exists:
 
 ```bash
-kubectl get pod -n media -l app=media-recorder \
-  -o jsonpath='pullSecrets={.items[0].spec.imagePullSecrets}{"\n"}'
-kubectl get secret -n media | grep -i regcred || echo "no regcred secret in media"
+kubectl get pod -n media -l app=media-recorder -o yaml
+kubectl get secret -n media
 ```{{exec}}
 
-`pullSecrets=` is empty, and there's no `regcred` secret in `media`. The pod is pulling anonymously from a registry that demands auth. The fix is to give the kubelet credentials: create a `docker-registry` secret and attach it. On to the fix.
+Scan the pod's `spec:` in the YAML — there's **no** `imagePullSecrets:` field at all. And the secret list has no `regcred` row. The pod is pulling anonymously from a registry that demands auth. The fix is to give the kubelet credentials: create a `docker-registry` secret and attach it. On to the fix.

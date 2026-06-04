@@ -24,12 +24,24 @@ kubectl get pods -n provisioning -l app=schema-migrate
 
 ## restartPolicy: why a Job can't use Always
 
+Both are spec fields — `describe job` doesn't print them — so read the Job's YAML:
+
 ```bash
-kubectl get job schema-migrate -n provisioning \
-  -o jsonpath='restartPolicy={.spec.template.spec.restartPolicy}{"\n"}backoffLimit={.spec.backoffLimit}{"\n"}'
+kubectl get job schema-migrate -n provisioning -o yaml
 ```{{exec}}
 
-`restartPolicy=OnFailure`, `backoffLimit=4`. A Job allows only `OnFailure` or `Never` — never `Always`. The reason is mechanical: `Always` means "restart the container on *any* exit, including a clean one," which would restart a successful Pod forever and the Job could never reach completion. The API rejects `Always` on a Job for exactly that reason.
+Find `backoffLimit:` under `spec:`, and `restartPolicy:` inside the pod template's `spec:`:
+
+```text
+spec:
+  backoffLimit: 4
+  ...
+  template:
+    spec:
+      restartPolicy: OnFailure
+```
+
+A Job allows only `OnFailure` or `Never` — never `Always`. The reason is mechanical: `Always` means "restart the container on *any* exit, including a clean one," which would restart a successful Pod forever and the Job could never reach completion. The API rejects `Always` on a Job for exactly that reason.
 
 The two legal values differ on failure:
 
@@ -41,8 +53,7 @@ The two legal values differ on failure:
 ## Verify
 
 ```bash
-kubectl get job schema-migrate -n provisioning \
-  -o jsonpath='{.metadata.name}: succeeded={.status.succeeded} conditions={.status.conditions[0].type}{"\n"}'
+kubectl get job schema-migrate -n provisioning
 ```{{exec}}
 
-`succeeded=1`, `conditions=Complete`. That's a healthy run-to-completion Job: it ran, succeeded once, and is done. Compare with a Deployment, which has no "Complete" — only a perpetual `Available`.
+`STATUS Complete`, `COMPLETIONS 1/1`. That's a healthy run-to-completion Job: it ran, succeeded once, and is done. Compare with a Deployment, which has no "Complete" — only a perpetual `Available`.

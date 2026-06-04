@@ -4,16 +4,21 @@
 
 ## Read the termination controls
 
+These are spec-only fields — `describe` hides them — so read the Deployment's YAML:
+
 ```bash
-kubectl get deploy session-broker -n media \
-  -o jsonpath='grace={.spec.template.spec.terminationGracePeriodSeconds}{"\n"}preStop={.spec.template.spec.containers[0].lifecycle.preStop}{"\n"}'
+kubectl get deploy session-broker -n media -o yaml
 ```{{exec}}
 
-Two values come back:
+In the pod template's `spec:`, find the two relevant lines (the `preStop` sits under the container's `lifecycle:`):
 
 ```text
-grace=1
-preStop={"exec":{"command":["/bin/sleep","15"]}}
+      terminationGracePeriodSeconds: 1
+...
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sleep", "15"]
 ```
 
 There's the mismatch. The `preStop` hook needs **15 seconds** to drain in-flight sessions. The `terminationGracePeriodSeconds` is **1**. The grace period is the *total* budget for shutdown — `preStop` and `SIGTERM` handling both spend from it. A 1-second budget can't fit a 15-second drain.

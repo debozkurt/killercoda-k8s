@@ -13,10 +13,10 @@ kubectl get pods -n provisioning
 ## Read the event message — this is the whole diagnosis
 
 ```bash
-kubectl describe pod -n provisioning -l app=account-provisioner | sed -n '/Events/,$p'
+kubectl describe pod -n provisioning -l app=account-provisioner
 ```{{exec}}
 
-The `Failed` event carries the runtime's actual error:
+Scroll to the `Events:` section at the bottom — the `Failed` event carries the runtime's actual error:
 
 ```text
 Failed to pull image "registry.polyphone.example/library/nginx:1.25":
@@ -35,8 +35,13 @@ no such host / i/o timeout  → registry unreachable   (THIS one)
 ## Look at the reference that won't resolve
 
 ```bash
-kubectl get deploy account-provisioner -n provisioning \
-  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+kubectl describe deploy account-provisioner -n provisioning
 ```{{exec}}
 
-`registry.polyphone.example/library/nginx:1.25`. The registry portion — `registry.polyphone.example` — is the host that doesn't exist. Someone pointed the workload at a registry that was never real, was decommissioned, or was a typo. The repository and tag are fine; the *registry* is the broken part of the reference. On to the fix.
+In the `Pod Template` section, the container's `Image:` line reads:
+
+```text
+    Image:  registry.polyphone.example/library/nginx:1.25
+```
+
+The registry portion — `registry.polyphone.example` — is the host that doesn't exist. Someone pointed the workload at a registry that was never real, was decommissioned, or was a typo. The repository and tag are fine; the *registry* is the broken part of the reference. On to the fix.
