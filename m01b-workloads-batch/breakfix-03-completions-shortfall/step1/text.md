@@ -21,13 +21,13 @@ kubectl describe job usage-export -n analytics
 Read the sizing and the result together near the top:
 
 ```text
-Parallelism:    1
+Parallelism:    2
 Completions:    1
 ...
 Pods Statuses:  0 Active / 1 Succeeded / 0 Failed
 ```
 
-`Completions: 1` — but the work is 4 shards. There's the gap: the Job was told one success is "done," so it ran **one** pod, succeeded once, and declared victory while shards 2–4 were never touched. `succeeded=1` is true and useless; the number that matters is that `completions` should be `4`.
+`Completions: 1` — but the work is 4 shards. There's the gap: the Job was told one success is "done," so it ran **one** pod, succeeded once, and declared victory while shards 2–4 were never touched. (`Parallelism: 2` is moot here — `completions: 1` means the Job stops after the first success, so only one pod ever runs.) `succeeded=1` is true and useless; the number that matters is that `completions` should be `4`.
 
 Confirm only one pod ever ran — no failures hiding, just under-provisioned work:
 

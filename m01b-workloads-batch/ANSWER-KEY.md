@@ -1,7 +1,7 @@
 # M01b — Workloads: Jobs & CronJobs — Answer Key
 
 > Self-grading reference. Try each scenario first, then come back here to check your diagnostic path against the canonical one. Instructors running the lab live can use the same sections as a teaching script.
-> Environment: Killercoda `kubernetes-kubeadm-2nodes` with the Polyphone baseline plus three batch workloads (`schema-migrate`, `usage-export`, `cdr-rollup`).
+> Environment: Killercoda `kubernetes-kubeadm-2nodes` with the Polyphone baseline plus three batch workloads (`schema-migrate`, `usage-export`, `cdr-rollup`). `breakfix-04` adds a fourth, `cdr-archive`.
 
 ## Lesson summary
 
@@ -142,7 +142,7 @@ metadata:
   namespace: provisioning
   labels: { app: schema-migrate, plane: control, tier: lab }
 spec:
-  backoffLimit: 4
+  backoffLimit: 6
   ttlSecondsAfterFinished: 3600
   template:
     metadata:
