@@ -5,9 +5,8 @@ You toured the batch half of the workload family on healthy workloads: the Job �
 **Next:**
 
 - For the *why* behind all of it, read [`LESSON.md`](../LESSON.md).
-- Then work the four break/fix scenarios, in order — each breaks a different link in the chain:
+- Then work the three break/fix scenarios, in order — each breaks a different link in the chain:
   - **`breakfix-01-cronjob-never-fires`** — a scheduled rollup that quietly stopped. The CronJob differential.
   - **`breakfix-02-job-backofflimit`** — a Job whose Pods keep failing; retrying, then `Failed`.
   - **`breakfix-03-completions-shortfall`** — a Job that reports `Complete` but only did part of the work.
-  - **`breakfix-04-cronjob-concurrency-stuck`** — a CronJob frozen by a hung run under `concurrencyPolicy: Forbid`; clear it and add the `activeDeadlineSeconds` guardrail.
 - Check your diagnostic path against [`ANSWER-KEY.md`](../ANSWER-KEY.md) after each.

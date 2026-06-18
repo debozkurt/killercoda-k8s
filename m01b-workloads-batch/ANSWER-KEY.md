@@ -10,7 +10,6 @@ M01b teaches the batch half of the workload family — controllers whose goal is
 - `breakfix-01-cronjob-never-fires` — *a suspended CronJob creates nothing; work the silent-CronJob differential*
 - `breakfix-02-job-backofflimit` — *a Job whose every attempt fails; retrying vs given-up, and Job immutability*
 - `breakfix-03-completions-shortfall` — *a Job that reports Complete but did a fraction of the work; `Complete` ≠ correct*
-- `breakfix-04-cronjob-concurrency-stuck` — *a hung run plus `concurrencyPolicy: Forbid` freezes the whole schedule; clear it and add the `activeDeadlineSeconds` guardrail*
 
 Two through-lines worth naming: **`Complete` ≠ correct** (the batch sibling of M01's `Running` ≠ `Ready`), and **Jobs are immutable** (fix by delete + recreate) while **CronJobs are patchable** for run-governing fields.
 
@@ -271,78 +270,6 @@ Note this scenario's bug — wrong `completions` — would still be a bug under 
 **Expected time:** 4–7 min if you instinctively distrust a green status; 10–20 min the first time (the absence of any error is exactly what makes people close the ticket too early).
 
 **Production thinking:** This is the most dangerous failure in the module because it's invisible to every health check — the Job is `Complete`, so liveness of the *pipeline* looks fine. Detection has to come from the *output*, not the Job: reconcile row counts (does the export have 4 partitions?), or assert the expected `completions` in a policy check before deploy. The durable fix corrects `completions` in `platform-gitops`; the real deliverable is a data-completeness check so "the job is green but the data is short" can't reach finance again. Consider Indexed mode so future partial failures name the missing shard.
-
----
-
-## Break/fix 04 — CronJob Stuck Under Forbid
-
-**Symptom:** The `cdr-rollup` CronJob in `cdr-storage` has gone stale again — no fresh rollups, billing reconciliation drifting. But this time it is **not suspended**: `kubectl get cronjob` shows `SUSPEND False` and `ACTIVE 1`. One run exists; nothing newer ever starts.
-
-**Root cause:** A rollup run hung — its aggregation never returns — and the CronJob's `concurrencyPolicy: Forbid` allows only one run at a time. So that single stuck run blocks every scheduled successor, and the every-minute schedule silently stalls at `ACTIVE 1`<sup><a href="https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/">[2]</a></sup>. `Forbid` is the right policy for a rollup (two runs racing the same data is worse than skipping one), but it has a sharp edge: a run that never finishes freezes the schedule indefinitely, with no error and no alert.
-
-**Diagnostic commands (the canonical path):**
-
-```bash
-# 1. Not suspended, but ACTIVE 1 — a run is in flight and nothing newer fires
-kubectl get cronjob cdr-rollup -n cdr-storage
-# SCHEDULE * * * * *   SUSPEND False   ACTIVE 1
-
-# 2. One Job, 0/1, AGE climbing — the every-minute schedule produced only this one
-kubectl get jobs -n cdr-storage -l app=cdr-rollup
-```
-
-```bash
-# 3. Why successors are blocked
-kubectl get cronjob cdr-rollup -n cdr-storage -o yaml | grep concurrencyPolicy
-# concurrencyPolicy: Forbid
-
-# 4. The run is hung, not failing — Running, no restarts, log stops mid-work
-kubectl get pods -n cdr-storage -l app=cdr-rollup
-kubectl logs -n cdr-storage -l app=cdr-rollup --tail=5
-# [cdr-rollup] aggregating call detail records   (then silence)
-```
-
-**Fix:** Two moves, in order — add the guardrail so a hang can't wedge the schedule again, then clear the run wedging it now. A CronJob is *patchable* (unlike the immutable Jobs in bf02/bf03), so edit the `jobTemplate` in place:
-
-```bash
-# 1. Guardrail: a run that overruns is failed at the deadline, not left to block successors.
-#    (In the lab, also restore the rollup command that completes — re-apply the corrected CronJob.)
-kubectl patch cronjob cdr-rollup -n cdr-storage --type merge \
-  -p '{"spec":{"jobTemplate":{"spec":{"activeDeadlineSeconds":30}}}}'
-
-# 2. Clear the run that's stuck now — patching the template does NOT touch the already-running Job.
-kubectl delete job cdr-rollup-29014200 -n cdr-storage
-```
-
-`Forbid` stays — the fix is not to allow overlap, it's to stop one run from running forever.
-
-**Verify:**
-
-```bash
-kubectl get cronjob cdr-rollup -n cdr-storage    # ACTIVE back to 0 between runs; LAST SCHEDULE advancing
-kubectl get jobs -n cdr-storage -l app=cdr-rollup # a fresh cdr-rollup-<timestamp> at COMPLETIONS 1/1
-```
-
-**What this scenario tests:** The stuck-Active branch of the CronJob differential, and the guardrail that prevents it. Self-grading questions:
-
-- Did you distinguish this from bf01 — `SUSPEND False` but `ACTIVE 1`, so it isn't suspended, it's blocked?
-- Did you connect `ACTIVE 1` + a single long-Active Job + `concurrencyPolicy: Forbid` into "one hung run is blocking all successors"?
-- Did you fix the *recurrence* with `activeDeadlineSeconds`, not just delete the stuck Job (which unblocks now but lets the next hang re-freeze it)?
-
-<details>
-<summary>📖 Going deeper: why activeDeadlineSeconds is the load-bearing guardrail (and the concurrencyPolicy trade-space)<sup><a href="https://kubernetes.io/docs/concepts/workloads/controllers/job/">[1]</a></sup></summary>
-
-`backoffLimit` is useless against this failure: it counts *discrete* failures, and a hung run never fails — it just runs. The only thing that catches a run which never returns is a **wall-clock cap**, `activeDeadlineSeconds` on the jobTemplate — past it the Job is terminated and marked `Failed` (`DeadlineExceeded`)<sup><a href="https://kubernetes.io/docs/concepts/workloads/controllers/job/">[1]</a></sup>. That converts a silent stall into a loud, alertable failure *and* frees the `Forbid` slot for the next run. For any periodic Job that could hang, `activeDeadlineSeconds` is not optional.
-
-The other lever is `concurrencyPolicy` itself. `Replace` (kill the running run, start the new one) also avoids a permanent freeze — but it discards in-flight work every cycle and can mask a chronically-slow run that never gets to finish. `Allow` (overlap) avoids the freeze too, at the cost of two runs racing the same data. For work that must not overlap but also must not wedge — a CDR rollup is the canonical case — the durable answer is `Forbid` *plus* `activeDeadlineSeconds`: at most one run, and it can't run forever.
-
-Detection closes the loop: alert when a CronJob's `lastScheduleTime` stops advancing, or when any Job is `Active` longer than its expected runtime. Either signal turns "the schedule quietly froze three weeks ago" into a page the same hour.
-
-</details>
-
-**Expected time:** 3–5 min once the CronJob differential is a reflex; 8–15 min the first time (most of it spent looking for an error that a hung-but-not-failing run never produces).
-
-**Production thinking:** The deeper issue is the same as bf01 — detection. A frozen schedule pages no one; the only symptom is stale data noticed downstream. The durable fix is twofold: bake `activeDeadlineSeconds` into the jobTemplate in `platform-gitops` so a hang self-terminates, and add a freshness/heartbeat alert (alert if `time() - kube_cronjob_status_last_schedule_time > 2 × period`, or if the rollup output table hasn't advanced). Decide `Forbid` vs `Replace` deliberately: `Forbid` + a deadline keeps data integrity and fails loud; `Replace` keeps the schedule moving but throws away whatever the stuck run had done.
 
 ## References
 
