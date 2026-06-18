@@ -681,7 +681,7 @@ spec:
 EOF
 
 # ===========================================================================
-# batch plane  (Jobs & CronJobs — full healthy set, plus ONE mutated workload)
+# batch plane  (Jobs & CronJobs — full healthy set, ONE mutated below)
 # ===========================================================================
 
 # schema-migrate — one-shot Job (healthy)
@@ -736,7 +736,17 @@ spec:
             limits:   { cpu: 100m, memory: 64Mi }
 EOF
 
-# cdr-rollup — CronJob (healthy)
+# >>> breakfix-04 mutation: the cdr-rollup run HANGS — its aggregation never
+#     returns (simulated with `sleep 3600` instead of finishing in ~8s). The
+#     CronJob's concurrencyPolicy is Forbid (already the baseline policy), which
+#     means only one run may be in flight at a time. So one hung run blocks
+#     EVERY later scheduled run: the schedule silently stalls at ACTIVE 1 with no
+#     new Jobs and stale output. SUSPEND is False — this is NOT the bf01 suspend
+#     case; the tell here is ACTIVE 1 with a Job stuck Running for minutes.
+#     Teaching: a hung run + Forbid wedges the whole schedule; the durable
+#     guardrail is activeDeadlineSeconds so a stuck run self-terminates instead
+#     of freezing successors. We seed one CronJob-owned run as already-stuck so
+#     the break is deterministic at boot (no waiting on a schedule tick).
 cat <<'EOF' | kubectl apply -f -
 apiVersion: batch/v1
 kind: CronJob
@@ -746,7 +756,7 @@ metadata:
   labels: { app: cdr-rollup, plane: control, tier: lab }
 spec:
   schedule: "* * * * *"
-  concurrencyPolicy: Forbid
+  concurrencyPolicy: Forbid       # baseline policy: only one rollup run at a time
   startingDeadlineSeconds: 60
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 1
@@ -763,47 +773,42 @@ spec:
           containers:
             - name: rollup
               image: busybox:1.36
-              command: ["/bin/sh","-c","echo '[cdr-rollup] aggregating call detail records'; sleep 8; echo '[cdr-rollup] rollup complete'"]
+              command: ["/bin/sh","-c","echo '[cdr-rollup] aggregating call detail records'; sleep 3600"]   # MUTATED (baseline: `sleep 8; echo 'rollup complete'` → run finishes in ~8s)
               resources:
                 requests: { cpu: 25m, memory: 32Mi }
                 limits:   { cpu: 100m, memory: 64Mi }
 EOF
 
-# >>> breakfix-04 mutation: cdr-archive runs an archive step (exits 0 quickly) PLUS
-#     a log-shipper helper as an ORDINARY container (`spec.containers`) that tails
-#     forever. A Job's Pod is "done" only when EVERY container terminates, so the
-#     perpetual sidecar pins the Pod in Running after the archive finished — the
-#     Job hangs at COMPLETIONS 0/1 indefinitely. The work succeeded; the Pod just
-#     can't complete. Fix = make the helper a NATIVE sidecar (move it to
-#     initContainers with restartPolicy: Always; needs k8s >= 1.29), then the
-#     kubelet stops it once the main container exits and the Job completes. Jobs
-#     are immutable, so the fix is delete + recreate. Teaching: multi-container
-#     Pod completion semantics + native sidecars (ties back to M01).
-cat <<'EOF' | kubectl apply -f -
+# Seed one CronJob-owned run that is already stuck Active, so ACTIVE=1 (and the
+# Forbid block on every successor) is deterministic the instant the lab boots —
+# no waiting on a schedule tick. The ownerReference makes the CronJob controller
+# count this Job toward .status.active, exactly as a real scheduled run would.
+CRON_UID=$(kubectl get cronjob cdr-rollup -n cdr-storage -o jsonpath='{.metadata.uid}')
+cat <<EOF | kubectl apply -f -
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: cdr-archive
+  name: cdr-rollup-29014200
   namespace: cdr-storage
-  labels: { app: cdr-archive, plane: control, tier: lab }
+  labels: { app: cdr-rollup, plane: control, tier: lab }
+  ownerReferences:
+    - apiVersion: batch/v1
+      kind: CronJob
+      name: cdr-rollup
+      uid: ${CRON_UID}
+      controller: true
+      blockOwnerDeletion: true
 spec:
-  backoffLimit: 4
-  ttlSecondsAfterFinished: 3600
+  backoffLimit: 2
   template:
     metadata:
-      labels: { app: cdr-archive, plane: control, tier: lab }
+      labels: { app: cdr-rollup, plane: control, tier: lab }
     spec:
-      restartPolicy: Never
+      restartPolicy: OnFailure
       containers:
-        - name: archive
+        - name: rollup
           image: busybox:1.36
-          command: ["/bin/sh","-c","echo '[cdr-archive] archiving rolled-up CDRs to cold storage'; sleep 5; echo '[cdr-archive] archive complete'"]
-          resources:
-            requests: { cpu: 25m, memory: 32Mi }
-            limits:   { cpu: 100m, memory: 64Mi }
-        - name: log-shipper                              # MUTATED: ordinary sidecar that never exits → blocks Job completion
-          image: busybox:1.36                            #          (fix: move to initContainers with restartPolicy: Always)
-          command: ["/bin/sh","-c","echo '[log-shipper] streaming logs'; tail -f /dev/null"]
+          command: ["/bin/sh","-c","echo '[cdr-rollup] aggregating call detail records'; sleep 3600"]
           resources:
             requests: { cpu: 25m, memory: 32Mi }
             limits:   { cpu: 100m, memory: 64Mi }

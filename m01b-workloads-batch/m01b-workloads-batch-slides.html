@@ -216,8 +216,10 @@
       <h1>Jobs &amp; CronJobs</h1>
       <p class="lead">Controllers whose goal is <em>finishing</em>, not <em>staying up</em> — a Job drives
         Pods to completion; a CronJob runs one on a clock.</p>
-      <p class="footnote">Desired state = <strong>N successful exits</strong>, not N running Pods. And
-        <code>Complete</code> ≠ correct.</p>
+      <div class="note" style="margin-top:1.8rem">
+        <p>Desired state = <strong>N successful exits</strong>, not N running Pods. And
+          <code>Complete</code> ≠ correct.</p>
+      </div>
     </div>
   </section>
 
@@ -236,30 +238,7 @@
     </div>
   </section>
 
-  <!-- 3 — WHY IT MATTERS -->
-  <section class="slide">
-    <div class="wrap">
-      <div class="kicker">Why it matters</div>
-      <h2>Batch failures are quiet</h2>
-      <p class="sub" style="margin-bottom:1.6rem">No traffic drop, no page — until the data is stale.</p>
-      <div class="cards c3">
-        <div class="card bad">
-          <h3>Migration gives up</h3>
-          <p>Hits a bug, retries to <code>backoffLimit</code>, stops. The release never learns.</p>
-        </div>
-        <div class="card bad">
-          <h3>CronJob suspended</h3>
-          <p>Paused for maintenance, never resumed. Creates nothing; looks fine.</p>
-        </div>
-        <div class="card bad">
-          <h3>Export reports done</h3>
-          <p>Runs one shard, says <code>Complete</code>, ¾ of the data untouched.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 4 — MENTAL MODEL -->
+  <!-- 3 — MENTAL MODEL -->
   <section class="slide">
     <div class="wrap">
       <div class="kicker">Mental model</div>
@@ -285,11 +264,11 @@
     </div>
   </section>
 
-  <!-- 5 — OWNER CHAIN -->
+  <!-- 4 — OWNER CHAIN -->
   <section class="slide">
     <div class="wrap">
       <div class="kicker">Who creates the Pod</div>
-      <h2>A CronJob makes Jobs; a Job makes Pods</h2>
+      <h2>A CronJob makes Jobs;<br>a Job makes Pods</h2>
       <div class="flow" style="margin:2.4rem 0;justify-content:center;gap:1rem">
         <div class="node"><div class="t">CronJob</div><div class="s">fires on a schedule</div></div>
         <div class="arrow"><span class="lbl">creates per run</span>→</div>
@@ -299,12 +278,10 @@
       </div>
       <p class="lead" style="text-align:center;max-width:70ch;margin:0 auto">Scheduled run misbehaving?
         Find <strong>which link broke</strong> — Job created? Pods created? Pods exited 0?</p>
-      <p class="footnote" style="text-align:center">
-        <span class="accent">1</span> kubernetes.io — Job &nbsp;·&nbsp; <span class="accent">2</span> CronJob</p>
     </div>
   </section>
 
-  <!-- 6 — JOB STATE MACHINE -->
+  <!-- 5 — JOB STATE MACHINE -->
   <section class="slide">
     <div class="wrap">
       <div class="kicker">The lifecycle of one Job</div>
@@ -328,15 +305,14 @@
         <p>Pod is supposed to exit → only <code>restartPolicy: OnFailure</code> or <code>Never</code>;
           <code>Always</code> is rejected.</p>
       </div>
-      <p class="footnote"><span class="accent">1</span> kubernetes.io — Job</p>
     </div>
   </section>
 
-  <!-- 7 — RESTARTPOLICY: OnFailure vs Never -->
+  <!-- 6 — RESTARTPOLICY: OnFailure vs Never -->
   <section class="slide">
     <div class="wrap">
       <div class="kicker">When a batch Pod fails</div>
-      <h2><code>OnFailure</code> restarts in place; <code>Never</code> spawns a new Pod</h2>
+      <h2><code>OnFailure</code> restarts in place;<br><code>Never</code> spawns a new Pod</h2>
       <div class="cards c2">
         <div class="card">
           <h3><code>restartPolicy: OnFailure</code></h3>
@@ -358,11 +334,10 @@
       <div class="note" style="margin-top:1.3rem">
         <p><code>backoffLimit</code> counts failures → the give-up condition (default <strong>6</strong>).</p>
       </div>
-      <p class="footnote"><span class="accent">3</span> kubernetes.io — Pod Lifecycle: restart policy</p>
     </div>
   </section>
 
-  <!-- 8 — BACKOFFLIMIT: retrying vs Failed -->
+  <!-- 7 — BACKOFFLIMIT: retrying vs Failed -->
   <section class="slide">
     <div class="wrap">
       <div class="kicker">The most misread Job state</div>
@@ -386,17 +361,14 @@
           <div class="sig"><span class="lbl">podFailurePolicy</span><span class="val">react to <em>why</em> — fail fast, or ignore an infra kill</span></div>
         </div>
       </div>
-      <p class="footnote">
-        <span class="accent">1</span> Job &nbsp;·&nbsp; <span class="accent">5</span> TTL after finished &nbsp;·&nbsp;
-        <span class="accent">7</span> Pod failure policy</p>
     </div>
   </section>
 
-  <!-- 9 — COMPLETIONS & PARALLELISM -->
+  <!-- 8 — COMPLETIONS & PARALLELISM -->
   <section class="slide">
     <div class="wrap">
       <div class="kicker">Sizing the work</div>
-      <h2><code>completions</code> counts successes; <code>parallelism</code> caps concurrency</h2>
+      <h2><code>completions</code> counts successes;<br><code>parallelism</code> caps concurrency</h2>
       <div class="cards c2">
         <div class="card">
           <h3><code>completions: N</code></h3>
@@ -414,18 +386,16 @@
         <p><code>completionMode: Indexed</code> → each Pod a fixed <code>JOB_COMPLETION_INDEX</code> (0…N-1);
           a missing index = exactly which shard failed.</p>
       </div>
-      <p class="footnote">
-        <span class="accent">1</span> Job (parallel) &nbsp;·&nbsp; <span class="accent">6</span> Indexed Job</p>
     </div>
   </section>
 
-  <!-- 10 — COMPLETE ≠ CORRECT -->
+  <!-- 9 — COMPLETE ≠ CORRECT -->
   <section class="slide">
     <div class="wrap">
       <div class="kicker">The load-bearing insight</div>
       <h2><code>Complete</code> is not <em>correct</em></h2>
       <p class="lead" style="margin-bottom:1.6rem"><code>Complete</code> the instant <em>succeeded</em> reaches
-        <code>completions</code> — even if <code>completions</code> is wrong.<sup class="cite">1</sup></p>
+        <code>completions</code> — even if <code>completions</code> is wrong.</p>
       <div class="cards c2">
         <div class="card bad">
           <h3>Wrong size, green status</h3>
@@ -438,14 +408,13 @@
         </div>
       </div>
       <div class="note" style="margin-top:1.3rem">
-        <p>Correctness lives in <code>completions</code> matching the work. The batch form of
-          <code>Running</code> ≠ ready.</p>
+        <p>Correctness is whether <code>completions</code> matches the real work — not whether it
+          reached <code>Complete</code>. Same trap as <code>Running</code> ≠ ready.</p>
       </div>
-      <p class="footnote"><span class="accent">1</span> kubernetes.io — Job</p>
     </div>
   </section>
 
-  <!-- 11 — THE CRONJOB -->
+  <!-- 10 — THE CRONJOB -->
   <section class="slide">
     <div class="wrap">
       <div class="kicker">The CronJob</div>
@@ -470,8 +439,31 @@
         <p>Read first: <code>get cronjob</code> → <code>LAST SCHEDULE</code>, <code>ACTIVE</code>. Run by hand:
           <code>kubectl create job --from=cronjob/&lt;name&gt;</code>.</p>
       </div>
-      <p class="footnote">
-        <span class="accent">2</span> CronJob &nbsp;·&nbsp; <span class="accent">4</span> Automated tasks with a CronJob</p>
+    </div>
+  </section>
+
+  <!-- 11 — READING A CRON EXPRESSION -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="kicker">The schedule field</div>
+      <h2>How to read a cron expression</h2>
+      <p class="sub" style="margin-bottom:1.6rem">Five space-separated fields, left to right.
+        <code>*</code> means &ldquo;every&rdquo;.</p>
+      <div class="grid-2 vcenter tight">
+        <div class="terminal" style="line-height:2;font-size:clamp(1.15rem,1.6vw,1.5rem)">
+<span class="g">*    *    *    *    *</span>
+<span class="o">│    │    │    │    └ day of week  (0–6, Sun=0)</span>
+<span class="o">│    │    │    └ month  (1–12)</span>
+<span class="o">│    │    └ day of month  (1–31)</span>
+<span class="o">│    └ hour  (0–23)</span>
+<span class="o">└ minute  (0–59)</span>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:1.1rem"><h3><code>0 2 * * *</code></h3><p>02:00 every day</p></div>
+          <div class="card" style="margin-bottom:1.1rem"><h3><code>*/5 * * * *</code></h3><p>every 5 minutes</p></div>
+          <div class="card bad"><h3><code>0 0 31 2 *</code></h3><p>Feb 31 — legal cron, fires never</p></div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -511,7 +503,6 @@
           </div>
         </div>
       </div>
-      <p class="footnote"><span class="accent">2</span> kubernetes.io — CronJob</p>
     </div>
   </section>
 
@@ -538,7 +529,6 @@
           </div>
         </div>
       </div>
-      <p class="footnote"><code>breakfix-04</code> — fix = native sidecar, then recreate (Jobs are immutable).</p>
     </div>
   </section>
 
@@ -546,7 +536,7 @@
   <section class="slide">
     <div class="wrap">
       <div class="kicker">Fixing batch workloads</div>
-      <h2>Jobs are immutable; CronJobs you patch</h2>
+      <h2>Jobs are immutable;<br>CronJobs you patch</h2>
       <p class="sub" style="margin-bottom:1.4rem">A Job is <em>one execution</em> — template and
         <code>completions</code> are locked. Don't patch; delete and recreate.</p>
       <div class="terminal">
@@ -557,43 +547,47 @@
 <span class="c">kubectl</span> delete job schema-migrate -n provisioning
 <span class="c">kubectl</span> apply -f schema-migrate.yaml
       </div>
-      <p class="footnote">Mutable Job fields: <code>parallelism</code> · <code>suspend</code> ·
-        <code>activeDeadlineSeconds</code> · <code>ttlSecondsAfterFinished</code> — how it runs, not what it is.</p>
+      <div class="note" style="margin-top:1.3rem">
+        <p>Mutable Job fields: <code>parallelism</code> · <code>suspend</code> ·
+          <code>activeDeadlineSeconds</code> · <code>ttlSecondsAfterFinished</code> — how it runs, not what it is.</p>
+      </div>
     </div>
   </section>
 
-  <!-- 15 — HANDS-ON -->
+  <!-- 15 — SPEC FIELD INDEX -->
   <section class="slide">
     <div class="wrap">
-      <div class="kicker">Hands-on · the full Polyphone fleet + batch</div>
-      <h2>One baseline, four break-fixes</h2>
+      <div class="kicker">Field index</div>
+      <h2>The spec knobs worth knowing</h2>
       <div class="cards c2">
-        <div class="card good">
-          <h3>baseline/</h3>
-          <p>Healthy batch — both owner chains, run-to-completion, <code>completions</code>/<code>parallelism</code>, a CronJob firing.</p>
-        </div>
-        <div class="card bad">
-          <h3>bf-01 · cronjob never fires</h3>
-          <p><code>cdr-rollup</code> silent. The differential — <code>suspend</code> first.</p>
-        </div>
-        <div class="card bad">
-          <h3>bf-02 · job backoffLimit</h3>
-          <p><code>schema-migrate</code> keeps failing. Retry vs <code>Failed</code>; Jobs immutable.</p>
-        </div>
-        <div class="card bad">
-          <h3>bf-03 · completions shortfall</h3>
-          <p><code>usage-export</code> <code>Complete</code> but partial. <code>Complete</code> ≠ correct.</p>
-        </div>
-        <div class="card bad">
-          <h3>bf-04 · sidecar blocks job</h3>
-          <p><code>cdr-archive</code> stuck <code>0/1</code>. Native-sidecar fix.</p>
+        <div class="card">
+          <h3>Job <span class="tag">— what runs, how it retries</span></h3>
+          <div class="sigs" style="border-top:none;margin-top:.4rem;padding-top:.2rem">
+            <div class="sig"><span class="lbl">restartPolicy</span><span class="val"><code>OnFailure</code> / <code>Never</code> — never <code>Always</code></span></div>
+            <div class="sig"><span class="lbl">backoffLimit</span><span class="val">failed retries before <code>Failed</code> (default 6)</span></div>
+            <div class="sig"><span class="lbl">completions</span><span class="val">Pods that must succeed (default 1)</span></div>
+            <div class="sig"><span class="lbl">parallelism</span><span class="val">Pods running at once</span></div>
+            <div class="sig"><span class="lbl">completionMode</span><span class="val"><code>NonIndexed</code> / <code>Indexed</code> — fixed shard each</span></div>
+            <div class="sig"><span class="lbl">activeDeadlineSeconds</span><span class="val">wall-clock cap; overrides <code>backoffLimit</code></span></div>
+            <div class="sig"><span class="lbl">ttlSecondsAfterFinished</span><span class="val">auto-delete the Job + Pods when done</span></div>
+            <div class="sig"><span class="lbl">podFailurePolicy</span><span class="val">act on <em>why</em> it failed — fail fast / ignore infra kill</span></div>
+          </div>
         </div>
         <div class="card">
-          <h3 class="muted">Batch pods run <code>busybox</code></h3>
-          <p>Must <em>exit</em> to complete — <code>nginx</code> never returns.</p>
+          <h3>CronJob <span class="tag">— when &amp; whether</span></h3>
+          <div class="sigs" style="border-top:none;margin-top:.4rem;padding-top:.2rem">
+            <div class="sig"><span class="lbl">schedule</span><span class="val">cron — <code>min hour dom month dow</code></span></div>
+            <div class="sig"><span class="lbl">concurrencyPolicy</span><span class="val"><code>Allow</code> / <code>Forbid</code> / <code>Replace</code> on overlap</span></div>
+            <div class="sig"><span class="lbl">startingDeadlineSeconds</span><span class="val">how late a missed run may still start</span></div>
+            <div class="sig"><span class="lbl">suspend</span><span class="val"><code>true</code> pauses it — creates nothing</span></div>
+            <div class="sig"><span class="lbl">…JobsHistoryLimit</span><span class="val"><code>successful</code> / <code>failed</code> finished Jobs kept</span></div>
+          </div>
+          <div class="note" style="margin-top:1.1rem">
+            <p>Everything under Job applies to the Jobs a CronJob creates; these add only
+              <em>when</em> and <em>whether</em>.</p>
+          </div>
         </div>
       </div>
-      <p class="footnote">Check yourself against <code>ANSWER-KEY.md</code> after each one.</p>
     </div>
   </section>
 
@@ -630,18 +624,6 @@
     </div>
   </section>
 
-  <!-- 18 — PRODUCTION THINKING -->
-  <section class="slide">
-    <div class="wrap">
-      <div class="kicker">Production thinking</div>
-      <h2>Questions to consider</h2>
-      <ul>
-        <li>A CronJob hasn't fired in three weeks and nothing paged. What signal makes a missed run as loud as a down service — and where does it come from?</li>
-        <li>A migration Job is <code>Failed</code>. It won't re-run on the next reconcile the way a Deployment self-heals. What has to happen for the fixed Job to actually execute?</li>
-        <li>Sizing <code>concurrencyPolicy</code> + <code>activeDeadlineSeconds</code> for a rollup that runs long: what does each protect against — and <code>Forbid</code> (skip) vs <code>Allow</code> (two racing)?</li>
-      </ul>
-    </div>
-  </section>
 
 </div>
 

@@ -152,13 +152,13 @@ That's the standard “run it now” move, and it's how you confirm the Job temp
 
 ## Hands-on
 
-Four steps in the baseline, four break/fix scenarios — all on the full Polyphone fleet, now with batch workloads layered on: `schema-migrate` (a one-shot Job), `usage-export` (a parallel Job), `cdr-rollup` (a CronJob), and — in `breakfix-04` — `cdr-archive` (a Job with a sidecar).
+Four steps in the baseline, four break/fix scenarios — all on the full Polyphone fleet, now with batch workloads layered on: `schema-migrate` (a one-shot Job), `usage-export` (a parallel Job), and `cdr-rollup` (a CronJob).
 
 - **`baseline/`** — Tour healthy batch workloads: the Job → Pod and CronJob → Job → Pod owner chains, run-to-completion and `restartPolicy`, `completions`/`parallelism` in action, and a CronJob firing on schedule. The reference for what good batch looks like.
 - **`breakfix-01-cronjob-never-fires/`** — The nightly `cdr-rollup` hasn't run. No errors, no pods, nothing in the logs. Tests the CronJob differential — `suspend` first.
 - **`breakfix-02-job-backofflimit/`** — A `schema-migrate` Job won't complete; its Pods keep failing. Tests reading `backoffLimit`/`restartPolicy` and the fact that a Job is immutable — you recreate to fix it.
 - **`breakfix-03-completions-shortfall/`** — `usage-export` reports `Complete`, but downstream only sees a fraction of the data. Tests `completions`/`parallelism` and that `Complete` is not `correct`.
-- **`breakfix-04-sidecar-blocks-job/`** — `cdr-archive` hangs at `0/1`; the archive finished but a log-shipper sidecar runs forever. Tests multi-container Pod completion and the native-sidecar fix.
+- **`breakfix-04-cronjob-concurrency-stuck/`** — `cdr-rollup` isn't suspended, yet no new runs fire: one run is stuck `Active` and `concurrencyPolicy: Forbid` blocks every successor. Tests the stuck-Active branch of the CronJob differential and the `activeDeadlineSeconds` guardrail.
 
 Check yourself against `ANSWER-KEY.md` after each.
 
