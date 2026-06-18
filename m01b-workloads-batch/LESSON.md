@@ -9,6 +9,7 @@
 - Read `backoffLimit` and tell a Job that's *retrying* from one that's permanently *Failed*
 - Use `completions` and `parallelism` to run fixed-count and sharded work, and recognize when a "Complete" Job is still wrong
 - Trace the CronJob → Job → Pod owner chain, and diagnose a CronJob that never fires (`suspend`, schedule, missed-deadline)
+- Catch a silently-stalled batch workload before downstream data goes stale, and keep jobs idempotent because scheduling is at-least-once
 
 ## Why it matters
 
@@ -43,6 +44,7 @@ The trap is that batch failures are *quiet*. A crash-looping Deployment pages yo
 | **concurrencyPolicy** | What a CronJob does if the previous run is still going: `Allow` (default, overlap), `Forbid` (skip the new one), `Replace` (kill the old, start the new). |
 | **startingDeadlineSeconds** | If a scheduled run is missed (controller down, cluster busy), how long late it may still start. Miss the window and that run is skipped. |
 | **suspend** | A CronJob (or Job) field; `true` pauses it. A suspended CronJob creates no Jobs and looks otherwise healthy. |
+| **at-least-once / idempotent** | A CronJob fires *about* once per slot — a controller restart or recovery can create two Jobs for one scheduled time, or none. Batch work must be **idempotent**: safe to run twice with the same result. |
 | **Native sidecar** | A helper container that lives as long as the Pod, declared as an init container with `restartPolicy: Always`. In a Job it's terminated when the main container exits — an ordinary sidecar isn't, and blocks completion (see M01). |
 
 ## Mental model
@@ -140,6 +142,8 @@ The schedule is standard cron — `min hour day-of-month month day-of-week` — 
 
 History is bounded by `successfulJobsHistoryLimit` and `failedJobsHistoryLimit` — the CronJob keeps the last few finished Jobs (and their Pods) so you can inspect them, and garbage-collects the rest. `kubectl get cronjob` shows `LAST SCHEDULE` (when it last fired) and `ACTIVE` (how many of its Jobs are running now) — the two fields you read first when a scheduled task is suspect.
 
+A CronJob is **at-least-once**, not exactly-once: a controller restart or recovery can create two Jobs for one scheduled slot (or, past `startingDeadlineSeconds`, none), and a Job retries failed Pods besides. The same work can run more than once — so design batch jobs to be **idempotent**: running a CDR rollup twice should produce the same totals, not double them.
+
 A CronJob that appears stuck has a short differential: is it **suspended** (`SUSPEND True`)? Is the **schedule** valid but never matching (`0 0 31 2 *` — the 31st of February — is legal cron that never fires)? Were runs **missed and deadlined out**? Is a previous run **stuck Active** with `concurrencyPolicy: Forbid`, blocking all successors? Each is a one-field read on the CronJob spec — make those reads before assuming the controller itself is broken.
 
 To trigger a scheduled task on demand — to test it, or to run a missed CDR rollup by hand — you create a one-off Job from the CronJob's template:
@@ -149,6 +153,10 @@ kubectl create job --from=cronjob/cdr-rollup cdr-rollup-manual -n cdr-storage
 ```
 
 That's the standard “run it now” move, and it's how you confirm the Job template works independently of whether the schedule is firing.
+
+### Catching the silent failure
+
+Batch failures are quiet — no page, just stale data noticed downstream days later. So you alert on the **absence of success**, not the presence of errors. Two signals carry it. **Freshness**: a CronJob's `LAST SCHEDULE` (`lastScheduleTime`, the `kube_cronjob_status_last_schedule_time` metric) should keep advancing — alert when it lags more than ~2× the schedule period. **Duration**: a Job `Active` far past its normal runtime is a hang — pair it with `activeDeadlineSeconds` so it surfaces as a `Failed`, not a silent stall. Every scheduled job needs a heartbeat; every job that can hang needs a deadline.
 
 ## Hands-on
 
@@ -182,6 +190,7 @@ Check yourself against `ANSWER-KEY.md` after each.
 - `Complete` ≠ correct. A Job hits `Complete` when `succeeded` reaches `completions`, even if `completions` was set wrong — the batch analog of M01's `Running` ≠ ready.
 - A CronJob creates Jobs on a schedule: CronJob → Job → Pod. When a scheduled task misbehaves, find which link broke. The first reads are `SUSPEND`, `LAST SCHEDULE`, `ACTIVE`, and the schedule itself.
 - Jobs are immutable — fix one by deleting and recreating. CronJobs are patchable for the run-governing fields (`suspend`, `schedule`, `concurrencyPolicy`).
+- Batch failures are *quiet*. Scheduling is **at-least-once**, so jobs must be idempotent; and a stalled CronJob pages no one — alert on the *absence of success* (`LAST SCHEDULE` freshness, a Job `Active` too long), not just on errors.
 
 ## Production thinking
 
