@@ -14,13 +14,13 @@ kubectl get job schema-migrate -n provisioning
 kubectl get job schema-migrate -n provisioning -o yaml
 ```{{exec}}
 
-The YAML carries both the spec bound and the live status. In `spec:` find `backoffLimit: 6` and (in the pod template) `restartPolicy: OnFailure`; in `status:` find the `failed` count and any `conditions:`:
+The YAML carries both the spec bound and the live status. In `spec:` find `backoffLimit: 3` and (in the pod template) `restartPolicy: OnFailure`; in `status:` find the `failed` count and any `conditions:`:
 
 ```text
 spec:
-  backoffLimit: 6
+  backoffLimit: 3
 status:
-  failed: 3
+  failed: 1
   conditions:        # present only once it gives up
   - type: Failed
 ```

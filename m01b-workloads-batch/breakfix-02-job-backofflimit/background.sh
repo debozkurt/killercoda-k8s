@@ -688,7 +688,7 @@ EOF
 #     final step — `ecaho` instead of `echo` — so every attempt exits 127
 #     (command not found). With restartPolicy OnFailure the kubelet retries the
 #     same pod with backoff, and the Job keeps making attempts up to
-#     backoffLimit (6) before marking itself Failed. The Job never reaches
+#     backoffLimit (3) before marking itself Failed. The Job never reaches
 #     Complete; COMPLETIONS stays 0/1. Teaching: run-to-completion failure,
 #     reading backoffLimit and the retry count, OnFailure vs Never, and that a
 #     Job's pod template is IMMUTABLE — you delete & recreate to fix it, you
@@ -701,7 +701,7 @@ metadata:
   namespace: provisioning
   labels: { app: schema-migrate, plane: control, tier: lab }
 spec:
-  backoffLimit: 6                 # retries long enough to stay visibly failing for the whole lab session
+  backoffLimit: 3                 # low on purpose: reaches BackoffLimitExceeded in ~90s. CrashLoopBackOff delays (10s,20s,40s,80s,160s,300s) make the default 6 take ~10min — too long for a live demo
   ttlSecondsAfterFinished: 3600
   template:
     metadata:

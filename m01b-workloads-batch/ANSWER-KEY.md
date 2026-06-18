@@ -99,7 +99,7 @@ The reflex: a silent CronJob is almost never a broken controller. It's a spec fi
 
 **Symptom:** Release blocked: the pre-deploy `schema-migrate` Job in `provisioning` won't complete. `COMPLETIONS` stuck at `0/1`; one Pod with a climbing `RESTARTS` count.
 
-**Root cause:** The Job's container command has a typo on its final step — `ecaho` instead of `echo` — so the shell exits `127` (command not found) every run<sup><a href="https://kubernetes.io/docs/concepts/workloads/controllers/job/">[1]</a></sup>. With `restartPolicy: OnFailure` the kubelet retries the *same* Pod in place (climbing restarts, `CrashLoopBackOff` between attempts), and the Job counts failures toward `backoffLimit` (6); once exhausted, the Job goes to `Failed` and stops trying<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#restart-policy">[3]</a></sup>. No number of retries fixes a typo.
+**Root cause:** The Job's container command has a typo on its final step — `ecaho` instead of `echo` — so the shell exits `127` (command not found) every run<sup><a href="https://kubernetes.io/docs/concepts/workloads/controllers/job/">[1]</a></sup>. With `restartPolicy: OnFailure` the kubelet retries the *same* Pod in place (climbing restarts, `CrashLoopBackOff` between attempts), and the Job counts failures toward `backoffLimit` (3); once exhausted, the Job goes to `Failed` and stops trying<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#restart-policy">[3]</a></sup>. No number of retries fixes a typo.
 
 **Diagnostic commands (the canonical path):**
 
@@ -107,7 +107,7 @@ The reflex: a silent CronJob is almost never a broken controller. It's a spec fi
 # 1. Read the bound + live status: retrying, or given up? (yaml carries both spec + status)
 kubectl get job schema-migrate -n provisioning
 kubectl get job schema-migrate -n provisioning -o yaml
-# spec.backoffLimit: 6 , template restartPolicy: OnFailure
+# spec.backoffLimit: 3 , template restartPolicy: OnFailure
 # status: no Failed condition = still retrying; conditions[].type=Failed = backoffLimit exhausted
 ```
 
@@ -142,7 +142,7 @@ metadata:
   namespace: provisioning
   labels: { app: schema-migrate, plane: control, tier: lab }
 spec:
-  backoffLimit: 6
+  backoffLimit: 3
   ttlSecondsAfterFinished: 3600
   template:
     metadata:
@@ -178,7 +178,7 @@ kubectl get job schema-migrate -n provisioning    # COMPLETIONS 1/1
 
 **`activeDeadlineSeconds`** is the other bound: a wall-clock cap that overrides `backoffLimit` and fails a Job that runs too long — the right control for a migration that must not bleed into the maintenance window's end.
 
-**`podFailurePolicy`** (stable since v1.31) is the modern complement to `backoffLimit`. This scenario's typo exits `127` every time — a guaranteed failure that `backoffLimit` still dutifully retries six times. A `podFailurePolicy` rule that does `FailJob` on that exit code would fail the Job on the *first* attempt, surfacing the bug in seconds. The mirror case: a rule that does `Ignore` on the `DisruptionTarget` condition so a node preemption or spot reclaim doesn't burn a retry. `podFailurePolicy` classifies *why* a Pod failed; `backoffLimit` caps how many countable failures you tolerate. See `LESSON.md` for the full breakdown.
+**`podFailurePolicy`** (stable since v1.31) is the modern complement to `backoffLimit`. This scenario's typo exits `127` every time — a guaranteed failure that `backoffLimit` still dutifully retries three times. A `podFailurePolicy` rule that does `FailJob` on that exit code would fail the Job on the *first* attempt, surfacing the bug in seconds. The mirror case: a rule that does `Ignore` on the `DisruptionTarget` condition so a node preemption or spot reclaim doesn't burn a retry. `podFailurePolicy` classifies *why* a Pod failed; `backoffLimit` caps how many countable failures you tolerate. See `LESSON.md` for the full breakdown.
 
 </details>
 

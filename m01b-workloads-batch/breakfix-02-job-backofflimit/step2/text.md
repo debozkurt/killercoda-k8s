@@ -26,7 +26,7 @@ metadata:
   namespace: provisioning
   labels: { app: schema-migrate, plane: control, tier: lab }
 spec:
-  backoffLimit: 6
+  backoffLimit: 3
   ttlSecondsAfterFinished: 3600
   template:
     metadata:
