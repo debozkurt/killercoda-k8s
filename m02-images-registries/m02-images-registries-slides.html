@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>M02 — Container Images &amp; Registries</title>
+<style>
+  :root{
+    --bg:#0f0f0f;
+    --panel:#1b1b1b;
+    --panel-2:#262626;
+    --ink:#ececec;
+    --ink-dim:#b2b2b2;
+    --ink-faint:#7d7d7d;
+    --line:#373737;
+    --line-2:#565656;
+    --accent:#6db3f2;
+    --good:#7bc47f;
+    --bad:#e08a7b;
+    --warn:#d9b46a;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:1560px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;overflow:hidden;
+  }
+
+  /* ---------- deck / slides ---------- */
+  .deck{height:100vh;width:100vw;position:relative}
+  .slide{
+    position:absolute;inset:0;display:none;
+    flex-direction:column;justify-content:center;align-items:center;
+    padding:4vh 5.5vw 6vh;overflow-y:auto;
+    animation:fade .3s ease;
+  }
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .wrap{width:100%;max-width:var(--maxw)}
+
+  /* ---------- type ---------- */
+  h1{font-size:clamp(3rem,6vw,4.6rem);line-height:1.03;margin:0 0 1.4rem;font-weight:700;letter-spacing:-.015em}
+  h2{font-size:clamp(2.1rem,3.9vw,3.2rem);line-height:1.08;margin:0 0 1.8rem;font-weight:650;letter-spacing:-.015em}
+  h3{font-size:clamp(1.25rem,1.5vw,1.5rem);margin:0 0 .6rem;font-weight:600;color:var(--ink)}
+  p{font-size:clamp(1.2rem,1.55vw,1.5rem);line-height:1.5;color:var(--ink-dim);margin:.55rem 0;max-width:70ch}
+  .lead{font-size:clamp(1.5rem,2.3vw,2rem);color:var(--ink);max-width:56ch;line-height:1.38}
+  strong{color:var(--ink);font-weight:650}
+  em{color:var(--ink-dim);font-style:italic}
+  code,.mono{font-family:var(--mono);font-size:.88em;
+    background:var(--panel-2);padding:.08em .42em;border-radius:5px;color:#dde6ee;
+    overflow-wrap:break-word}
+
+  ul{margin:.6rem 0;padding:0;list-style:none;max-width:88ch}
+  li{font-size:clamp(1.2rem,1.65vw,1.55rem);line-height:1.48;color:var(--ink-dim);
+    padding:.6rem 0 .6rem 1.8rem;position:relative}
+  li::before{content:"";position:absolute;left:.1rem;top:1.0em;width:.42rem;height:.42rem;
+    border-radius:50%;background:var(--ink-dim)}
+  li strong{color:var(--ink)}
+
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:2.4rem;align-items:start;width:100%}
+  .grid-2.tight{gap:1.6rem}
+  .grid-2 > *{min-width:0}
+  .vcenter{align-items:center}
+
+  /* ---------- chrome ---------- */
+  .bar{position:fixed;left:0;bottom:0;height:3px;background:var(--accent);
+    width:0;transition:width .3s ease;z-index:50}
+  .hud{position:fixed;bottom:14px;right:22px;font-family:var(--mono);
+    font-size:.78rem;color:var(--ink-faint);z-index:50;letter-spacing:.05em}
+  .hud b{color:var(--ink-dim);font-weight:600}
+  .brand{position:fixed;bottom:14px;left:22px;font-family:var(--mono);
+    font-size:.72rem;color:var(--ink-faint);z-index:50;letter-spacing:.12em}
+  .hint{position:fixed;top:16px;right:22px;font-family:var(--mono);font-size:.7rem;
+    color:var(--ink-faint);z-index:50;opacity:.65}
+
+  /* ---------- diagram primitives ---------- */
+  .node{
+    background:var(--panel);border:1px solid var(--line-2);border-radius:11px;
+    padding:1rem 1.4rem;text-align:center;min-width:0;
+  }
+  .node .t{font-weight:650;color:var(--ink);font-size:clamp(1.1rem,1.35vw,1.35rem)}
+  .node .s{font-size:clamp(.85rem,1vw,1rem);color:var(--ink-faint);font-family:var(--mono);margin-top:.3rem;white-space:normal}
+  .node.good{border-color:#3f5a40}
+  .node.bad{border-color:#5e3a32}
+  .arrow{color:var(--line-2);font-size:2rem;flex:0 0 auto;padding:0 .2rem;position:relative}
+  .arrow .lbl{font-family:var(--mono);font-size:.78rem;color:var(--ink-faint);
+    position:absolute;left:50%;top:-1.3rem;transform:translateX(-50%);white-space:nowrap}
+  .flow{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;
+    padding:1.5rem 1.6rem;min-width:0}
+  .card.good{border-color:#33502f;background:linear-gradient(180deg,#15201480,#1a1a1a)}
+  .card.bad{border-color:#5a3830;background:linear-gradient(180deg,#20161480,#1a1a1a)}
+  .card.warn{border-color:#5a5030;background:linear-gradient(180deg,#1e1b1280,#1a1a1a)}
+  .card h3{font-size:clamp(1.2rem,1.45vw,1.45rem);letter-spacing:0;color:var(--ink);
+    text-transform:none;font-weight:600}
+  .card h3 code{font-size:.95em}
+  .card h3 .tag{color:var(--ink-faint);font-weight:500;font-size:.92rem}
+  .card p{font-size:clamp(1.12rem,1.35vw,1.32rem);margin:.45rem 0;max-width:none;line-height:1.45}
+  .card ul{max-width:none}
+  .card li{font-size:clamp(1.08rem,1.3vw,1.28rem);padding:.4rem 0 .4rem 1.5rem}
+  .cards{display:grid;gap:1.6rem;width:100%}
+  .cards.c3{grid-template-columns:repeat(3,1fr)}
+  .cards.c2{grid-template-columns:1fr 1fr}
+
+  /* labelled signal / key-value rows inside cards */
+  .sigs{display:flex;flex-direction:column;gap:.7rem;margin-top:1rem;
+    padding-top:.95rem;border-top:1px solid var(--line)}
+  .sig{display:grid;grid-template-columns:auto 1fr;column-gap:.85rem;align-items:baseline;
+    font-size:clamp(1.05rem,1.25vw,1.25rem);line-height:1.4}
+  .sig .lbl{font-family:var(--sans);color:var(--ink-faint);white-space:nowrap;
+    font-size:.72em;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+  .sig .val{color:var(--ink-dim)}
+  .sig .val code{font-size:.92em}
+
+  table{border-collapse:collapse;width:100%;font-size:clamp(1.1rem,1.5vw,1.4rem)}
+  th,td{text-align:left;padding:.85rem 1rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink-faint);font-weight:600;font-size:clamp(.85rem,1vw,1rem);text-transform:uppercase;letter-spacing:.06em}
+  td{color:var(--ink-dim)}
+  td:first-child{color:var(--ink);font-weight:600;white-space:nowrap}
+  tr:hover td{background:#ffffff06}
+  table code{white-space:nowrap}
+
+  .note{border-left:3px solid var(--accent);padding:.4rem 0 .4rem 1.3rem;margin:1.3rem 0;max-width:84ch}
+  .note.warn{border-color:var(--warn)}
+  .note p{margin:0;font-size:clamp(1.2rem,1.55vw,1.45rem);color:var(--ink);line-height:1.45}
+
+  .terminal{background:#0a0a0a;border:1px solid var(--line);border-radius:11px;
+    font-family:var(--mono);font-size:clamp(1.05rem,1.5vw,1.35rem);padding:1.4rem 1.6rem;
+    color:#cfd6dd;line-height:1.7;width:100%;overflow-x:auto;white-space:pre}
+  .terminal .c{color:var(--accent)}   /* command */
+  .terminal .o{color:var(--ink-faint)} /* output / comment */
+  .terminal .g{color:var(--good)}      /* highlight */
+  .terminal .r{color:var(--bad)}       /* failure */
+
+  .phase{padding:.85rem 1.2rem;border-radius:10px;border:1px solid var(--line-2);
+    background:var(--panel);font-family:var(--mono);font-size:clamp(1.05rem,1.25vw,1.25rem);text-align:center}
+  .phase.run{border-color:#3f5a40}
+  .phase.term{border-color:#5e3a32}
+
+  /* vertical sequence ladder */
+  .ladder{display:flex;flex-direction:column;width:100%}
+  .rung{display:grid;grid-template-columns:auto 1fr;column-gap:1.3rem;position:relative}
+  .rung .rail{display:flex;flex-direction:column;align-items:center}
+  .rung .dot{width:15px;height:15px;border-radius:50%;background:var(--line-2);margin-top:.4rem;z-index:2}
+  .rung .dot.k{background:var(--bad)}
+  .rung .dot.ok{background:var(--good)}
+  .rung .line{flex:1;width:2px;background:var(--line)}
+  .rung:last-child .line{display:none}
+  .rung .body{padding-bottom:1.6rem}
+  .rung .body b{color:var(--ink);font-size:clamp(1.2rem,1.45vw,1.4rem);font-weight:600}
+  .rung .body span{display:block;color:var(--ink-faint);font-size:clamp(1.02rem,1.2vw,1.18rem);margin-top:.2rem}
+
+  /* containment box: a boundary enclosing items over a shared substrate */
+  .boundary{position:relative;border:1.5px solid var(--line-2);border-radius:16px;
+    padding:1.6rem 1.4rem 1.4rem;background:#15151580;width:100%}
+  .boundary .tag{position:absolute;top:-.8rem;left:1.3rem;background:var(--bg);padding:0 .6rem;
+    font-family:var(--mono);font-size:.85rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim)}
+  .items{display:flex;gap:1rem;flex-wrap:wrap}
+  .item{flex:1 1 0;min-width:120px;background:var(--panel);border:1px solid var(--line-2);
+    border-radius:10px;padding:.95rem 1rem;text-align:center}
+  .item b{display:block;color:var(--ink);font-size:clamp(1.05rem,1.3vw,1.25rem);font-weight:600}
+  .item span{display:block;color:var(--ink-faint);font-family:var(--mono);font-size:.85rem;margin-top:.25rem}
+  .item.ghost{border-style:dashed;background:transparent}
+  .item.ghost b{color:var(--ink-faint);font-weight:500}
+  .substrate{margin-top:1rem;border:1px dashed var(--line-2);border-radius:9px;padding:.8rem;
+    text-align:center;font-family:var(--mono);font-size:clamp(.92rem,1.1vw,1.08rem);color:var(--ink-dim)}
+  .substrate b{color:var(--ink)}
+
+  /* layer stack: read-only image layers + a writable container layer (a protocol-stack-style visual) */
+  .stack{display:flex;flex-direction:column;gap:.55rem;width:100%}
+  .lyr{border:1px solid var(--line-2);border-radius:9px;background:var(--panel);
+    padding:.8rem 1.2rem;display:flex;justify-content:space-between;align-items:baseline;gap:1rem;min-width:0}
+  .lyr .lt{color:var(--ink);font-weight:600;font-size:clamp(1.05rem,1.3vw,1.3rem)}
+  .lyr .lk{font-family:var(--mono);font-size:clamp(.8rem,.95vw,.95rem);color:var(--ink-faint);white-space:nowrap}
+  .lyr.rw{border-color:#3f5a40;border-style:dashed;background:linear-gradient(180deg,#15201480,var(--panel))}
+  .lyr.base{border-color:var(--line)}
+
+  /* mermaid: wraps a PRE-RENDERED inline <svg> (no CDN runtime — see SKILL.md "Diagrams") */
+  .mermaid{width:100%;display:flex;justify-content:center}
+  .mermaid svg{max-width:100%;height:auto}
+
+  .muted{color:var(--ink-faint)} .accent{color:var(--accent)}
+  .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  .sub{font-size:clamp(1.2rem,1.5vw,1.45rem);color:var(--ink-dim);line-height:1.4;
+    max-width:74ch;margin:.2rem 0 0}
+  /* subheader sits tight under its heading (no kicker; one heading per slide) */
+  h1:has(+ .sub), h2:has(+ .sub){margin-bottom:.5rem}
+
+  @media (max-width:880px){
+    .cards.c3,.cards.c2,.grid-2{grid-template-columns:1fr}
+    .slide{padding:4vh 6vw 8vh}
+  }
+
+  /* print / PDF: every slide on its own page (Cmd-P → Save as PDF) */
+  @media print{
+    @page{size:landscape;margin:0}
+    html,body{height:auto;overflow:visible}
+    body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .bar,.hud,.brand,.hint{display:none !important}
+    .deck{height:auto;position:static}
+    .slide{display:flex !important;position:relative;inset:auto;
+      width:100vw;height:100vh;overflow:hidden;break-after:page;page-break-after:always;animation:none}
+    .slide:last-child{break-after:auto;page-break-after:auto}
+  }
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div><div class="brand">M02 · IMAGES &amp; REGISTRIES</div>
+<div class="hud"><b id="cur">1</b> / <span id="tot">1</span></div>
+
+<div class="deck" id="deck">
+
+  <!-- 1 — TITLE -->
+  <section class="slide">
+    <div class="wrap">
+      <h1>Container Images<br/>&amp; Registries</h1>
+      <p class="lead">Turning an image <em>name</em> into image <em>bytes</em> on a node — and every way that one step can fail before a container ever starts.</p>
+      <div class="note" style="margin-top:1.8rem">
+        <p>The status tells you a Pod is <strong>stuck</strong>; the kubelet's event message tells you <strong>why</strong>. Read it first.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 — OBJECTIVES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What you'll walk away with</h2>
+      <ul>
+        <li><strong>Image reference anatomy</strong> — <code>registry/repository:tag@digest</code>; why tags move and digests don't</li>
+        <li><strong><code>imagePullPolicy</code> + the node cache</strong> — when the kubelet pulls vs reuses; <code>ErrImageNeverPull</code></li>
+        <li><strong>Private-registry auth</strong> — an <code>imagePullSecret</code>, and the <code>401</code> you get without one</li>
+        <li><strong>The pull-failure differential</strong> — map the kubelet's message to the one broken link</li>
+        <li><strong>The lifecycle</strong> — where signing, scanning, and mirrors sit, and where they're enforced</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 3 — WHAT AN IMAGE IS -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What an image actually is</h2>
+      <p class="sub" style="margin-bottom:1.2rem">Before a Pod can name one, it helps to know what's inside.</p>
+      <table>
+        <tr><th>Term</th><th>What it is</th></tr>
+        <tr><td>image</td><td class="muted">A read-only bundle of filesystem <strong>layers</strong> plus a <strong>config</strong>, addressable by content. What a container is started from.</td></tr>
+        <tr><td>layer</td><td class="muted">One set of filesystem changes (a diff). Layers stack to form the root filesystem; each is read-only and content-addressed, so it can be shared and cached across images.</td></tr>
+        <tr><td>config</td><td class="muted">The image's metadata — entrypoint, default command, env, working dir. The "how to run it" half of the image.</td></tr>
+        <tr><td>manifest</td><td class="muted">The registry document listing an image's layers and config by digest. A <strong>manifest list</strong> (image index) maps platforms — amd64/arm64 — to per-platform manifests.</td></tr>
+        <tr><td>container</td><td class="muted">A running process started from an image: its read-only layers plus a thin <strong>writable layer</strong> on top.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- 4 — LAYER STACK -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>How layers stack into a container</h2>
+      <p class="sub" style="margin-bottom:1.4rem">An image is built in layers; the runtime stacks them — like a protocol stack — and adds a writable layer on top.</p>
+      <div class="grid-2 vcenter">
+        <div>
+          <div style="padding:0 1.4rem;margin-bottom:.9rem">
+            <div class="lyr rw"><span class="lt">writable container layer</span><span class="lk">read-write · per container</span></div>
+          </div>
+          <div class="boundary">
+            <span class="tag">Image · read-only</span>
+            <div class="stack">
+              <div class="lyr"><span class="lt">app code</span><span class="lk">layer · sha256:…</span></div>
+              <div class="lyr"><span class="lt">runtime &amp; dependencies</span><span class="lk">layer · sha256:…</span></div>
+              <div class="lyr base"><span class="lt">base OS — libc, /bin, /lib</span><span class="lk">layer · sha256:…</span></div>
+            </div>
+            <div class="substrate"><b>+ config:</b> entrypoint · cmd · env · workdir</div>
+          </div>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:1.1rem">
+            <h3>Image = layers + config</h3>
+            <p>Read-only and <strong>content-addressed</strong> — each layer has its own digest. Identical layers are shared and cached across images.</p>
+          </div>
+          <div class="card good" style="margin-bottom:1.1rem">
+            <h3>Container = image + a writable layer</h3>
+            <p>The runtime union-mounts the read-only layers and adds one thin <strong>writable</strong> layer on top (copy-on-write). Many containers share the same read-only layers.</p>
+          </div>
+          <div class="note"><p>Because layers are immutable, a pull fetches only the ones the node doesn't already have — the rest come from cache.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 — MENTAL MODEL -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A reference is a <em>name</em>;<br>a container needs the <em>bytes</em></h2>
+      <div class="flow" style="margin:2.2rem 0;justify-content:center;gap:1rem">
+        <div class="node"><div class="t">Image reference</div><div class="s">a name in the Pod spec</div></div>
+        <div class="arrow"><span class="lbl">kubelet → runtime</span>→</div>
+        <div class="node"><div class="t">Registry</div><div class="s">serves manifest + layers</div></div>
+        <div class="arrow"><span class="lbl">pull</span>→</div>
+        <div class="node good"><div class="t">Container</div><div class="s">bytes on the node, started</div></div>
+      </div>
+      <p class="lead" style="text-align:center;max-width:76ch;margin:0 auto">This module is that one path. The differential is just the handful of points where resolving a name into bytes can break.</p>
+    </div>
+  </section>
+
+  <!-- 6 — ANATOMY OF A REFERENCE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Anatomy of an image reference</h2>
+      <div class="terminal" style="margin-bottom:1.4rem;font-size:clamp(1.1rem,1.6vw,1.5rem)">
+<span class="o"># [registry/]repository[:tag][@digest]</span>
+<span class="g">registry.example.com/org/app:1.4.2@sha256:9f2a…c1</span>
+      </div>
+      <div class="cards c2">
+        <div class="card">
+          <div class="sigs" style="border-top:none;margin-top:0;padding-top:0">
+            <div class="sig"><span class="lbl">registry</span><span class="val">host serving images — omit it, default is <code>docker.io</code></span></div>
+            <div class="sig"><span class="lbl">repository</span><span class="val">names one image within that registry</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sigs" style="border-top:none;margin-top:0;padding-top:0">
+            <div class="sig"><span class="lbl">tag</span><span class="val">mutable pointer — omit it, default is <code>:latest</code></span></div>
+            <div class="sig"><span class="lbl">digest</span><span class="val"><code>sha256:</code> hash — immutable content address</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 — TAGS vs DIGESTS -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Tags move; digests don't</h2>
+      <div class="cards c2">
+        <div class="card warn">
+          <h3><code>:1.4.2</code> <span class="tag">— a tag</span></h3>
+          <p>A <em>mutable</em>, human-friendly name. The registry resolves it to a digest, and that digest is what actually gets pulled.</p>
+          <p>Push new bytes under the same tag and it repoints — later pulls get different content. <code>:latest</code> moves constantly.</p>
+        </div>
+        <div class="card good">
+          <h3><code>@sha256:…</code> <span class="tag">— a digest</span></h3>
+          <p>The SHA-256 of the image's manifest — an <em>immutable</em> content address that names exactly those bytes, forever.</p>
+          <p>Change the content and the digest changes. There's nothing to repoint, and no lookup that can drift.</p>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.3rem">
+        <p>Production pins by digest: every node, every restart, every region runs byte-identical code. The cost — a wrong digest fails closed with <code>manifest unknown</code>, the safety feature working, not a bug.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 — IMAGEPULLPOLICY -->
+  <section class="slide">
+    <div class="wrap">
+      <h2><code>imagePullPolicy</code> and the node cache</h2>
+      <p class="sub" style="margin-bottom:1.4rem">Before pulling, this decides whether the kubelet <em>should</em> — and whether it trusts the node's cached image.</p>
+      <div class="cards c3">
+        <div class="card">
+          <h3><code>Always</code></h3>
+          <p>Check the registry every Pod start; pull when the digest differs from cache.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">use for</span><span class="val">moving tags</span></div>
+            <div class="sig"><span class="lbl">cost</span><span class="val">a registry round-trip each start</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3><code>IfNotPresent</code></h3>
+          <p>Use any cached copy; pull only when the image is absent.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">use for</span><span class="val">pinned references</span></div>
+            <div class="sig"><span class="lbl">risk</span><span class="val">stale cache serves old bytes</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3><code>Never</code></h3>
+          <p>Never contact a registry — use the cache or fail.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">use for</span><span class="val">side-loaded images</span></div>
+            <div class="sig"><span class="lbl">if absent</span><span class="val"><code>ErrImageNeverPull</code></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9 — POLICY DEFAULTING + ErrImageNeverPull -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Moving tags get re-checked;<br>pinned ones trust the cache</h2>
+      <div class="cards c2">
+        <div class="card">
+          <h3>If you don't set it</h3>
+          <p>Kubernetes picks the default from the reference:</p>
+          <ul>
+            <li>a <code>:latest</code> tag, or no tag, defaults to <code>Always</code></li>
+            <li>any other tag, or a digest, defaults to <code>IfNotPresent</code></li>
+          </ul>
+          <p>A moving tag gets re-checked every time; a pinned reference can trust the cache, since the cache can't be wrong about immutable content.</p>
+        </div>
+        <div class="card bad">
+          <h3><code>ErrImageNeverPull</code></h3>
+          <p><code>Never</code>, on an image the node has never cached — the kubelet refuses to pull, so the Pod stalls before it starts.</p>
+          <p>That makes it distinct from <code>ImagePullBackOff</code>: no pull was even attempted. The read is "wouldn't pull" versus "couldn't pull".</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 — PRIVATE REGISTRY AUTH -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>An <code>imagePullSecret</code> authenticates the pull</h2>
+      <p class="sub" style="margin-bottom:1.1rem">Public images pull anonymously. A private registry demands credentials — an anonymous pull gets <code>401 Unauthorized</code>.</p>
+      <div class="terminal">
+<span class="o"># a Secret of type kubernetes.io/dockerconfigjson</span>
+<span class="c">kubectl</span> create secret docker-registry regcred \
+  <span class="g">--docker-server</span>=&lt;registry-host&gt; \
+  --docker-username=&lt;user&gt; --docker-password=&lt;pass&gt; -n &lt;ns&gt;
+      </div>
+      <p class="sub" style="margin:.9rem 0 0">Then reference it — <code>spec.imagePullSecrets</code>, or attach it to the Pod's ServiceAccount.</p>
+      <div class="grid-2 tight" style="margin-top:1rem">
+        <div class="note"><p><strong>Namespaced and host-matched.</strong> A secret in one namespace does nothing for a Pod in another, and <code>--docker-server</code> must match the image's registry host exactly.</p></div>
+        <div class="note warn"><p><strong>Silent until a pull happens.</strong> Running Pods hold cached images; the page comes when something restarts and re-authenticates. Blast radius — everything that restarts.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 — THE PULL PATH (gates in order) -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Where resolving a name into bytes breaks</h2>
+      <div class="grid-2 vcenter">
+        <div class="ladder">
+          <div class="rung"><div class="rail"><div class="dot k"></div><div class="line"></div></div>
+            <div class="body"><b>Policy allows a pull?</b><span>no → <span class="bad">ErrImageNeverPull</span></span></div></div>
+          <div class="rung"><div class="rail"><div class="dot k"></div><div class="line"></div></div>
+            <div class="body"><b>Registry reachable?</b><span>no → <span class="bad">no such host / timeout</span></span></div></div>
+          <div class="rung"><div class="rail"><div class="dot k"></div><div class="line"></div></div>
+            <div class="body"><b>Credentials accepted?</b><span>no → <span class="bad">401 Unauthorized</span></span></div></div>
+          <div class="rung"><div class="rail"><div class="dot k"></div><div class="line"></div></div>
+            <div class="body"><b>Reference resolves?</b><span>no → <span class="bad">manifest unknown</span></span></div></div>
+          <div class="rung"><div class="rail"><div class="dot ok"></div></div>
+            <div class="body"><b class="good">Pull layers → container starts</b><span>every gate passed</span></div></div>
+        </div>
+        <div>
+          <div class="note"><p>The kubelet hits these in order — policy, reachability, auth, resolution. The <strong>first</strong> gate that fails is the one in your events.</p></div>
+          <div class="note warn"><p>The container never ran, so there are <strong>no logs</strong>. The signal is the event message, not <code>kubectl logs</code>.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 — THE PULL-FAILURE DIFFERENTIAL -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>The pull-failure differential</h2>
+      <p class="sub" style="margin-bottom:1.4rem">Four failures look alike at a glance. The event message names which link broke.</p>
+      <div class="cards c2">
+        <div class="card bad">
+          <h3><code>ErrImageNeverPull</code></h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">means</span><span class="val">policy refused to pull</span></div>
+            <div class="sig"><span class="lbl">read</span><span class="val"><code>imagePullPolicy</code> + node cache</span></div>
+          </div>
+        </div>
+        <div class="card bad">
+          <h3><code>no such host</code> / timeout</h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">means</span><span class="val">registry unreachable</span></div>
+            <div class="sig"><span class="lbl">read</span><span class="val">registry host; DNS; runtime config</span></div>
+          </div>
+        </div>
+        <div class="card bad">
+          <h3><code>401 Unauthorized</code></h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">means</span><span class="val">credentials missing / rejected</span></div>
+            <div class="sig"><span class="lbl">read</span><span class="val"><code>imagePullSecret</code>; host match</span></div>
+          </div>
+        </div>
+        <div class="card bad">
+          <h3><code>manifest unknown</code></h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">means</span><span class="val">reference didn't resolve</span></div>
+            <div class="sig"><span class="lbl">read</span><span class="val">the tag / <code>@sha256:</code> digest</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.2rem"><p><code>ImagePullBackOff</code> is just "tried, failed, backing off" — the <em>reason</em> is in the events, never in that status word.</p></div>
+    </div>
+  </section>
+
+  <!-- 13 — READING IT IN PRACTICE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>The status says stuck;<br>the event says why</h2>
+      <div class="terminal">
+<span class="o"># the status only tells you it's wedged</span>
+<span class="c">kubectl</span> get pod &lt;pod&gt; -n &lt;ns&gt;
+<span class="o">NAME    READY   STATUS             RESTARTS</span>
+<span class="o">app-0   0/1     </span><span class="r">ImagePullBackOff</span><span class="o">   0</span>
+
+<span class="o"># the reason is one line down here</span>
+<span class="c">kubectl</span> describe pod &lt;pod&gt; -n &lt;ns&gt;   <span class="g"># → Events</span>
+<span class="o">  Failed to pull image "…": </span><span class="r">401 Unauthorized</span>
+      </div>
+      <div class="note" style="margin-top:1.3rem"><p>Same instinct as any stuck workload: <code>get</code> → <code>describe</code> → read the event. Never "just restart" an <code>ImagePullBackOff</code> before reading the message.</p></div>
+    </div>
+  </section>
+
+  <!-- 14 — WHERE SIGNING / SCANNING / MIRRORS LIVE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Signing, scanning, mirrors live <em>around</em> the pull</h2>
+      <div class="flow" style="margin:1.6rem 0;justify-content:center;gap:.7rem">
+        <div class="node"><div class="t">build → push</div><div class="s">produces a digest</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="t">sign · scan</div><div class="s">attest + inspect the digest</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="t">admission</div><div class="s">enforces the policy</div></div>
+        <div class="arrow">→</div>
+        <div class="node good"><div class="t">kubelet pulls</div><div class="s">this module</div></div>
+      </div>
+      <div class="cards c3" style="margin-top:.4rem">
+        <div class="card"><h3>Signing / scanning</h3><p><em>Produce</em> trust info keyed by the digest. Neither blocks anything on its own.</p></div>
+        <div class="card"><h3>Admission</h3><p>The <em>enforcement</em> point — rejects unsigned or unscanned images before a pull. A separate concern.</p></div>
+        <div class="card"><h3>Mirrors / caches</h3><p>Live in the <strong>runtime</strong> (<code>hosts.toml</code>), not the Pod spec. The image string is unchanged.</p></div>
+      </div>
+      <div class="note" style="margin-top:1.1rem"><p>Diagnostic tell: a pull that differs node-to-node with an identical spec points at runtime config, not the Pod.</p></div>
+    </div>
+  </section>
+
+  <!-- 15 — COMMON FAILURE MODES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Common failure modes</h2>
+      <table>
+        <tr><th>Event / symptom</th><th>Likely cause</th><th>Where to look</th></tr>
+        <tr><td><code>401</code> / <code>denied</code></td><td>Missing/wrong <code>imagePullSecret</code>, or rotated credential</td><td class="muted"><code>describe pod</code> events; <code>.spec.imagePullSecrets</code></td></tr>
+        <tr><td><code>manifest unknown</code></td><td>Bad reference — wrong tag or <code>@sha256:</code> digest</td><td class="muted"><code>.spec.containers[].image</code></td></tr>
+        <tr><td><code>ErrImageNeverPull</code></td><td><code>Never</code> and image not cached on the node</td><td class="muted"><code>imagePullPolicy</code>; node image cache</td></tr>
+        <tr><td><code>no such host</code> / timeout</td><td>Registry host unreachable: typo, DNS, runtime</td><td class="muted">registry host; node DNS / <code>hosts.toml</code></td></tr>
+        <tr><td><code>Running</code>, old/wrong code</td><td>Mutable tag + warm cache served stale bytes</td><td class="muted">the tag in use; pin by digest</td></tr>
+        <tr><td>One node pulls, another fails</td><td>Node-level runtime config / cache differs</td><td class="muted"><code>hosts.toml</code>; per-node cache</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- 16 — RECAP -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What to carry forward</h2>
+      <ul>
+        <li>A reference is <code>registry/repository:tag@digest</code>. <strong>Tags are mutable pointers; digests are immutable content addresses</strong> — pin by digest for "the exact same bytes everywhere".</li>
+        <li><code>imagePullPolicy</code> decides <em>whether</em> to pull: <code>Always</code> re-checks, <code>IfNotPresent</code>/<code>Never</code> trust the cache. Default: <code>Always</code> for <code>:latest</code>, <code>IfNotPresent</code> otherwise.</li>
+        <li>Private registries need an <code>imagePullSecret</code> — namespaced, host-matched, and <strong>silent until a Pod restarts</strong>.</li>
+        <li><strong>The differential:</strong> <code>ErrImageNeverPull</code> = policy · <code>no such host</code> = unreachable · <code>401</code> = auth · <code>manifest unknown</code> = bad reference.</li>
+        <li><strong>The status says stuck; the event says why</strong> — read it first. Signing, scanning, and mirrors live around the pull, enforced elsewhere.</li>
+      </ul>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const bar = document.getElementById('bar');
+  const cur = document.getElementById('cur');
+  document.getElementById('tot').textContent = slides.length;
+  let i = 0;
+
+  function show(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s,k)=>s.classList.toggle('active', k===i));
+    bar.style.width = ((i+1)/slides.length*100) + '%';
+    cur.textContent = i+1;
+    history.replaceState(null,'','#'+(i+1));
+  }
+  const next=()=>show(i+1), prev=()=>show(i-1);
+
+  document.addEventListener('keydown', e=>{
+    if(['ArrowRight','PageDown',' '].includes(e.key)){ e.preventDefault(); next(); }
+    else if(['ArrowLeft','PageUp'].includes(e.key)){ e.preventDefault(); prev(); }
+    else if(e.key==='Home') show(0);
+    else if(e.key==='End') show(slides.length-1);
+    else if(e.key==='f'||e.key==='F'){
+      if(!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+  document.getElementById('deck').addEventListener('click', e=>{
+    if(e.target.closest('a')) return;
+    (e.clientX > window.innerWidth/2) ? next() : prev();
+  });
+
+  const start = parseInt((location.hash||'').replace('#',''),10);
+  show(Number.isFinite(start) && start>0 ? start-1 : 0);
+</script>
+</body>
+</html>
