@@ -1,0 +1,21 @@
+{
+  "title": "M03 — Configuration — Baseline",
+  "description": "Tour healthy config wiring: ConfigMaps and Secrets across the fleet, the two consumption modes (env vars vs mounted files) read out of running containers, and why a Secret's base64 isn't security.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "ConfigMaps and Secrets on the fleet", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "Config as environment variables", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "Config as mounted files", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "Secrets aren't secret — base64 is encoding", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

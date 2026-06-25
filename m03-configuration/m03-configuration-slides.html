@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>M03 — Configuration</title>
+<style>
+  :root{
+    --bg:#0f0f0f;
+    --panel:#1b1b1b;
+    --panel-2:#262626;
+    --ink:#ececec;
+    --ink-dim:#b2b2b2;
+    --ink-faint:#7d7d7d;
+    --line:#373737;
+    --line-2:#565656;
+    --accent:#6db3f2;
+    --good:#7bc47f;
+    --bad:#e08a7b;
+    --warn:#d9b46a;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:1560px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;overflow:hidden;
+  }
+
+  /* ---------- deck / slides ---------- */
+  .deck{height:100vh;width:100vw;position:relative}
+  .slide{
+    position:absolute;inset:0;display:none;
+    flex-direction:column;justify-content:center;align-items:center;
+    padding:4vh 5.5vw 6vh;overflow-y:auto;
+    animation:fade .3s ease;
+  }
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .wrap{width:100%;max-width:var(--maxw)}
+
+  /* ---------- type ---------- */
+  h1{font-size:clamp(3rem,6vw,4.6rem);line-height:1.03;margin:0 0 1.4rem;font-weight:700;letter-spacing:-.015em}
+  h2{font-size:clamp(2.1rem,3.9vw,3.2rem);line-height:1.08;margin:0 0 1.8rem;font-weight:650;letter-spacing:-.015em}
+  h3{font-size:clamp(1.25rem,1.5vw,1.5rem);margin:0 0 .6rem;font-weight:600;color:var(--ink)}
+  p{font-size:clamp(1.2rem,1.55vw,1.5rem);line-height:1.5;color:var(--ink-dim);margin:.55rem 0;max-width:70ch}
+  .lead{font-size:clamp(1.5rem,2.3vw,2rem);color:var(--ink);max-width:56ch;line-height:1.38}
+  strong{color:var(--ink);font-weight:650}
+  em{color:var(--ink-dim);font-style:italic}
+  code,.mono{font-family:var(--mono);font-size:.88em;
+    background:var(--panel-2);padding:.08em .42em;border-radius:5px;color:#dde6ee;
+    overflow-wrap:break-word}
+
+  ul{margin:.6rem 0;padding:0;list-style:none;max-width:88ch}
+  li{font-size:clamp(1.2rem,1.65vw,1.55rem);line-height:1.48;color:var(--ink-dim);
+    padding:.6rem 0 .6rem 1.8rem;position:relative}
+  li::before{content:"";position:absolute;left:.1rem;top:1.0em;width:.42rem;height:.42rem;
+    border-radius:50%;background:var(--ink-dim)}
+  li strong{color:var(--ink)}
+
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:2.4rem;align-items:start;width:100%}
+  .grid-2.tight{gap:1.6rem}
+  .grid-2 > *{min-width:0}
+  .vcenter{align-items:center}
+
+  /* ---------- chrome ---------- */
+  .bar{position:fixed;left:0;bottom:0;height:3px;background:var(--accent);
+    width:0;transition:width .3s ease;z-index:50}
+  .hud{position:fixed;bottom:14px;right:22px;font-family:var(--mono);
+    font-size:.78rem;color:var(--ink-faint);z-index:50;letter-spacing:.05em}
+  .hud b{color:var(--ink-dim);font-weight:600}
+  .brand{position:fixed;bottom:14px;left:22px;font-family:var(--mono);
+    font-size:.72rem;color:var(--ink-faint);z-index:50;letter-spacing:.12em}
+  .hint{position:fixed;top:16px;right:22px;font-family:var(--mono);font-size:.7rem;
+    color:var(--ink-faint);z-index:50;opacity:.65}
+
+  /* ---------- diagram primitives ---------- */
+  .node{
+    background:var(--panel);border:1px solid var(--line-2);border-radius:11px;
+    padding:1rem 1.4rem;text-align:center;min-width:0;
+  }
+  .node .t{font-weight:650;color:var(--ink);font-size:clamp(1.1rem,1.35vw,1.35rem)}
+  .node .s{font-size:clamp(.85rem,1vw,1rem);color:var(--ink-faint);font-family:var(--mono);margin-top:.3rem;white-space:normal}
+  .node.good{border-color:#3f5a40}
+  .node.bad{border-color:#5e3a32}
+  .arrow{color:var(--line-2);font-size:2rem;flex:0 0 auto;padding:0 .2rem;position:relative}
+  .arrow .lbl{font-family:var(--mono);font-size:.78rem;color:var(--ink-faint);
+    position:absolute;left:50%;top:-1.3rem;transform:translateX(-50%);white-space:nowrap}
+  .flow{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;
+    padding:1.5rem 1.6rem;min-width:0}
+  .card.good{border-color:#33502f;background:linear-gradient(180deg,#15201480,#1a1a1a)}
+  .card.bad{border-color:#5a3830;background:linear-gradient(180deg,#20161480,#1a1a1a)}
+  .card.warn{border-color:#5a5030;background:linear-gradient(180deg,#1e1b1280,#1a1a1a)}
+  .card h3{font-size:clamp(1.2rem,1.45vw,1.45rem);letter-spacing:0;color:var(--ink);
+    text-transform:none;font-weight:600}
+  .card h3 code{font-size:.95em}
+  .card h3 .tag{color:var(--ink-faint);font-weight:500;font-size:.92rem}
+  .card p{font-size:clamp(1.12rem,1.35vw,1.32rem);margin:.45rem 0;max-width:none;line-height:1.45}
+  .card ul{max-width:none}
+  .card li{font-size:clamp(1.08rem,1.3vw,1.28rem);padding:.4rem 0 .4rem 1.5rem}
+  .cards{display:grid;gap:1.6rem;width:100%}
+  .cards.c3{grid-template-columns:repeat(3,1fr)}
+  .cards.c2{grid-template-columns:1fr 1fr}
+
+  /* labelled signal / key-value rows inside cards */
+  .sigs{display:flex;flex-direction:column;gap:.7rem;margin-top:1rem;
+    padding-top:.95rem;border-top:1px solid var(--line)}
+  .sig{display:grid;grid-template-columns:auto 1fr;column-gap:.85rem;align-items:baseline;
+    font-size:clamp(1.05rem,1.25vw,1.25rem);line-height:1.4}
+  .sig .lbl{font-family:var(--sans);color:var(--ink-faint);white-space:nowrap;
+    font-size:.72em;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+  .sig .val{color:var(--ink-dim)}
+  .sig .val code{font-size:.92em}
+
+  table{border-collapse:collapse;width:100%;font-size:clamp(1.1rem,1.5vw,1.4rem)}
+  th,td{text-align:left;padding:.85rem 1rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink-faint);font-weight:600;font-size:clamp(.85rem,1vw,1rem);text-transform:uppercase;letter-spacing:.06em}
+  td{color:var(--ink-dim)}
+  td:first-child{color:var(--ink);font-weight:600;white-space:nowrap}
+  tr:hover td{background:#ffffff06}
+  table code{white-space:nowrap}
+
+  .note{border-left:3px solid var(--accent);padding:.4rem 0 .4rem 1.3rem;margin:1.3rem 0;max-width:84ch}
+  .note.warn{border-color:var(--warn)}
+  .note p{margin:0;font-size:clamp(1.2rem,1.55vw,1.45rem);color:var(--ink);line-height:1.45}
+
+  .terminal{background:#0a0a0a;border:1px solid var(--line);border-radius:11px;
+    font-family:var(--mono);font-size:clamp(1.05rem,1.5vw,1.35rem);padding:1.4rem 1.6rem;
+    color:#cfd6dd;line-height:1.7;width:100%;overflow-x:auto;white-space:pre}
+  .terminal .c{color:var(--accent)}   /* command */
+  .terminal .o{color:var(--ink-faint)} /* output / comment */
+  .terminal .g{color:var(--good)}      /* highlight */
+  .terminal .r{color:var(--bad)}       /* failure */
+
+  .phase{padding:.85rem 1.2rem;border-radius:10px;border:1px solid var(--line-2);
+    background:var(--panel);font-family:var(--mono);font-size:clamp(1.05rem,1.25vw,1.25rem);text-align:center}
+  .phase.run{border-color:#3f5a40}
+  .phase.term{border-color:#5e3a32}
+
+  /* vertical sequence ladder */
+  .ladder{display:flex;flex-direction:column;width:100%}
+  .rung{display:grid;grid-template-columns:auto 1fr;column-gap:1.3rem;position:relative}
+  .rung .rail{display:flex;flex-direction:column;align-items:center}
+  .rung .dot{width:15px;height:15px;border-radius:50%;background:var(--line-2);margin-top:.4rem;z-index:2}
+  .rung .dot.k{background:var(--bad)}
+  .rung .dot.ok{background:var(--good)}
+  .rung .line{flex:1;width:2px;background:var(--line)}
+  .rung:last-child .line{display:none}
+  .rung .body{padding-bottom:1.6rem}
+  .rung .body b{color:var(--ink);font-size:clamp(1.2rem,1.45vw,1.4rem);font-weight:600}
+  .rung .body span{display:block;color:var(--ink-faint);font-size:clamp(1.02rem,1.2vw,1.18rem);margin-top:.2rem}
+
+  /* containment box: a boundary enclosing items over a shared substrate */
+  .boundary{position:relative;border:1.5px solid var(--line-2);border-radius:16px;
+    padding:1.6rem 1.4rem 1.4rem;background:#15151580;width:100%}
+  .boundary .tag{position:absolute;top:-.8rem;left:1.3rem;background:var(--bg);padding:0 .6rem;
+    font-family:var(--mono);font-size:.85rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim)}
+  .items{display:flex;gap:1rem;flex-wrap:wrap}
+  .item{flex:1 1 0;min-width:120px;background:var(--panel);border:1px solid var(--line-2);
+    border-radius:10px;padding:.95rem 1rem;text-align:center}
+  .item b{display:block;color:var(--ink);font-size:clamp(1.05rem,1.3vw,1.25rem);font-weight:600}
+  .item span{display:block;color:var(--ink-faint);font-family:var(--mono);font-size:.85rem;margin-top:.25rem}
+
+  /* mermaid: wraps a PRE-RENDERED inline <svg> (no CDN runtime) */
+  .mermaid{width:100%;display:flex;justify-content:center}
+  .mermaid svg{max-width:100%;height:auto;max-height:56vh;overflow:visible}
+  .mermaid svg text,.mermaid svg tspan{font-family:Helvetica,Arial,sans-serif !important}
+
+  .muted{color:var(--ink-faint)} .accent{color:var(--accent)}
+  .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  .sub{font-size:clamp(1.2rem,1.5vw,1.45rem);color:var(--ink-dim);line-height:1.4;
+    max-width:74ch;margin:.2rem 0 0}
+  h1:has(+ .sub), h2:has(+ .sub){margin-bottom:.5rem}
+
+  @media (max-width:880px){
+    .cards.c3,.cards.c2,.grid-2{grid-template-columns:1fr}
+    .slide{padding:4vh 6vw 8vh}
+  }
+
+  /* print / PDF: every slide on its own page (Cmd-P → Save as PDF) */
+  @media print{
+    @page{size:landscape;margin:0}
+    html,body{height:auto;overflow:visible}
+    body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .bar,.hud,.brand,.hint{display:none !important}
+    .deck{height:auto;position:static}
+    .slide{display:flex !important;position:relative;inset:auto;
+      width:100vw;height:100vh;overflow:hidden;break-after:page;page-break-after:always;animation:none}
+    .slide:last-child{break-after:auto;page-break-after:auto}
+  }
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div><div class="brand">M03 · CONFIGURATION</div>
+<div class="hud"><b id="cur">1</b> / <span id="tot">1</span></div>
+
+<div class="deck" id="deck">
+
+  <!-- 1 — TITLE -->
+  <section class="slide">
+    <div class="wrap">
+      <h1>Container<br/>Configuration</h1>
+      <p class="lead">Handing a container its settings — ConfigMaps and Secrets, delivered as <em>environment variables</em> or <em>mounted files</em> — and the four ways that wiring breaks.</p>
+      <div class="note" style="margin-top:1.8rem">
+        <p>How a Pod <strong>consumes</strong> its config decides how it fails. Read the status, the events, and — when nothing's red — the value itself.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 — OBJECTIVES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What you'll walk away with</h2>
+      <ul>
+        <li><strong>ConfigMaps and Secrets</strong> — what each is, and why a Secret's base64 is encoding, not security</li>
+        <li><strong>The two consumption modes</strong> — environment variables (<code>env</code>/<code>envFrom</code>) vs mounted files (volumes, projected)</li>
+        <li><strong>Update semantics</strong> — env is frozen at start; files drift; a config edit rolls nothing on its own</li>
+        <li><strong>The config-failure differential</strong> — <code>CreateContainerConfigError</code>, <code>FailedMount</code>, and runs-but-wrong</li>
+        <li><strong>The spine</strong> — the consumption mode determines how a bad reference fails</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 3 — CONFIGMAPS & SECRETS -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>ConfigMaps and Secrets: two objects, one shape</h2>
+      <p class="sub" style="margin-bottom:1.4rem">Both hold key/value config as a standalone object — separate from the workload that reads it.</p>
+      <div class="cards c2">
+        <div class="card">
+          <h3>ConfigMap</h3>
+          <p>Non-confidential settings — log levels, hostnames, tuning parameters, whole config files as multi-line values.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">holds</span><span class="val">plain key/value</span></div>
+            <div class="sig"><span class="lbl">consumed as</span><span class="val">env vars or files</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Secret</h3>
+          <p>Confidential data — values base64-encoded in <code>data</code>, stored in etcd. Write plaintext to <code>stringData</code> and the API encodes it for you.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">default type</span><span class="val"><code>Opaque</code> (also <code>tls</code>, <code>dockerconfigjson</code>, …)</span></div>
+            <div class="sig"><span class="lbl">protection</span><span class="val">base64 is <em>not</em> encryption</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.3rem"><p>Both are namespaced and capped at <strong>1 MiB</strong> — they live in etcd, and every kubelet that mounts one holds it in memory. They're for settings, not data blobs.</p></div>
+    </div>
+  </section>
+
+<!-- 4 — MENTAL MODEL (mermaid: source splits two ways, then converges) -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>One source, two paths into the container</h2>
+      <p class="sub" style="margin-bottom:1.2rem">The path decides how a missing reference fails — and whether a later edit ever reaches the process.</p>
+      <div class="mermaid"><svg id="my-svg" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="flowchart" style="max-width: 515.188px; background-color: transparent;" viewBox="0 0 515.1875 357" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#my-svg{font-family:Helvetica,Arial,sans-serif;font-size:18px;fill:#ececec;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#my-svg .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#my-svg .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#my-svg .error-icon{fill:#1f1f1f;}#my-svg .error-text{fill:#e0e0e0;stroke:#e0e0e0;}#my-svg .edge-thickness-normal{stroke-width:1px;}#my-svg .edge-thickness-thick{stroke-width:3.5px;}#my-svg .edge-pattern-solid{stroke-dasharray:0;}#my-svg .edge-thickness-invisible{stroke-width:0;fill:none;}#my-svg .edge-pattern-dashed{stroke-dasharray:3;}#my-svg .edge-pattern-dotted{stroke-dasharray:2;}#my-svg .marker{fill:#7d7d7d;stroke:#7d7d7d;}#my-svg .marker.cross{stroke:#7d7d7d;}#my-svg svg{font-family:Helvetica,Arial,sans-serif;font-size:18px;}#my-svg p{margin:0;}#my-svg .label{font-family:Helvetica,Arial,sans-serif;color:#ececec;}#my-svg .cluster-label text{fill:#e0e0e0;}#my-svg .cluster-label span{color:#e0e0e0;}#my-svg .cluster-label span p{background-color:transparent;}#my-svg .label text,#my-svg span{fill:#ececec;color:#ececec;}#my-svg .node rect,#my-svg .node circle,#my-svg .node ellipse,#my-svg .node polygon,#my-svg .node path{fill:#1b1b1b;stroke:#565656;stroke-width:1px;}#my-svg .rough-node .label text,#my-svg .node .label text,#my-svg .image-shape .label,#my-svg .icon-shape .label{text-anchor:middle;}#my-svg .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#my-svg .rough-node .label,#my-svg .node .label,#my-svg .image-shape .label,#my-svg .icon-shape .label{text-align:center;}#my-svg .node.clickable{cursor:pointer;}#my-svg .root .anchor path{fill:#7d7d7d!important;stroke-width:0;stroke:#7d7d7d;}#my-svg .arrowheadPath{fill:#0b0b0b;}#my-svg .edgePath .path{stroke:#7d7d7d;stroke-width:2.0px;}#my-svg .flowchart-link{stroke:#7d7d7d;fill:none;}#my-svg .edgeLabel{background-color:#262626;text-align:center;}#my-svg .edgeLabel p{background-color:#262626;}#my-svg .edgeLabel rect{opacity:0.5;background-color:#262626;fill:#262626;}#my-svg .labelBkg{background-color:rgba(38, 38, 38, 0.5);}#my-svg .cluster rect{fill:#1f1f1f;stroke:hsl(0, 0%, 2.1568627451%);stroke-width:1px;}#my-svg .cluster text{fill:#e0e0e0;}#my-svg .cluster span{color:#e0e0e0;}#my-svg div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:Helvetica,Arial,sans-serif;font-size:12px;background:#1f1f1f;border:1px solid hsl(0, 0%, 2.1568627451%);border-radius:2px;pointer-events:none;z-index:100;}#my-svg .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#ececec;}#my-svg rect.text{fill:none;stroke-width:0;}#my-svg .icon-shape,#my-svg .image-shape{background-color:#262626;text-align:center;}#my-svg .icon-shape p,#my-svg .image-shape p{background-color:#262626;padding:2px;}#my-svg .icon-shape rect,#my-svg .image-shape rect{opacity:0.5;background-color:#262626;fill:#262626;}#my-svg .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#my-svg .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#my-svg :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker id="my-svg_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><g class="root"><g class="clusters"/><g class="edgePaths"><path d="M218.232,65L204.036,72.083C189.84,79.167,161.447,93.333,147.251,106.833C133.055,120.333,133.055,133.167,133.055,139.583L133.055,146" id="L_SRC_ENV_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_SRC_ENV_0" data-points="W3sieCI6MjE4LjIzMjM5NDM2NjE5NzE4LCJ5Ijo2NX0seyJ4IjoxMzMuMDU0Njg3NSwieSI6MTA3LjV9LHsieCI6MTMzLjA1NDY4NzUsInkiOjE1MH1d" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M332.471,65L346.667,72.083C360.863,79.167,389.256,93.333,403.452,106.833C417.648,120.333,417.648,133.167,417.648,139.583L417.648,146" id="L_SRC_VOL_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_SRC_VOL_0" data-points="W3sieCI6MzMyLjQ3MDczMDYzMzgwMjgsInkiOjY1fSx7IngiOjQxNy42NDg0Mzc1LCJ5IjoxMDcuNX0seyJ4Ijo0MTcuNjQ4NDM3NSwieSI6MTUwfV0=" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M133.055,207L133.055,214.083C133.055,221.167,133.055,235.333,146.654,249.202C160.254,263.071,187.454,276.643,201.053,283.428L214.653,290.214" id="L_ENV_PROC_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_ENV_PROC_0" data-points="W3sieCI6MTMzLjA1NDY4NzUsInkiOjIwN30seyJ4IjoxMzMuMDU0Njg3NSwieSI6MjQ5LjV9LHsieCI6MjE4LjIzMjM5NDM2NjE5NzE4LCJ5IjoyOTJ9XQ==" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M417.648,207L417.648,214.083C417.648,221.167,417.648,235.333,404.049,249.202C390.449,263.071,363.249,276.643,349.65,283.428L336.05,290.214" id="L_VOL_PROC_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_VOL_PROC_0" data-points="W3sieCI6NDE3LjY0ODQzNzUsInkiOjIwN30seyJ4Ijo0MTcuNjQ4NDM3NSwieSI6MjQ5LjV9LHsieCI6MzMyLjQ3MDczMDYzMzgwMjgsInkiOjI5Mn1d" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/></g><g class="edgeLabels"><g class="edgeLabel" transform="translate(133.0546875, 107.5)"><g class="label" data-id="L_SRC_ENV_0" transform="translate(-59.5390625, -12.5)"><g><rect class="background" style="" x="-2" y="-0.9999980926513672" width="119.078125" height="25"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">env</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> /</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> envFrom</tspan></tspan></text></g></g></g><g class="edgeLabel" transform="translate(417.6484375, 107.5)"><g class="label" data-id="L_SRC_VOL_0" transform="translate(-75.5546875, -12.5)"><g><rect class="background" style="" x="-2" y="-0.9999980926513672" width="151.109375" height="25"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">volume</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> /</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> projected</tspan></tspan></text></g></g></g><g class="edgeLabel" transform="translate(133.0546875, 249.5)"><g class="label" data-id="L_ENV_PROC_0" transform="translate(-57.03125, -12.5)"><g><rect class="background" style="" x="-2" y="-0.9999980926513672" width="114.0625" height="25"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">frozen</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> at</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> start</tspan></tspan></text></g></g></g><g class="edgeLabel" transform="translate(417.6484375, 249.5)"><g class="label" data-id="L_VOL_PROC_0" transform="translate(-41.7734375, -12.5)"><g><rect class="background" style="" x="-2" y="-0.9999980926513672" width="83.546875" height="25"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">live</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> ~sync</tspan></tspan></text></g></g></g></g><g class="nodes"><g class="node default" id="flowchart-SRC-0" transform="translate(275.3515625, 36.5)"><rect class="basic label-container" style="" x="-113.046875" y="-28.5" width="226.09375" height="57"/><g class="label" style="" transform="translate(0, -10.5)"><rect/><g><rect class="background" style="stroke: none"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">ConfigMap</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> /</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> Secret</tspan></tspan></text></g></g></g><g class="node default" id="flowchart-ENV-2" transform="translate(133.0546875, 178.5)"><rect class="basic label-container" style="" x="-125.0546875" y="-28.5" width="250.109375" height="57"/><g class="label" style="" transform="translate(0, -10.5)"><rect/><g><rect class="background" style="stroke: none"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">Environment</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> variables</tspan></tspan></text></g></g></g><g class="node default" id="flowchart-VOL-4" transform="translate(417.6484375, 178.5)"><rect class="basic label-container" style="" x="-89.5390625" y="-28.5" width="179.078125" height="57"/><g class="label" style="" transform="translate(0, -10.5)"><rect/><g><rect class="background" style="stroke: none"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">Mounted</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> files</tspan></tspan></text></g></g></g><g class="node default" id="flowchart-PROC-6" transform="translate(275.3515625, 320.5)"><rect class="basic label-container" style="" x="-109.0390625" y="-28.5" width="218.078125" height="57"/><g class="label" style="" transform="translate(0, -10.5)"><rect/><g><rect class="background" style="stroke: none"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">Container</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> process</tspan></tspan></text></g></g></g></g></g></g></svg></div>
+    </div>
+  </section>
+
+  <!-- 5 — TWO WAYS IN (the spine) -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Two ways in: environment variables vs files</h2>
+      <div class="cards c2">
+        <div class="card">
+          <h3>As environment variables</h3>
+          <p>Injected into the process environment when the container starts.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">syntax</span><span class="val"><code>envFrom</code> (every key) · <code>env</code> + <code>valueFrom</code> (one key)</span></div>
+            <div class="sig"><span class="lbl">on update</span><span class="val">frozen — never changes after start</span></div>
+            <div class="sig"><span class="lbl">good for</span><span class="val">simple, universal scalar settings</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>As mounted files</h3>
+          <p>Projected into a directory — one file per key, key as filename, value as contents.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">syntax</span><span class="val">a <code>configMap</code>/<code>secret</code> volume, or a <code>projected</code> one</span></div>
+            <div class="sig"><span class="lbl">on update</span><span class="val">tracks the source (~sync period)</span></div>
+            <div class="sig"><span class="lbl">good for</span><span class="val">whole files; keeps secrets off the env</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.3rem"><p>A <strong>projected volume</strong> combines a ConfigMap, a Secret, downward-API fields, and a ServiceAccount token into one directory — how every Pod's short-lived token arrives.</p></div>
+    </div>
+  </section>
+
+  <!-- 6 — ENV INJECTION + the invalid-name trap -->
+  <section class="slide">
+    <div class="wrap">
+      <h2><code>envFrom</code> takes every key; <code>env</code> takes one</h2>
+      <div class="terminal">
+<span class="o"># every key of the ConfigMap becomes an env var</span>
+envFrom:
+  - <span class="g">configMapRef</span>: { name: app-config }
+
+<span class="o"># one named key from a Secret becomes one env var</span>
+env:
+  - name: DB_PASSWORD
+    valueFrom:
+      <span class="g">secretKeyRef</span>: { name: database-creds, key: DB_PASSWORD }
+      </div>
+      <div class="note warn" style="margin-top:1.3rem"><p><code>envFrom</code> silently skips any key that isn't a valid env-var name — a key like <code>app.properties</code> (the dot) is dropped, the Pod starts fine, and the only trace is one <code>InvalidEnvironmentVariableNames</code> warning event.</p></div>
+    </div>
+  </section>
+
+  <!-- 7 — THE UPDATE PROBLEM -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Env is frozen; files drift; nothing rolls</h2>
+      <p class="sub" style="margin-bottom:1.4rem">A ConfigMap or Secret edit changes the object in etcd and restarts nothing — what happens next depends on the consumption path.</p>
+      <div class="cards c3">
+        <div class="card bad">
+          <h3>Environment variables</h3>
+          <p>Materialized once, at container start. <strong>Never</strong> update — the process keeps the old value until its Pod is replaced.</p>
+        </div>
+        <div class="card good">
+          <h3>Mounted files</h3>
+          <p>Refreshed by the kubelet on its sync (~1 min). The app still has to <em>re-read</em> the file — "updated" and "picked up" differ.</p>
+        </div>
+        <div class="card warn">
+          <h3><code>subPath</code> mounts</h3>
+          <p>The trap: a single-file <code>subPath</code> mount is frozen like env — it opts out of live updates entirely.</p>
+        </div>
+      </div>
+      <div class="note warn" style="margin-top:1.3rem"><p>No controller watches config objects to roll your Deployments. A config edit, on its own, reaches a running env-consumer <strong>not at all</strong>.</p></div>
+    </div>
+  </section>
+
+  <!-- 8 — MAKING A CHANGE TAKE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Make the change take — on purpose</h2>
+      <div class="cards c2">
+        <div class="card">
+          <h3><code>kubectl rollout restart</code></h3>
+          <p>Replaces every Pod with a fresh one, which re-reads config at start.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">use for</span><span class="val">incidents — fast and obvious</span></div>
+            <div class="sig"><span class="lbl">cost</span><span class="val">imperative; invisible to Git</span></div>
+          </div>
+        </div>
+        <div class="card good">
+          <h3>Config-hash annotation</h3>
+          <p>A checksum of the config in the Pod template — any change changes the template hash and rolls the Deployment.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">use for</span><span class="val">GitOps — declarative, auditable</span></div>
+            <div class="sig"><span class="lbl">free with</span><span class="val">Kustomize / Helm generators</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.3rem"><p>Marking config <code>immutable</code> (GA v1.24) and referencing it by a hashed name makes change-by-recreate the only path — and cuts API-server watch load at scale.</p></div>
+    </div>
+  </section>
+
+  <!-- 9 — SECRETS AREN'T SECRET -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Base64 is encoding, not encryption</h2>
+      <div class="terminal" style="margin-bottom:1.3rem">
+<span class="o"># a Secret's data is base64 — not hidden</span>
+<span class="c">kubectl</span> get secret database-creds -o jsonpath='{.data.DB_PASSWORD}'
+<span class="o">Y2hhbmdlbWU=</span>
+
+<span class="o"># anyone with get-secret decodes it — no key, no permission</span>
+<span class="c">echo</span> Y2hhbmdlbWU= | base64 -d   <span class="g"># → changeme</span>
+      </div>
+      <div class="cards c3">
+        <div class="card"><h3>RBAC</h3><p>Restrict <code>get</code>/<code>list</code> — but note: anyone who can create a Pod in a namespace can mount any Secret in it.</p></div>
+        <div class="card"><h3>Encryption at rest</h3><p>Encrypt Secret values before etcd, ideally via a KMS. Off by default.</p></div>
+        <div class="card"><h3>External stores</h3><p>Vault / cloud managers, sealed-secrets, sops — keep long-lived secrets out of the cluster. <span class="muted">(M11)</span></p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 — THE CONFIG-FAILURE DIFFERENTIAL -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>The config-failure differential</h2>
+      <p class="sub" style="margin-bottom:1.4rem">Four ways the wiring breaks. The status and event name the first three; only the value betrays the fourth.</p>
+      <div class="cards c2">
+        <div class="card bad">
+          <h3><code>CreateContainerConfigError</code></h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">means</span><span class="val">missing env key/object (won't start)</span></div>
+            <div class="sig"><span class="lbl">read</span><span class="val">the <code>env</code> ref vs the object's keys</span></div>
+          </div>
+        </div>
+        <div class="card bad">
+          <h3>stuck <code>ContainerCreating</code></h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">means</span><span class="val"><code>FailedMount</code> — mounted object absent</span></div>
+            <div class="sig"><span class="lbl">read</span><span class="val">the volume; does the Secret exist</span></div>
+          </div>
+        </div>
+        <div class="card bad">
+          <h3>config edited, nothing changed</h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">means</span><span class="val">env frozen; nothing rolled</span></div>
+            <div class="sig"><span class="lbl">read</span><span class="val">the object vs the running value</span></div>
+          </div>
+        </div>
+        <div class="card bad">
+          <h3><code>Running</code>, but wrong</h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">means</span><span class="val">value resolved but incorrect</span></div>
+            <div class="sig"><span class="lbl">read</span><span class="val">the injected value (<code>printenv</code>/<code>cat</code>)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 — SAME ROOT CAUSE, DIFFERENT PHASE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>How you consume decides how it fails</h2>
+      <p class="sub" style="margin-bottom:1.4rem">The same missing-reference bug fails in two completely different places.</p>
+      <div class="cards c2">
+        <div class="card bad">
+          <h3>As env → <code>CreateContainerConfigError</code></h3>
+          <p>The Pod is scheduled and the kubelet tries to <strong>create the container</strong> — but can't assemble its environment. The failure is caught <em>at container creation</em>.</p>
+        </div>
+        <div class="card bad">
+          <h3>As a volume → <code>FailedMount</code></h3>
+          <p>Volume setup is a <strong>precondition</strong> to container creation, so the container is never attempted. The Pod sits in <code>ContainerCreating</code>, the mount retrying.</p>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.3rem"><p>Same root cause — a referenced object that isn't there — caught at a different lifecycle phase. So a different status, a different event, a different place to look.</p></div>
+    </div>
+  </section>
+
+  <!-- 12 — THE GREEN-BUT-WRONG CASE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A green Pod can hold the wrong config</h2>
+      <p class="sub" style="margin-bottom:1.3rem">Running, Ready, every check green — and serving a value that's quietly wrong. No status or event will show it.</p>
+      <div class="terminal">
+<span class="o"># the pod is healthy — read the value it actually got</span>
+<span class="c">kubectl</span> exec deploy/account-provisioner -- printenv DB_PASSWORD
+<span class="r">Y2hhbmdlbWU=</span><span class="o">      # a password shaped like base64 — encoded one time too many</span>
+
+<span class="c">echo</span> Y2hhbmdlbWU= | base64 -d   <span class="g"># → changeme  (the intended value)</span>
+      </div>
+      <div class="note" style="margin-top:1.3rem"><p>The headline status lies — <code>Running</code> ≠ correct, the config sibling of <code>Running</code> ≠ <code>Ready</code> and <code>Complete</code> ≠ correct. You only catch it by reading the value the container received.</p></div>
+    </div>
+  </section>
+
+  <!-- 13 — COMMON FAILURE MODES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Common failure modes</h2>
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th><th>Where to look</th></tr>
+        <tr><td><code>CreateContainerConfigError</code></td><td>Required <code>env</code>/<code>envFrom</code> ref to a missing object or key</td><td class="muted"><code>describe pod</code> events; the ref vs the object's keys</td></tr>
+        <tr><td>stuck <code>ContainerCreating</code></td><td>Volume mount of a Secret/ConfigMap that doesn't exist</td><td class="muted"><code>FailedMount</code> event; the Pod's volumes</td></tr>
+        <tr><td>edit didn't take</td><td>Env consumers are frozen; nothing rolls on a config edit</td><td class="muted">consumed as env or file; <code>rollout restart</code></td></tr>
+        <tr><td>file still stale</td><td><code>subPath</code> mount, or the app never re-read it</td><td class="muted">the mount's <code>subPath</code>; app reload behavior</td></tr>
+        <tr><td><code>Running</code>, wrong value</td><td>Double-base64'd Secret, wrong key, or stale env</td><td class="muted"><code>printenv</code>/<code>cat</code>; decode and compare</td></tr>
+        <tr><td><code>envFrom</code> key absent</td><td>Key isn't a valid env-var name (a <code>.</code> or <code>-</code>) — skipped</td><td class="muted"><code>InvalidEnvironmentVariableNames</code> event</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- 14 — RECAP -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What to carry forward</h2>
+      <ul>
+        <li>Config is separated from the image and delivered at runtime by ConfigMaps and Secrets. <strong>Base64 is encoding, not encryption</strong> — RBAC, encryption-at-rest, and external stores are what protect a Secret.</li>
+        <li>A container consumes config two ways — <strong>environment variables or mounted files</strong> — and the choice decides both how a bad reference fails and whether an edit ever reaches the process.</li>
+        <li><strong>Env vars are frozen at start; mounted files update with the source</strong> (except <code>subPath</code>). A config edit rolls nothing — force it with <code>rollout restart</code> or a config-hash annotation.</li>
+        <li><strong>The differential:</strong> <code>CreateContainerConfigError</code> = missing env key · <code>FailedMount</code> = missing mounted object · stale = nothing rolled · <code>Running</code>-but-wrong = a value that resolved but is incorrect.</li>
+        <li>A green Pod can hold the wrong config. <strong><code>Running</code> ≠ correct</strong> — read the value, not just the status.</li>
+      </ul>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const bar = document.getElementById('bar');
+  const cur = document.getElementById('cur');
+  document.getElementById('tot').textContent = slides.length;
+  let i = 0;
+
+  function show(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s,k)=>s.classList.toggle('active', k===i));
+    bar.style.width = ((i+1)/slides.length*100) + '%';
+    cur.textContent = i+1;
+    history.replaceState(null,'','#'+(i+1));
+  }
+  const next=()=>show(i+1), prev=()=>show(i-1);
+
+  document.addEventListener('keydown', e=>{
+    if(['ArrowRight','PageDown',' '].includes(e.key)){ e.preventDefault(); next(); }
+    else if(['ArrowLeft','PageUp'].includes(e.key)){ e.preventDefault(); prev(); }
+    else if(e.key==='Home') show(0);
+    else if(e.key==='End') show(slides.length-1);
+    else if(e.key==='f'||e.key==='F'){
+      if(!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+  document.getElementById('deck').addEventListener('click', e=>{
+    if(e.target.closest('a')) return;
+    (e.clientX > window.innerWidth/2) ? next() : prev();
+  });
+
+  const start = parseInt((location.hash||'').replace('#',''),10);
+  show(Number.isFinite(start) && start>0 ? start-1 : 0);
+</script>
+</body>
+</html>

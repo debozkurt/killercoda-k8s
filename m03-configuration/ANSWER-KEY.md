@@ -1,0 +1,222 @@
+# M03 — Configuration — Answer Key
+
+> Self-grading reference. Try each scenario first, then come back here to check your diagnostic path against the canonical one. Instructors running the lab live can use the same sections as a teaching script.
+> Environment: Killercoda `kubernetes-kubeadm-2nodes` with the Polyphone baseline, configured for this module: `session-broker` (`media`) consumes an `app-config` ConfigMap, `account-provisioner` (`provisioning`) consumes a `database-creds` Secret as env, and `portal-ui` (`admin-portal`) mounts a `portal-secrets` Secret as files.
+
+## Lesson summary
+
+M03 is about how a Pod gets its configuration — ConfigMaps and Secrets, consumed as environment variables or as mounted files — and the ways that wiring breaks. The `baseline/` scenario tours healthy mechanics: both consumption modes read out of running containers, and a Secret decoded to show base64 is encoding, not security. The four break/fix scenarios walk **the four ways config breaks a workload**:
+
+- `breakfix-01-configmap-key-missing` — `CreateContainerConfigError`: a required env key the ConfigMap doesn't have (won't start, env path)
+- `breakfix-02-secret-volume-missing` — stuck `ContainerCreating` / `FailedMount`: a mounted Secret that was never created (won't start, volume path)
+- `breakfix-03-stale-env-config` — config edited, nothing changed: env is frozen and nothing rolled (won't update)
+- `breakfix-04-secret-double-base64` — `Running` but wrong: a Secret encoded one time too many (runs-but-wrong)
+
+The spine: **how a Pod consumes config decides how it fails.** The same missing-reference root cause produces `CreateContainerConfigError` as env and a `FailedMount` stall as a volume — different statuses, different events, different lifecycle phases. And the through-line from M01/M01b holds: a green status can still be wrong — `Running` ≠ correct.
+
+## Baseline tour reference
+
+No broken state. Expected output per step:
+
+- **Step 1 (objects):** three app-config objects stand out from the platform plumbing — `app-config` (ConfigMap, `media`), `database-creds` (Secret, `provisioning`), `portal-secrets` (Secret, `admin-portal`). `describe configmap app-config` shows `LOG_LEVEL=info`, `MAX_SESSIONS=500`.
+- **Step 2 (env):** `kubectl exec deploy/session-broker -- printenv LOG_LEVEL MAX_SESSIONS` → `info` / `500`, injected by `envFrom`; a Secret consumed as env (`account-provisioner`'s `DB_HOST`/`DB_PASSWORD`) looks identical from inside the container.
+- **Step 3 (files):** `ls /etc/app-config` → `LOG_LEVEL MAX_SESSIONS` (one file per key); `portal-ui` mounts `portal-secrets` at `/etc/portal`. Mounted files track the source on update (~kubelet sync period); env never does; `subPath` is excepted.
+- **Step 4 (base64):** `database-creds` `data` holds base64; `… -o jsonpath='{.data.DB_PASSWORD}' | base64 -d` → `changeme` with no key or special permission. Base64 is encoding, not encryption; the Secret type is `Opaque`.
+
+---
+
+## Break/fix 01 — CreateContainerConfigError
+
+**Symptom:** `session-broker` in `media` won't start after a change; `kubectl logs` is empty (the container never ran). Status is **`CreateContainerConfigError`** — not a crash, not a pull error.
+
+**Root cause:** The container has a required `env.valueFrom.configMapKeyRef` pointing at key `MAX_CONNECTIONS` in the `app-config` ConfigMap, and that key doesn't exist (the map has `LOG_LEVEL` and `MAX_SESSIONS`). The kubelet schedules the Pod, tries to assemble the container's environment, can't find the key, and fails container creation<sup><a href="https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/">[1]</a></sup>. This is the env-injection branch — the Pod got far enough to attempt container creation.
+
+**Diagnostic commands (the canonical path):**
+
+```bash
+# 1. The status itself is the first clue — a config error, not a crash or pull
+kubectl get pods -n media
+# 2. The event names the exact missing key (Events: at the bottom of describe)
+kubectl describe pod -n media -l app=session-broker
+#    Error: couldn't find key MAX_CONNECTIONS in ConfigMap media/app-config
+# 3. Confirm both sides — the env reference (describe hides env → read the yaml)…
+kubectl get deploy session-broker -n media -o yaml | grep -A6 'env:'
+#    key: MAX_CONNECTIONS
+# 4. …and the ConfigMap's actual keys
+kubectl get configmap app-config -n media -o jsonpath='{.data}'; echo
+#    {"LOG_LEVEL":"info","MAX_SESSIONS":"500"}  — no MAX_CONNECTIONS
+```
+
+**Fix:** Make the reference resolve. The intended key here is `MAX_SESSIONS`:
+
+```bash
+kubectl patch deployment session-broker -n media --type=json \
+  -p='[{"op":"replace","path":"/spec/template/spec/containers/0/env/0/valueFrom/configMapKeyRef/key","value":"MAX_SESSIONS"}]'
+```
+
+If the app genuinely needs a `MAX_CONNECTIONS` setting, fix the other side — `kubectl patch configmap app-config -n media -p '{"data":{"MAX_CONNECTIONS":"200"}}'` then `kubectl rollout restart deployment session-broker -n media` (env is frozen). Marking the ref `optional: true` lets the Pod start without the value — only where the app has a sane fallback.
+
+**Verify:**
+
+```bash
+kubectl get pods -n media -l app=session-broker   # Running 1/1
+```
+
+**What this scenario tests:** Reading a config-key failure from the status and event. Self-grading questions:
+
+- Did the `CreateContainerConfigError` status (vs `CrashLoopBackOff` or `ImagePullBackOff`) tell you this was config, not code or image?
+- Did you let the event name the exact key (`couldn't find key MAX_CONNECTIONS`) instead of guessing?
+- Did you check *both* sides — the reference and the ConfigMap's actual keys — before deciding which one to fix?
+
+**Expected time:** 2–4 min once the status is recognized; 6–12 min the first time.
+
+**Production thinking:** A `configMapKeyRef` to a non-existent key is usually a rename gone half-done — the manifest was updated to a new key name, the ConfigMap wasn't (or vice-versa). The durable fix keeps the two in lockstep: template the env reference and the ConfigMap from the same source (Kustomize/Helm), so a key rename touches both at once. `optional: true` is a deliberate choice, not a default — it trades a loud `CreateContainerConfigError` for a silent missing value, which is the right call only when the app degrades gracefully.
+
+---
+
+## Break/fix 02 — stuck ContainerCreating (FailedMount)
+
+**Symptom:** `portal-ui` in `admin-portal` is stuck `0/1` `ContainerCreating` and never goes `Ready`; the admin portal is down. No logs, no config error.
+
+**Root cause:** The Pod mounts a Secret named `portal-secrets` as a volume, but that Secret was never created in the namespace. Volume setup is a precondition to container creation, so the container is never attempted — the Pod sits in `ContainerCreating` while the kubelet retries the mount<sup><a href="https://kubernetes.io/docs/concepts/configuration/secret/">[2]</a></sup>. Same family of root cause as break/fix 01 (a referenced object that isn't there) but a different consumption mode, caught at a different phase.
+
+**Diagnostic commands (the canonical path):**
+
+```bash
+# 1. Stuck ContainerCreating (not a config error, not a crash) → suspect a volume
+kubectl get pods -n admin-portal
+# 2. The FailedMount event names the missing object (Events: in describe)
+kubectl describe pod -n admin-portal -l app=portal-ui
+#    Warning  FailedMount  ... secret "portal-secrets" not found
+# 3. Confirm both sides — the volume the pod mounts…
+kubectl get deploy portal-ui -n admin-portal -o yaml | grep -A4 'volumes:'
+#    secretName: portal-secrets
+# 4. …and whether the Secret exists
+kubectl get secret -n admin-portal
+#    no portal-secrets row
+```
+
+**Fix:** Create the missing Secret in the Pod's namespace; the kubelet's retry loop finishes the mount and the Pod starts — no manual restart needed:
+
+```bash
+kubectl create secret generic portal-secrets \
+  --from-literal=SESSION_SECRET=s3ssion-signing-key \
+  --from-literal=ADMIN_API_KEY=adm-9f2a1c7e \
+  -n admin-portal
+```
+
+**Verify:**
+
+```bash
+kubectl get pods -n admin-portal -l app=portal-ui   # both Running 1/1
+```
+
+**What this scenario tests:** Recognizing a stuck-`ContainerCreating` as a volume problem, not a config-error or scheduling one. Self-grading questions:
+
+- Did `ContainerCreating` + no logs + no `CreateContainerConfigError` lead you to a *mount*, not an env reference?
+- Did you read the `FailedMount` event for the exact missing object rather than assuming a node/scheduling issue?
+- Did you remember Secrets are namespaced — that the fix has to land in `admin-portal`, not wherever the Secret might already exist?
+
+**Expected time:** 2–4 min; 6–12 min the first time (lost time usually goes to chasing scheduling/node problems that aren't there).
+
+**Production thinking:** A missing mounted Secret is rarely "it never existed" — it's applied to the wrong namespace, renamed, or dropped from a manifest set during a refactor. The hand-run `kubectl create` recovers the incident, but the durable fix restores it from the source of truth (a sealed-secret in Git, or a sync from your secret manager — M11), so a redeploy can't lose it again. Alerting on Pods stuck in `ContainerCreating` beyond a threshold catches this class before a human notices the outage.
+
+---
+
+## Break/fix 03 — config edited, nothing changed
+
+**Symptom:** Someone raised `session-broker`'s log level to `debug` by editing the `app-config` ConfigMap. `kubectl get configmap` confirms `debug`, but the workload's logs never changed. The Pod is `Running` and `Ready`; nothing looks broken.
+
+**Root cause:** `session-broker` consumes `app-config` via `envFrom`, as environment variables. Env vars are materialized once, at container start, and never update; and a ConfigMap edit doesn't restart any consumers<sup><a href="https://kubernetes.io/docs/concepts/configuration/configmap/#mounted-configmaps-are-updated-automatically">[3]</a></sup>. So the edit updated the object in etcd while the running Pod kept the `info` value it was born with. (Had the value been a *mounted file*, the kubelet would have refreshed it within ~the sync period — env is the mode with no live-update path.)
+
+**Diagnostic commands (the canonical path):**
+
+```bash
+# 1. The source of truth — the ConfigMap holds the new value
+kubectl get configmap app-config -n media -o jsonpath='{.data.LOG_LEVEL}'; echo   # debug
+# 2. The running container — still the old value
+kubectl exec deploy/session-broker -n media -- printenv LOG_LEVEL                  # info
+# 3. The pod is healthy and old — it never restarted to pick up the edit
+kubectl get pods -n media -l app=session-broker   # Running 1/1, AGE predates the edit
+```
+
+**Fix:** Restart the consumers so they re-read the config at start:
+
+```bash
+kubectl rollout restart deployment session-broker -n media
+kubectl rollout status deployment session-broker -n media
+```
+
+**Verify:**
+
+```bash
+kubectl exec deploy/session-broker -n media -- printenv LOG_LEVEL   # debug
+```
+
+**What this scenario tests:** Knowing that a config edit doesn't propagate to env consumers on its own. Self-grading questions:
+
+- When "the change didn't take," did you compare the ConfigMap value against the *running container's* value, rather than re-checking the ConfigMap (which looked fine)?
+- Did you know *why* — env frozen at start, no auto-rollout on a config edit — rather than just blindly restarting?
+- Could you say what would have been different if the value were a mounted file (live-updated, except `subPath`)?
+
+**Expected time:** 2–4 min if you know the propagation rule; 10–20 min the first time (most of it spent re-checking a ConfigMap that's already correct).
+
+**Production thinking:** `rollout restart` is the right incident tool, but it's imperative and invisible to Git. The durable pattern is a **config-hash annotation** on the Pod template — a checksum of the ConfigMap/Secret, so any config change changes the template hash and rolls the Deployment automatically<sup><a href="https://helm.sh/docs/howto/charts_tips_and_tricks/#automatically-roll-deployments">[4]</a></sup>. Kustomize and Helm config generators do this for you; pairing it with `immutable` + hashed-name config objects makes "change config" mean "create a new object and roll," which can't silently fail to propagate. To detect the stale ones, you'd compare consumed config against current — non-trivial for env, which is why the hash pattern (prevention) beats detection.
+
+---
+
+## Break/fix 04 — Running, but the credential is wrong
+
+**Symptom:** `account-provisioner` in `provisioning` is `Running` and `Ready`, but can't authenticate to its database — provisioning is failing. No crash, no restart, no error event.
+
+**Root cause:** The `database-creds` Secret's `DB_PASSWORD` was base64-encoded twice. A Secret's `data` is already base64, and the kubelet decodes it once before injecting — so a double-encoded value arrives at the container still encoded: the env `DB_PASSWORD` is the literal string `Y2hhbmdlbWU=` (base64 of `changeme`) instead of `changeme`<sup><a href="https://kubernetes.io/docs/concepts/configuration/secret/">[2]</a></sup>. The reference resolved and a value was injected, so every status is green; the value is just wrong.
+
+**Diagnostic commands (the canonical path):**
+
+```bash
+# 1. The pod is healthy — the problem is the value, not the state
+kubectl get pods -n provisioning   # Running 1/1
+# 2. Read the value the container actually got — it looks like base64, not a password
+kubectl exec deploy/account-provisioner -n provisioning -- printenv DB_PASSWORD
+#    Y2hhbmdlbWU=
+# 3. Decode it — that's the intended password, encoded one extra time
+echo 'Y2hhbmdlbWU=' | base64 -d; echo        # changeme
+# 4. The Secret's data is double-encoded: one decode leaves it still base64
+kubectl get secret database-creds -n provisioning -o jsonpath='{.data.DB_PASSWORD}'; echo
+#    WTJoaGJtZGxiV1U9   → base64 -d → Y2hhbmdlbWU=  → base64 -d → changeme
+```
+
+**Fix:** Recreate the Secret with the value encoded exactly once — let the tooling encode it instead of doing it by hand — then roll the consumer (env is frozen):
+
+```bash
+kubectl create secret generic database-creds \
+  --from-literal=DB_HOST=postgres.polyphone.example \
+  --from-literal=DB_PASSWORD=changeme \
+  -n provisioning --dry-run=client -o yaml | kubectl apply -f -
+kubectl rollout restart deployment account-provisioner -n provisioning
+```
+
+(Authoring YAML directly? Put the plaintext in `stringData` and let the API server encode it once.)
+
+**Verify:**
+
+```bash
+kubectl exec deploy/account-provisioner -n provisioning -- printenv DB_PASSWORD   # changeme
+```
+
+**What this scenario tests:** Finding a green-but-wrong config by reading the injected value, and understanding the base64 boundary. Self-grading questions:
+
+- With every status green, did you think to read the *value* (`printenv`) rather than trusting `Running`/`Ready`?
+- Did you recognize a password-shaped-like-base64 as a double-encoding tell, and decode to confirm?
+- Did you fix the encoding *and* roll the consumer — knowing the Secret fix alone wouldn't reach the running Pod (the break/fix 03 lesson)?
+
+**Expected time:** 4–8 min; 10–20 min the first time (the hard part is suspecting the value at all when nothing is in a failed state).
+
+**Production thinking:** Hand-base64'ing is the root mistake — `stringData`, `kubectl create --from-literal`, and every secret-management tool exist so a human never types base64. A green-but-wrong credential is dangerous precisely because nothing pages: the catch is upstream. A schema/lint check in CI that rejects a `data` value which is itself valid base64 of valid base64, or smoke-testing a real auth after a secret change, catches it before prod. And because env is frozen, any secret rotation needs a consumer roll — automate the roll with the config-hash pattern so a rotated-but-not-restarted fleet doesn't keep running on the old credential.
+
+## References
+
+1. Kubernetes — Configure a Pod to Use a ConfigMap: https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/
+2. Kubernetes — Secrets: https://kubernetes.io/docs/concepts/configuration/secret/
+3. Kubernetes — Mounted ConfigMaps are updated automatically: https://kubernetes.io/docs/concepts/configuration/configmap/#mounted-configmaps-are-updated-automatically
+4. Helm — Automatically Roll Deployments (config-hash annotation): https://helm.sh/docs/howto/charts_tips_and_tricks/#automatically-roll-deployments

@@ -1,0 +1,19 @@
+{
+  "title": "M03 — Break/fix 01: CreateContainerConfigError",
+  "description": "A workload won't start and the status is CreateContainerConfigError, not a crash or a pull error. Trace it to a config key the ConfigMap doesn't have, and fix it.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the config error", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
