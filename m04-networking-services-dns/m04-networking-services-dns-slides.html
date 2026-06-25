@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>M04 — Networking I: Services &amp; DNS</title>
+<style>
+  :root{
+    --bg:#0f0f0f;
+    --panel:#1b1b1b;
+    --panel-2:#262626;
+    --ink:#ececec;
+    --ink-dim:#b2b2b2;
+    --ink-faint:#7d7d7d;
+    --line:#373737;
+    --line-2:#565656;
+    --accent:#6db3f2;
+    --good:#7bc47f;
+    --bad:#e08a7b;
+    --warn:#d9b46a;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:1560px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;overflow:hidden;
+  }
+
+  /* ---------- deck / slides ---------- */
+  .deck{height:100vh;width:100vw;position:relative}
+  .slide{
+    position:absolute;inset:0;display:none;
+    flex-direction:column;justify-content:center;align-items:center;
+    padding:4vh 5.5vw 6vh;overflow-y:auto;
+    animation:fade .3s ease;
+  }
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .wrap{width:100%;max-width:var(--maxw)}
+
+  /* ---------- type ---------- */
+  h1{font-size:clamp(3rem,6vw,4.6rem);line-height:1.03;margin:0 0 1.4rem;font-weight:700;letter-spacing:-.015em}
+  h2{font-size:clamp(2.1rem,3.9vw,3.2rem);line-height:1.08;margin:0 0 1.8rem;font-weight:650;letter-spacing:-.015em}
+  h3{font-size:clamp(1.25rem,1.5vw,1.5rem);margin:0 0 .6rem;font-weight:600;color:var(--ink)}
+  p{font-size:clamp(1.2rem,1.55vw,1.5rem);line-height:1.5;color:var(--ink-dim);margin:.55rem 0;max-width:70ch}
+  .lead{font-size:clamp(1.5rem,2.3vw,2rem);color:var(--ink);max-width:56ch;line-height:1.38}
+  strong{color:var(--ink);font-weight:650}
+  em{color:var(--ink-dim);font-style:italic}
+  code,.mono{font-family:var(--mono);font-size:.88em;
+    background:var(--panel-2);padding:.08em .42em;border-radius:5px;color:#dde6ee;
+    overflow-wrap:break-word}
+
+  ul{margin:.6rem 0;padding:0;list-style:none;max-width:88ch}
+  li{font-size:clamp(1.2rem,1.65vw,1.55rem);line-height:1.48;color:var(--ink-dim);
+    padding:.6rem 0 .6rem 1.8rem;position:relative}
+  li::before{content:"";position:absolute;left:.1rem;top:1.0em;width:.42rem;height:.42rem;
+    border-radius:50%;background:var(--ink-dim)}
+  li strong{color:var(--ink)}
+
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:2.4rem;align-items:start;width:100%}
+  .grid-2.tight{gap:1.6rem}
+  .grid-2 > *{min-width:0}
+  .vcenter{align-items:center}
+
+  /* ---------- chrome ---------- */
+  .bar{position:fixed;left:0;bottom:0;height:3px;background:var(--accent);
+    width:0;transition:width .3s ease;z-index:50}
+  .hud{position:fixed;bottom:14px;right:22px;font-family:var(--mono);
+    font-size:.78rem;color:var(--ink-faint);z-index:50;letter-spacing:.05em}
+  .hud b{color:var(--ink-dim);font-weight:600}
+  .brand{position:fixed;bottom:14px;left:22px;font-family:var(--mono);
+    font-size:.72rem;color:var(--ink-faint);z-index:50;letter-spacing:.12em}
+  .hint{position:fixed;top:16px;right:22px;font-family:var(--mono);font-size:.7rem;
+    color:var(--ink-faint);z-index:50;opacity:.65}
+
+  /* ---------- diagram primitives ---------- */
+  .node{
+    background:var(--panel);border:1px solid var(--line-2);border-radius:11px;
+    padding:1rem 1.4rem;text-align:center;min-width:0;
+  }
+  .node .t{font-weight:650;color:var(--ink);font-size:clamp(1.1rem,1.35vw,1.35rem)}
+  .node .s{font-size:clamp(.85rem,1vw,1rem);color:var(--ink-faint);font-family:var(--mono);margin-top:.3rem;white-space:normal}
+  .node.good{border-color:#3f5a40}
+  .node.bad{border-color:#5e3a32}
+  .arrow{color:var(--line-2);font-size:2rem;flex:0 0 auto;padding:0 .2rem;position:relative}
+  .arrow .lbl{font-family:var(--mono);font-size:.78rem;color:var(--ink-faint);
+    position:absolute;left:50%;top:-1.3rem;transform:translateX(-50%);white-space:nowrap}
+  .flow{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;
+    padding:1.5rem 1.6rem;min-width:0}
+  .card.good{border-color:#33502f;background:linear-gradient(180deg,#15201480,#1a1a1a)}
+  .card.bad{border-color:#5a3830;background:linear-gradient(180deg,#20161480,#1a1a1a)}
+  .card.warn{border-color:#5a5030;background:linear-gradient(180deg,#1e1b1280,#1a1a1a)}
+  .card h3{font-size:clamp(1.2rem,1.45vw,1.45rem);letter-spacing:0;color:var(--ink);
+    text-transform:none;font-weight:600}
+  .card h3 code{font-size:.95em}
+  .card h3 .tag{color:var(--ink-faint);font-weight:500;font-size:.92rem}
+  .card p{font-size:clamp(1.12rem,1.35vw,1.32rem);margin:.45rem 0;max-width:none;line-height:1.45}
+  .card ul{max-width:none}
+  .card li{font-size:clamp(1.08rem,1.3vw,1.28rem);padding:.4rem 0 .4rem 1.5rem}
+  .cards{display:grid;gap:1.6rem;width:100%}
+  .cards.c3{grid-template-columns:repeat(3,1fr)}
+  .cards.c2{grid-template-columns:1fr 1fr}
+
+  /* labelled signal / key-value rows inside cards */
+  .sigs{display:flex;flex-direction:column;gap:.7rem;margin-top:1rem;
+    padding-top:.95rem;border-top:1px solid var(--line)}
+  .sig{display:grid;grid-template-columns:auto 1fr;column-gap:.85rem;align-items:baseline;
+    font-size:clamp(1.05rem,1.25vw,1.25rem);line-height:1.4}
+  .sig .lbl{font-family:var(--sans);color:var(--ink-faint);white-space:nowrap;
+    font-size:.72em;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+  .sig .val{color:var(--ink-dim)}
+  .sig .val code{font-size:.92em}
+
+  table{border-collapse:collapse;width:100%;font-size:clamp(1.1rem,1.5vw,1.4rem)}
+  th,td{text-align:left;padding:.85rem 1rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink-faint);font-weight:600;font-size:clamp(.85rem,1vw,1rem);text-transform:uppercase;letter-spacing:.06em}
+  td{color:var(--ink-dim)}
+  td:first-child{color:var(--ink);font-weight:600;white-space:nowrap}
+  tr:hover td{background:#ffffff06}
+  table code{white-space:nowrap}
+
+  .note{border-left:3px solid var(--accent);padding:.4rem 0 .4rem 1.3rem;margin:1.3rem 0;max-width:84ch}
+  .note.warn{border-color:var(--warn)}
+  .note p{margin:0;font-size:clamp(1.2rem,1.55vw,1.45rem);color:var(--ink);line-height:1.45}
+
+  .terminal{background:#0a0a0a;border:1px solid var(--line);border-radius:11px;
+    font-family:var(--mono);font-size:clamp(1.05rem,1.5vw,1.35rem);padding:1.4rem 1.6rem;
+    color:#cfd6dd;line-height:1.7;width:100%;overflow-x:auto;white-space:pre}
+  .terminal .c{color:var(--accent)}   /* command */
+  .terminal .o{color:var(--ink-faint)} /* output / comment */
+  .terminal .g{color:var(--good)}      /* highlight */
+  .terminal .r{color:var(--bad)}       /* failure */
+
+  .phase{padding:.85rem 1.2rem;border-radius:10px;border:1px solid var(--line-2);
+    background:var(--panel);font-family:var(--mono);font-size:clamp(1.05rem,1.25vw,1.25rem);text-align:center}
+  .phase.run{border-color:#3f5a40}
+  .phase.term{border-color:#5e3a32}
+
+  /* vertical sequence ladder */
+  .ladder{display:flex;flex-direction:column;width:100%}
+  .rung{display:grid;grid-template-columns:auto 1fr;column-gap:1.3rem;position:relative}
+  .rung .rail{display:flex;flex-direction:column;align-items:center}
+  .rung .dot{width:15px;height:15px;border-radius:50%;background:var(--line-2);margin-top:.4rem;z-index:2}
+  .rung .dot.k{background:var(--bad)}
+  .rung .dot.ok{background:var(--good)}
+  .rung .line{flex:1;width:2px;background:var(--line)}
+  .rung:last-child .line{display:none}
+  .rung .body{padding-bottom:1.6rem}
+  .rung .body b{color:var(--ink);font-size:clamp(1.2rem,1.45vw,1.4rem);font-weight:600}
+  .rung .body span{display:block;color:var(--ink-faint);font-size:clamp(1.02rem,1.2vw,1.18rem);margin-top:.2rem}
+
+  /* containment box: a boundary enclosing items over a shared substrate */
+  .boundary{position:relative;border:1.5px solid var(--line-2);border-radius:16px;
+    padding:1.6rem 1.4rem 1.4rem;background:#15151580;width:100%}
+  .boundary .tag{position:absolute;top:-.8rem;left:1.3rem;background:var(--bg);padding:0 .6rem;
+    font-family:var(--mono);font-size:.85rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim)}
+  .items{display:flex;gap:1rem;flex-wrap:wrap}
+  .item{flex:1 1 0;min-width:120px;background:var(--panel);border:1px solid var(--line-2);
+    border-radius:10px;padding:.95rem 1rem;text-align:center}
+  .item b{display:block;color:var(--ink);font-size:clamp(1.05rem,1.3vw,1.25rem);font-weight:600}
+  .item span{display:block;color:var(--ink-faint);font-family:var(--mono);font-size:.85rem;margin-top:.25rem}
+
+  /* mermaid: wraps a PRE-RENDERED inline <svg> (no CDN runtime) */
+  .mermaid{width:100%;display:flex;justify-content:center}
+  .mermaid svg{max-width:100%;height:auto;max-height:52vh;overflow:visible}
+  .mermaid svg text,.mermaid svg tspan{font-family:Helvetica,Arial,sans-serif !important}
+
+  .muted{color:var(--ink-faint)} .accent{color:var(--accent)}
+  .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  .sub{font-size:clamp(1.2rem,1.5vw,1.45rem);color:var(--ink-dim);line-height:1.4;
+    max-width:74ch;margin:.2rem 0 0}
+  h1:has(+ .sub), h2:has(+ .sub){margin-bottom:.5rem}
+
+  @media (max-width:880px){
+    .cards.c3,.cards.c2,.grid-2{grid-template-columns:1fr}
+    .slide{padding:4vh 6vw 8vh}
+  }
+
+  /* print / PDF: every slide on its own page (Cmd-P → Save as PDF) */
+  @media print{
+    @page{size:landscape;margin:0}
+    html,body{height:auto;overflow:visible}
+    body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .bar,.hud,.brand,.hint{display:none !important}
+    .deck{height:auto;position:static}
+    .slide{display:flex !important;position:relative;inset:auto;
+      width:100vw;height:100vh;overflow:hidden;break-after:page;page-break-after:always;animation:none}
+    .slide:last-child{break-after:auto;page-break-after:auto}
+  }
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div><div class="brand">M04 · SERVICES &amp; DNS</div>
+<div class="hud"><b id="cur">1</b> / <span id="tot">1</span></div>
+
+<div class="deck" id="deck">
+
+  <!-- 1 — TITLE -->
+  <section class="slide">
+    <div class="wrap">
+      <h1>Services<br/>&amp; DNS</h1>
+      <p class="lead">How a stable name reaches a moving set of Pods — Services, selectors, EndpointSlices, kube-proxy, and cluster DNS — and the three places traffic silently stops flowing.</p>
+      <div class="note" style="margin-top:1.8rem">
+        <p><code>connection refused</code> is a category, not a diagnosis. The client error says it broke; the <strong>EndpointSlice</strong> and the <strong>DNS answer</strong> say where.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 — OBJECTIVES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What you'll walk away with</h2>
+      <ul>
+        <li><strong>The Service</strong> — a stable name and virtual IP in front of Pods whose own IPs change constantly</li>
+        <li><strong>Selector → EndpointSlice</strong> — how a Service finds its Pods, and the one command that proves it has any</li>
+        <li><strong>Ports</strong> — <code>port</code> vs <code>targetPort</code> vs <code>containerPort</code>, and which one opens a socket</li>
+        <li><strong>Cluster DNS</strong> — the <code>&lt;svc&gt;.&lt;ns&gt;.svc.cluster.local</code> naming scheme, search domains, and <code>ndots</code></li>
+        <li><strong>The connectivity differential</strong> — name didn't resolve · no endpoints · wrong port</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 3 — WHY A SERVICE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A stable identity in front of churn</h2>
+      <p class="sub" style="margin-bottom:1.8rem">Pods are disposable — a rollout, a drain, an autoscaler, and their IPs are gone. The Service is the name and IP that don't move.</p>
+      <div class="flow" style="margin:.5rem 0 1.4rem;justify-content:center;gap:1.1rem">
+        <div class="node"><div class="t">Client</div><div class="s">holds a name</div></div>
+        <div class="arrow"><span class="lbl">resolve + route</span>→</div>
+        <div class="node good"><div class="t">Service</div><div class="s">stable name + ClusterIP</div></div>
+        <div class="arrow"><span class="lbl">selector</span>→</div>
+        <div class="node"><div class="t">Pods</div><div class="s">churn underneath</div></div>
+      </div>
+      <div class="note"><p>Clients hold the name; the platform churns the Pods. The ClusterIP is stable for the Service's life — no single Pod holds it.</p></div>
+    </div>
+  </section>
+
+  <!-- 4 — MENTAL MODEL (mermaid: request path with three failure leaves) -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>One request path, three places it breaks</h2>
+      <p class="sub" style="margin-bottom:1.2rem">Each hop is owned by a different component. Read where it stopped and you know which one.</p>
+      <div class="mermaid"><svg id="my-svg" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="flowchart" style="max-width: 1319.69px; background-color: transparent;" viewBox="0 0 1319.6875 382.3515625" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#my-svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;fill:#ececec;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#my-svg .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#my-svg .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#my-svg .error-icon{fill:#1f1f1f;}#my-svg .error-text{fill:#e0e0e0;stroke:#e0e0e0;}#my-svg .edge-thickness-normal{stroke-width:1px;}#my-svg .edge-thickness-thick{stroke-width:3.5px;}#my-svg .edge-pattern-solid{stroke-dasharray:0;}#my-svg .edge-thickness-invisible{stroke-width:0;fill:none;}#my-svg .edge-pattern-dashed{stroke-dasharray:3;}#my-svg .edge-pattern-dotted{stroke-dasharray:2;}#my-svg .marker{fill:#7d7d7d;stroke:#7d7d7d;}#my-svg .marker.cross{stroke:#7d7d7d;}#my-svg svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;}#my-svg p{margin:0;}#my-svg .label{font-family:"trebuchet ms",verdana,arial,sans-serif;color:#ececec;}#my-svg .cluster-label text{fill:#e0e0e0;}#my-svg .cluster-label span{color:#e0e0e0;}#my-svg .cluster-label span p{background-color:transparent;}#my-svg .label text,#my-svg span{fill:#ececec;color:#ececec;}#my-svg .node rect,#my-svg .node circle,#my-svg .node ellipse,#my-svg .node polygon,#my-svg .node path{fill:#1b1b1b;stroke:#565656;stroke-width:1px;}#my-svg .rough-node .label text,#my-svg .node .label text,#my-svg .image-shape .label,#my-svg .icon-shape .label{text-anchor:middle;}#my-svg .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#my-svg .rough-node .label,#my-svg .node .label,#my-svg .image-shape .label,#my-svg .icon-shape .label{text-align:center;}#my-svg .node.clickable{cursor:pointer;}#my-svg .root .anchor path{fill:#7d7d7d!important;stroke-width:0;stroke:#7d7d7d;}#my-svg .arrowheadPath{fill:rgba(255, 255, 255, 0);}#my-svg .edgePath .path{stroke:#7d7d7d;stroke-width:2.0px;}#my-svg .flowchart-link{stroke:#7d7d7d;fill:none;}#my-svg .edgeLabel{background-color:#262626;text-align:center;}#my-svg .edgeLabel p{background-color:#262626;}#my-svg .edgeLabel rect{opacity:0.5;background-color:#262626;fill:#262626;}#my-svg .labelBkg{background-color:rgba(38, 38, 38, 0.5);}#my-svg .cluster rect{fill:#1f1f1f;stroke:#565656;stroke-width:1px;}#my-svg .cluster text{fill:#e0e0e0;}#my-svg .cluster span{color:#e0e0e0;}#my-svg div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:12px;background:#1f1f1f;border:1px solid #565656;border-radius:2px;pointer-events:none;z-index:100;}#my-svg .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#ececec;}#my-svg rect.text{fill:none;stroke-width:0;}#my-svg .icon-shape,#my-svg .image-shape{background-color:#262626;text-align:center;}#my-svg .icon-shape p,#my-svg .image-shape p{background-color:#262626;padding:2px;}#my-svg .icon-shape rect,#my-svg .image-shape rect{opacity:0.5;background-color:#262626;fill:#262626;}#my-svg .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#my-svg .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#my-svg :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}#my-svg .fail&gt;*{stroke:#b9685a!important;stroke-width:1.6px!important;color:#e6b3a8!important;}#my-svg .fail span{stroke:#b9685a!important;stroke-width:1.6px!important;color:#e6b3a8!important;}#my-svg .fail tspan{fill:#e6b3a8!important;}#my-svg .ok&gt;*{stroke:#6f9e6f!important;stroke-width:1.6px!important;color:#abd0ab!important;}#my-svg .ok span{stroke:#6f9e6f!important;stroke-width:1.6px!important;color:#abd0ab!important;}#my-svg .ok tspan{fill:#abd0ab!important;}</style><g><marker id="my-svg_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><g class="root"><g class="clusters"/><g class="edgePaths"><path d="M145.906,111.973L154.348,111.973C162.789,111.973,179.672,111.973,195.888,111.973C212.104,111.973,227.654,111.973,235.428,111.973L243.203,111.973" id="L_A_B_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_A_B_0" data-points="W3sieCI6MTQ1LjkwNjI1LCJ5IjoxMTEuOTcyNjU2MjV9LHsieCI6MTk2LjU1NDY4NzUsInkiOjExMS45NzI2NTYyNX0seyJ4IjoyNDcuMjAzMTI1LCJ5IjoxMTEuOTcyNjU2MjV9XQ==" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M364.264,87.393L380.691,78.661C397.119,69.929,429.973,52.464,459.625,43.732C489.276,35,515.724,35,528.948,35L542.172,35" id="L_B_E1_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_B_E1_0" data-points="W3sieCI6MzY0LjI2NDAxODQ2NjUzNDYsInkiOjg3LjM5MjkyNDcxNjUzNDU3fSx7IngiOjQ2Mi44MjgxMjUsInkiOjM1fSx7IngiOjU0Ni4xNzE4NzUsInkiOjM1fV0=" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M364.264,136.552L380.691,145.285C397.119,154.017,429.973,171.481,458.065,180.213C486.156,188.945,509.484,188.945,521.148,188.945L532.813,188.945" id="L_B_C_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_B_C_0" data-points="W3sieCI6MzY0LjI2NDAxODQ2NjUzNDYsInkiOjEzNi41NTIzODc3ODM0NjU0M30seyJ4Ijo0NjIuODI4MTI1LCJ5IjoxODguOTQ1MzEyNX0seyJ4Ijo1MzYuODEyNSwieSI6MTg4Ljk0NTMxMjV9XQ==" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M663.265,161.507L679.795,152.346C696.325,143.184,729.385,124.862,757.206,115.7C785.026,106.539,807.607,106.539,818.897,106.539L830.188,106.539" id="L_C_E2_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_E2_0" data-points="W3sieCI6NjYzLjI2NTAxOTY1MDEwMTQsInkiOjE2MS41MDcyMDcxNTAxMDE0fSx7IngiOjc2Mi40NDUzMTI1LCJ5IjoxMDYuNTM5MDYyNX0seyJ4Ijo4MzQuMTg3NSwieSI6MTA2LjUzOTA2MjV9XQ==" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M663.265,216.383L679.795,225.545C696.325,234.706,729.385,253.029,761.819,262.19C794.253,271.352,826.06,271.352,841.964,271.352L857.867,271.352" id="L_C_D_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_D_0" data-points="W3sieCI6NjYzLjI2NTAxOTY1MDEwMTQsInkiOjIxNi4zODM0MTc4NDk4OTg2fSx7IngiOjc2Mi40NDUzMTI1LCJ5IjoyNzEuMzUxNTYyNX0seyJ4Ijo4NjEuODY3MTg3NSwieSI6MjcxLjM1MTU2MjV9XQ==" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M989.712,247.572L1004.38,240.868C1019.048,234.165,1048.383,220.758,1068.476,214.055C1088.568,207.352,1099.417,207.352,1104.841,207.352L1110.266,207.352" id="L_D_E3_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_E3_0" data-points="W3sieCI6OTg5LjcxMjQyNzE5MDYyMywieSI6MjQ3LjU3MTgwMjE5MDYyMjk4fSx7IngiOjEwNzcuNzE4NzUsInkiOjIwNy4zNTE1NjI1fSx7IngiOjExMTQuMjY1NjI1LCJ5IjoyMDcuMzUxNTYyNX1d" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M989.712,295.131L1004.38,301.835C1019.048,308.538,1048.383,321.945,1071.853,328.648C1095.323,335.352,1112.927,335.352,1121.729,335.352L1130.531,335.352" id="L_D_F_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_F_0" data-points="W3sieCI6OTg5LjcxMjQyNzE5MDYyMywieSI6Mjk1LjEzMTMyMjgwOTM3N30seyJ4IjoxMDc3LjcxODc1LCJ5IjozMzUuMzUxNTYyNX0seyJ4IjoxMTM0LjUzMTI1LCJ5IjozMzUuMzUxNTYyNX1d" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/></g><g class="edgeLabels"><g class="edgeLabel" transform="translate(196.5546875, 111.97265625)"><g class="label" data-id="L_A_B_0" transform="translate(-25.6484375, -12)"><foreignObject width="51.296875" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>resolve</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(462.828125, 35)"><g class="label" data-id="L_B_E1_0" transform="translate(-8.6640625, -12)"><foreignObject width="17.328125" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>no</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(462.828125, 188.9453125)"><g class="label" data-id="L_B_C_0" transform="translate(-48.984375, -12)"><foreignObject width="97.96875" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>yes: ClusterIP</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(762.4453125, 106.5390625)"><g class="label" data-id="L_C_E2_0" transform="translate(-8.6640625, -12)"><foreignObject width="17.328125" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>no</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(762.4453125, 271.3515625)"><g class="label" data-id="L_C_D_0" transform="translate(-46.7421875, -12)"><foreignObject width="93.484375" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>yes: backend</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(1077.71875, 207.3515625)"><g class="label" data-id="L_D_E3_0" transform="translate(-8.6640625, -12)"><foreignObject width="17.328125" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>no</p></span></div></foreignObject></g></g><g class="edgeLabel" transform="translate(1077.71875, 335.3515625)"><g class="label" data-id="L_D_F_0" transform="translate(-11.546875, -12)"><foreignObject width="23.09375" height="24"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"><p>yes</p></span></div></foreignObject></g></g></g><g class="nodes"><g class="node default" id="flowchart-A-0" transform="translate(76.953125, 111.97265625)"><rect class="basic label-container" style="" x="-68.953125" y="-39" width="137.90625" height="78"/><g class="label" style="" transform="translate(-38.953125, -24)"><rect/><foreignObject width="77.90625" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>Client uses<br />a name</p></span></div></foreignObject></g></g><g class="node default" id="flowchart-B-1" transform="translate(318.0234375, 111.97265625)"><polygon points="70.8203125,0 141.640625,-70.8203125 70.8203125,-141.640625 0,-70.8203125" class="label-container" transform="translate(-70.3203125, 70.8203125)"/><g class="label" style="" transform="translate(-31.8203125, -24)"><rect/><foreignObject width="63.640625" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>name<br />resolves?</p></span></div></foreignObject></g></g><g class="node default fail" id="flowchart-E1-3" transform="translate(613.7578125, 35)"><rect class="basic label-container" style="stroke:#b9685a !important;stroke-width:1.6px !important" x="-67.5859375" y="-27" width="135.171875" height="54"/><g class="label" style="color:#e6b3a8 !important" transform="translate(-37.5859375, -12)"><rect/><foreignObject width="75.171875" height="24"><div style="color: rgb(230, 179, 168) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#e6b3a8 !important" class="nodeLabel"><p>NXDOMAIN</p></span></div></foreignObject></g></g><g class="node default" id="flowchart-C-5" transform="translate(613.7578125, 188.9453125)"><polygon points="76.9453125,0 153.890625,-76.9453125 76.9453125,-153.890625 0,-76.9453125" class="label-container" transform="translate(-76.4453125, 76.9453125)"/><g class="label" style="" transform="translate(-37.9453125, -24)"><rect/><foreignObject width="75.890625" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>Ready<br />endpoints?</p></span></div></foreignObject></g></g><g class="node default fail" id="flowchart-E2-7" transform="translate(937.6796875, 106.5390625)"><rect class="basic label-container" style="stroke:#b9685a !important;stroke-width:1.6px !important" x="-103.4921875" y="-39" width="206.984375" height="78"/><g class="label" style="color:#e6b3a8 !important" transform="translate(-73.4921875, -24)"><rect/><foreignObject width="146.984375" height="48"><div style="color: rgb(230, 179, 168) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#e6b3a8 !important" class="nodeLabel"><p>connection fails<br />empty EndpointSlice</p></span></div></foreignObject></g></g><g class="node default" id="flowchart-D-9" transform="translate(937.6796875, 271.3515625)"><polygon points="75.8125,0 151.625,-75.8125 75.8125,-151.625 0,-75.8125" class="label-container" transform="translate(-75.3125, 75.8125)"/><g class="label" style="" transform="translate(-36.8125, -24)"><rect/><foreignObject width="73.625" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>port has<br />a listener?</p></span></div></foreignObject></g></g><g class="node default fail" id="flowchart-E3-11" transform="translate(1212.9765625, 207.3515625)"><rect class="basic label-container" style="stroke:#b9685a !important;stroke-width:1.6px !important" x="-98.7109375" y="-39" width="197.421875" height="78"/><g class="label" style="color:#e6b3a8 !important" transform="translate(-68.7109375, -24)"><rect/><foreignObject width="137.421875" height="48"><div style="color: rgb(230, 179, 168) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#e6b3a8 !important" class="nodeLabel"><p>connection refused<br />RST from Pod</p></span></div></foreignObject></g></g><g class="node default ok" id="flowchart-F-13" transform="translate(1212.9765625, 335.3515625)"><rect class="basic label-container" style="stroke:#6f9e6f !important;stroke-width:1.6px !important" x="-78.4453125" y="-39" width="156.890625" height="78"/><g class="label" style="color:#abd0ab !important" transform="translate(-48.4453125, -24)"><rect/><foreignObject width="96.890625" height="48"><div style="color: rgb(171, 208, 171) !important; display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;" xmlns="http://www.w3.org/1999/xhtml"><span style="color:#abd0ab !important" class="nodeLabel"><p>bytes reach<br />the container</p></span></div></foreignObject></g></g></g></g></g></svg></div>
+    </div>
+  </section>
+
+  <!-- 5 — SELECTOR → ENDPOINTSLICE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A Service finds Pods by selector;<br/>the EndpointSlice is the proof</h2>
+      <div class="terminal">
+<span class="o"># the selector defines the backend set</span>
+<span class="c">kubectl</span> get svc session-broker -n media -o jsonpath='{.spec.selector}'
+<span class="o">{"app":"session-broker"}</span>
+
+<span class="o"># the EndpointSlice is the result — Ready Pods only</span>
+<span class="c">kubectl</span> get endpoints session-broker -n media
+<span class="o">NAME             ENDPOINTS</span>
+session-broker   <span class="g">10.244.1.7:80,10.244.2.4:80</span>
+      </div>
+      <div class="note" style="margin-top:1.3rem"><p><code>get svc</code> proves the Service <em>exists</em>; <code>get endpoints</code> proves it has somewhere to send traffic. A failed readiness probe pulls a Pod from the slice without killing it — readiness doubles as load-balancer membership.</p></div>
+    </div>
+  </section>
+
+  <!-- 6 — SERVICE TYPES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Service types</h2>
+      <p class="sub" style="margin-bottom:1.4rem">All but headless sit on the same selector → EndpointSlice mechanism; they differ in <em>where</em> the Service is reachable from.</p>
+      <table>
+        <tr><th>Type</th><th>What it gives you</th><th>Reachable from</th></tr>
+        <tr><td>ClusterIP</td><td>A virtual IP load-balanced to backends (the default)</td><td class="muted">inside the cluster</td></tr>
+        <tr><td>NodePort</td><td>A fixed port on every node's IP, forwarding to the Service</td><td class="muted">any node IP, externally</td></tr>
+        <tr><td>LoadBalancer</td><td>Provisions an external load balancer in front of a NodePort</td><td class="muted">the internet / VPC</td></tr>
+        <tr><td>ExternalName</td><td>A CNAME to an external DNS name — no selector, no proxying</td><td class="muted">resolves in DNS only</td></tr>
+        <tr><td>headless</td><td><code>clusterIP: None</code> — DNS returns Pod IPs directly, no VIP</td><td class="muted">per-Pod, for StatefulSets</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- 7 — PORTS -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Three port fields; only one opens a socket</h2>
+      <div class="cards c3">
+        <div class="card">
+          <h3><code>port</code></h3>
+          <p>What clients connect to — <code>&lt;svc&gt;:&lt;port&gt;</code>.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">lives on</span><span class="val">the Service</span></div></div>
+        </div>
+        <div class="card">
+          <h3><code>targetPort</code></h3>
+          <p>The Pod port the Service forwards to. Defaults to <code>port</code>. <strong>This</strong> decides where traffic is delivered.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">lives on</span><span class="val">the Service</span></div></div>
+        </div>
+        <div class="card warn">
+          <h3><code>containerPort</code></h3>
+          <p>Documentation. Advertises intent; opens nothing. The process listens on whatever it listens on.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">lives on</span><span class="val">the Pod spec</span></div></div>
+        </div>
+      </div>
+      <div class="note warn" style="margin-top:1.3rem"><p>When <code>targetPort</code> points at a port nothing listens on, the EndpointSlice is fully populated and the connection is still refused — a perfect-looking Service that sends traffic to a dead port.</p></div>
+    </div>
+  </section>
+
+  <!-- 8 — KUBE-PROXY -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>The ClusterIP is data, not a host</h2>
+      <p class="sub" style="margin-bottom:1.6rem">No process holds it; no interface answers for it. kube-proxy compiles the Service into kernel rules on every node.</p>
+      <div class="flow" style="margin:.3rem 0 1.4rem;justify-content:center;gap:1rem">
+        <div class="node"><div class="t">Service + slice</div><div class="s">the data</div></div>
+        <div class="arrow"><span class="lbl">kube-proxy</span>→</div>
+        <div class="node"><div class="t">kernel rules</div><div class="s">DNAT per node</div></div>
+        <div class="arrow">→</div>
+        <div class="node good"><div class="t">backend Pod</div><div class="s">:targetPort</div></div>
+      </div>
+      <div class="grid-2 tight">
+        <div class="note"><p>One node reaches a Service and another can't? Suspect that node's kube-proxy or its rules — the Service object is identical clusterwide. Modes: <code>iptables</code> (default), <code>IPVS</code> (at scale), <code>nftables</code> (newer).</p></div>
+        <div class="note warn"><p>Zero endpoints → kube-proxy installs a <em>reject</em> rule, so the client's connection is refused rather than silently hung.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9 — CLUSTER DNS -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Names: <code>&lt;svc&gt;.&lt;ns&gt;.svc.cluster.local</code></h2>
+      <div class="terminal">
+<span class="o"># every Pod resolves via CoreDNS — see its resolver config</span>
+<span class="c">cat</span> /etc/resolv.conf
+nameserver 10.96.0.10
+<span class="g">search media.svc.cluster.local svc.cluster.local cluster.local</span>
+options ndots:5
+
+<span class="o"># short name expands via the search list; FQDN is unambiguous</span>
+<span class="c">nslookup</span> session-broker.media        <span class="o"># → ClusterIP</span>
+      </div>
+      <div class="note warn" style="margin-top:1.3rem"><p>The search domains are built from the <strong>caller's</strong> namespace. A bare <code>session-broker</code> from another namespace expands to <code>session-broker.&lt;caller-ns&gt;.svc…</code> → <code>NXDOMAIN</code>. Qualify cross-namespace calls with <code>&lt;svc&gt;.&lt;ns&gt;</code>.</p></div>
+    </div>
+  </section>
+
+  <!-- 10 — THE CONNECTIVITY DIFFERENTIAL -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>The connectivity differential</h2>
+      <p class="sub" style="margin-bottom:1.4rem">Three ways the path breaks, in the order a request hits them. Each has a distinct signature.</p>
+      <div class="cards c3">
+        <div class="card bad">
+          <h3>Name didn't resolve</h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">signature</span><span class="val"><code>NXDOMAIN</code> / can't resolve</span></div>
+            <div class="sig"><span class="lbl">cause</span><span class="val">short name across namespaces</span></div>
+            <div class="sig"><span class="lbl">fix</span><span class="val">qualify <code>&lt;svc&gt;.&lt;ns&gt;</code></span></div>
+          </div>
+        </div>
+        <div class="card bad">
+          <h3>No endpoints</h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">signature</span><span class="val">fails, <code>endpoints</code> = <code>&lt;none&gt;</code></span></div>
+            <div class="sig"><span class="lbl">cause</span><span class="val">selector matches no Ready Pod</span></div>
+            <div class="sig"><span class="lbl">fix</span><span class="val">match selector to labels</span></div>
+          </div>
+        </div>
+        <div class="card bad">
+          <h3>Wrong port</h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">signature</span><span class="val">refused, <code>endpoints</code> populated</span></div>
+            <div class="sig"><span class="lbl">cause</span><span class="val"><code>targetPort</code> has no listener</span></div>
+            <div class="sig"><span class="lbl">fix</span><span class="val">point at the real port</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 — TWO REFUSED, ONE DISCRIMINATOR -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Same refusal, two causes —<br/>the EndpointSlice decides</h2>
+      <p class="sub" style="margin-bottom:1.4rem">A connection failure looks identical from the client. One command tells the two apart.</p>
+      <div class="cards c2">
+        <div class="card bad">
+          <h3>Empty EndpointSlice</h3>
+          <p>The Service has no backends — kube-proxy rejects the traffic. A healthy-looking Service routing to nothing.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">get endpoints</span><span class="val"><code>&lt;none&gt;</code> → selector / readiness</span></div></div>
+        </div>
+        <div class="card bad">
+          <h3>Populated EndpointSlice</h3>
+          <p>Traffic reaches a Pod and is rejected — nothing listens on the delivered port.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">get endpoints</span><span class="val">Pod IPs listed → <code>targetPort</code></span></div></div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.3rem"><p>The headline lies — <code>get svc</code> looks fine in both. <strong>Read the endpoints, not the client error.</strong> Empty vs populated is the whole diagnosis — the same instinct as <code>Running</code> ≠ <code>Ready</code>.</p></div>
+    </div>
+  </section>
+
+  <!-- 12 — COMMON FAILURE MODES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Common failure modes</h2>
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th><th>Where to look</th></tr>
+        <tr><td>can't resolve, <code>NXDOMAIN</code></td><td>Short name across namespaces, or a typo'd name</td><td class="muted">the name vs <code>&lt;svc&gt;.&lt;ns&gt;</code>; the Pod's <code>resolv.conf</code></td></tr>
+        <tr><td>fails, <code>endpoints</code> <code>&lt;none&gt;</code></td><td>Selector matches no Pods, or matched Pods aren't Ready</td><td class="muted"><code>get endpoints</code>; selector vs Pod labels; readiness</td></tr>
+        <tr><td>refused, endpoints present</td><td><code>targetPort</code> points at a port with no listener</td><td class="muted"><code>targetPort</code> vs the real listener (not <code>containerPort</code>)</td></tr>
+        <tr><td>works in-ns, not cross-ns</td><td>Short name; or a NetworkPolicy</td><td class="muted">qualify the name; NetworkPolicies in either ns</td></tr>
+        <tr><td>one node connects, another doesn't</td><td>Node-local kube-proxy / kernel rules</td><td class="muted">kube-proxy Pod on the failing node</td></tr>
+        <tr><td>all DNS failing everywhere</td><td>CoreDNS down or misconfigured</td><td class="muted"><code>kube-system</code> CoreDNS Pods; <code>kube-dns</code> endpoints</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- 13 — RECAP -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What to carry forward</h2>
+      <ul>
+        <li>A Service is a <strong>stable name and virtual IP</strong> in front of a changing set of Pods, defined by a selector and materialized — for Ready Pods only — in an <strong>EndpointSlice</strong>.</li>
+        <li><strong>A healthy-looking Service can route to nothing.</strong> <code>get svc</code> proves it exists; <code>get endpoints</code> proves it has backends — check the endpoints, not just the status.</li>
+        <li><strong><code>port</code> is what clients hit; <code>targetPort</code> is the Pod port forwarded to; <code>containerPort</code> opens nothing.</strong> Endpoints can be perfect while the port is dead.</li>
+        <li><strong>Short names resolve only inside the caller's namespace</strong> — qualify cross-namespace calls with <code>&lt;svc&gt;.&lt;ns&gt;</code>.</li>
+        <li><strong>The differential:</strong> <code>NXDOMAIN</code> = name · empty endpoints = selector/readiness · refused-with-endpoints = port. The client error says it broke; the EndpointSlice and DNS answer say where.</li>
+      </ul>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const bar = document.getElementById('bar');
+  const cur = document.getElementById('cur');
+  document.getElementById('tot').textContent = slides.length;
+  let i = 0;
+
+  function show(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s,k)=>s.classList.toggle('active', k===i));
+    bar.style.width = ((i+1)/slides.length*100) + '%';
+    cur.textContent = i+1;
+    history.replaceState(null,'','#'+(i+1));
+  }
+  const next=()=>show(i+1), prev=()=>show(i-1);
+
+  document.addEventListener('keydown', e=>{
+    if(['ArrowRight','PageDown',' '].includes(e.key)){ e.preventDefault(); next(); }
+    else if(['ArrowLeft','PageUp'].includes(e.key)){ e.preventDefault(); prev(); }
+    else if(e.key==='Home') show(0);
+    else if(e.key==='End') show(slides.length-1);
+    else if(e.key==='f'||e.key==='F'){
+      if(!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+  document.getElementById('deck').addEventListener('click', e=>{
+    if(e.target.closest('a')) return;
+    (e.clientX > window.innerWidth/2) ? next() : prev();
+  });
+
+  const start = parseInt((location.hash||'').replace('#',''),10);
+  show(Number.isFinite(start) && start>0 ? start-1 : 0);
+</script>
+</body>
+</html>

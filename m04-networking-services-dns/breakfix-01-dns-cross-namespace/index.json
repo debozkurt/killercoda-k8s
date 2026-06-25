@@ -1,0 +1,19 @@
+{
+  "title": "M04 — Break/fix 01: DNS — Cross-Namespace Name",
+  "description": "account-provisioner can't reach the session broker. The configured name won't resolve. Read the DNS answer: a bare Service name used across namespaces returns NXDOMAIN. Qualify it.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the name that won't resolve", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "title": "M04 — Break/fix 02: Selector Mismatch",
+  "description": "route-engine is unreachable but its Pods are healthy and its Service looks normal. Check the EndpointSlice: it's empty. Find the selector that matches no Pod and fix it.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the empty EndpointSlice", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

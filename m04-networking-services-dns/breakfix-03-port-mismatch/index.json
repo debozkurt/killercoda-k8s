@@ -1,0 +1,19 @@
+{
+  "title": "M04 — Break/fix 03: Port Mismatch",
+  "description": "portal-ui refuses connections, but this time the EndpointSlice is populated. The traffic reaches a Pod and gets rejected. Find the targetPort that points at no listener.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose: refused, with endpoints", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
