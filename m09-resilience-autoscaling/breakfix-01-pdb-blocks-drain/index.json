@@ -1,0 +1,19 @@
+{
+  "title": "M09 — Break/fix 01: PDB Blocks Drain",
+  "description": "You need to drain the worker for a kernel patch, but the drain hangs — an eviction is refused. sip-registrar's PodDisruptionBudget allows zero disruptions. Find out why and give the budget headroom.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the blocked eviction", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
