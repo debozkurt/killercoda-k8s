@@ -1,0 +1,19 @@
+{
+  "title": "M10 — Break/fix 01: RBAC — a missing verb",
+  "description": "endpoint-watcher CrashLoopBackOffs with a 403 Forbidden. Its Role grants get/watch on endpoints but not list. Read the Forbidden, find the too-narrow Role, add the missing verb.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the Forbidden", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
