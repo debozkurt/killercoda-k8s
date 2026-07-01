@@ -1,0 +1,19 @@
+{
+  "title": "M24 — Break/fix 02: StatefulSet Wedged Behind Ordinal 0",
+  "description": "session-cache should have 3 replicas but only session-cache-0 exists, stuck 0/1 Running. Its readiness probe never passes, and OrderedReady won't create the next ordinal until this one is Ready — so the whole set is halted. Fix the probe and watch the ordered cascade.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the wedged StatefulSet", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

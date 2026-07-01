@@ -1,0 +1,21 @@
+{
+  "title": "M24 — Stateful Coordination — Baseline",
+  "description": "Tour stateful coordination working end to end: a StatefulSet's stable ordinal identity and per-Pod persistent cache, a headless Service publishing per-Pod DNS for peer discovery, the ordered OrderedReady lifecycle, and a coordination.k8s.io Lease recording the elected leader.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Stable identity & persistent per-Pod storage", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "Headless Service & per-Pod DNS", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "Ordered, sequential lifecycle", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "Leader election with Leases", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

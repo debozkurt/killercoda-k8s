@@ -1,0 +1,19 @@
+{
+  "title": "M24 — Break/fix 01: Per-Pod DNS Gone (Headless Service Lost clusterIP: None)",
+  "description": "Peers can't resolve session-cache-0.session-cache.media.svc anymore. The governing Service was created as a normal ClusterIP Service instead of headless, so per-Pod DNS records are no longer published. Find it and recreate the Service headless.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the missing per-Pod DNS", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
