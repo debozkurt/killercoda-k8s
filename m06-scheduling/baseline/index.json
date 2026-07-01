@@ -1,0 +1,21 @@
+{
+  "title": "M06 — Scheduling — Baseline",
+  "description": "Tour how the scheduler placed the Polyphone fleet: the control-plane taint, the requests/limits/QoS contract, the affinity and tolerations the fleet already uses, and the scheduler's decision record.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Where the fleet landed", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "Requests, limits, and QoS", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "Steering placement: affinity and taints", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "The scheduler's decision and headroom", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

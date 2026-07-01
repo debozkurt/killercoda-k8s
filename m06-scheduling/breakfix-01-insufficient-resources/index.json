@@ -1,0 +1,19 @@
+{
+  "title": "M06 — Break/fix 01: Insufficient Resources",
+  "description": "stream-analyzer never starts — its Pod is stuck Pending. Read the FailedScheduling event, find the oversized memory request, and right-size it so it fits a node.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the Pending Pod", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
