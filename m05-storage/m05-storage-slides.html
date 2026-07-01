@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>M05 — Storage: PersistentVolumes, Claims &amp; StorageClasses</title>
+<style>
+  :root{
+    --bg:#0f0f0f;
+    --panel:#1b1b1b;
+    --panel-2:#262626;
+    --ink:#ececec;
+    --ink-dim:#b2b2b2;
+    --ink-faint:#7d7d7d;
+    --line:#373737;
+    --line-2:#565656;
+    --accent:#6db3f2;
+    --good:#7bc47f;
+    --bad:#e08a7b;
+    --warn:#d9b46a;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:1560px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;overflow:hidden;
+  }
+
+  /* ---------- deck / slides ---------- */
+  .deck{height:100vh;width:100vw;position:relative}
+  .slide{
+    position:absolute;inset:0;display:none;
+    flex-direction:column;justify-content:center;align-items:center;
+    padding:4vh 5.5vw 6vh;overflow-y:auto;
+    animation:fade .3s ease;
+  }
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .wrap{width:100%;max-width:var(--maxw)}
+
+  /* ---------- type ---------- */
+  h1{font-size:clamp(3rem,6vw,4.6rem);line-height:1.03;margin:0 0 1.4rem;font-weight:700;letter-spacing:-.015em}
+  h2{font-size:clamp(2.1rem,3.9vw,3.2rem);line-height:1.08;margin:0 0 1.8rem;font-weight:650;letter-spacing:-.015em}
+  h3{font-size:clamp(1.25rem,1.5vw,1.5rem);margin:0 0 .6rem;font-weight:600;color:var(--ink)}
+  p{font-size:clamp(1.2rem,1.55vw,1.5rem);line-height:1.5;color:var(--ink-dim);margin:.55rem 0;max-width:70ch}
+  .lead{font-size:clamp(1.5rem,2.3vw,2rem);color:var(--ink);max-width:56ch;line-height:1.38}
+  strong{color:var(--ink);font-weight:650}
+  em{color:var(--ink-dim);font-style:italic}
+  code,.mono{font-family:var(--mono);font-size:.88em;
+    background:var(--panel-2);padding:.08em .42em;border-radius:5px;color:#dde6ee;
+    overflow-wrap:break-word}
+
+  ul{margin:.6rem 0;padding:0;list-style:none;max-width:88ch}
+  li{font-size:clamp(1.2rem,1.65vw,1.55rem);line-height:1.48;color:var(--ink-dim);
+    padding:.6rem 0 .6rem 1.8rem;position:relative}
+  li::before{content:"";position:absolute;left:.1rem;top:1.0em;width:.42rem;height:.42rem;
+    border-radius:50%;background:var(--ink-dim)}
+  li strong{color:var(--ink)}
+
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:2.4rem;align-items:start;width:100%}
+  .grid-2.tight{gap:1.6rem}
+  .grid-2 > *{min-width:0}
+  .vcenter{align-items:center}
+
+  /* ---------- chrome ---------- */
+  .bar{position:fixed;left:0;bottom:0;height:3px;background:var(--accent);
+    width:0;transition:width .3s ease;z-index:50}
+  .hud{position:fixed;bottom:14px;right:22px;font-family:var(--mono);
+    font-size:.78rem;color:var(--ink-faint);z-index:50;letter-spacing:.05em}
+  .hud b{color:var(--ink-dim);font-weight:600}
+  .brand{position:fixed;bottom:14px;left:22px;font-family:var(--mono);
+    font-size:.72rem;color:var(--ink-faint);z-index:50;letter-spacing:.12em}
+  .hint{position:fixed;top:16px;right:22px;font-family:var(--mono);font-size:.7rem;
+    color:var(--ink-faint);z-index:50;opacity:.65}
+
+  /* ---------- diagram primitives ---------- */
+  .node{
+    background:var(--panel);border:1px solid var(--line-2);border-radius:11px;
+    padding:1rem 1.4rem;text-align:center;min-width:0;
+  }
+  .node .t{font-weight:650;color:var(--ink);font-size:clamp(1.1rem,1.35vw,1.35rem)}
+  .node .s{font-size:clamp(.85rem,1vw,1rem);color:var(--ink-faint);font-family:var(--mono);margin-top:.3rem;white-space:normal}
+  .node.good{border-color:#3f5a40}
+  .node.bad{border-color:#5e3a32}
+  .arrow{color:var(--line-2);font-size:2rem;flex:0 0 auto;padding:0 .2rem;position:relative}
+  .arrow .lbl{font-family:var(--mono);font-size:.78rem;color:var(--ink-faint);
+    position:absolute;left:50%;top:-1.3rem;transform:translateX(-50%);white-space:nowrap}
+  .flow{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;
+    padding:1.5rem 1.6rem;min-width:0}
+  .card.good{border-color:#33502f;background:linear-gradient(180deg,#15201480,#1a1a1a)}
+  .card.bad{border-color:#5a3830;background:linear-gradient(180deg,#20161480,#1a1a1a)}
+  .card.warn{border-color:#5a5030;background:linear-gradient(180deg,#1e1b1280,#1a1a1a)}
+  .card h3{font-size:clamp(1.2rem,1.45vw,1.45rem);letter-spacing:0;color:var(--ink);
+    text-transform:none;font-weight:600}
+  .card h3 code{font-size:.95em}
+  .card h3 .tag{color:var(--ink-faint);font-weight:500;font-size:.92rem}
+  .card p{font-size:clamp(1.12rem,1.35vw,1.32rem);margin:.45rem 0;max-width:none;line-height:1.45}
+  .card ul{max-width:none}
+  .card li{font-size:clamp(1.08rem,1.3vw,1.28rem);padding:.4rem 0 .4rem 1.5rem}
+  .cards{display:grid;gap:1.6rem;width:100%}
+  .cards.c3{grid-template-columns:repeat(3,1fr)}
+  .cards.c2{grid-template-columns:1fr 1fr}
+
+  /* labelled signal / key-value rows inside cards */
+  .sigs{display:flex;flex-direction:column;gap:.7rem;margin-top:1rem;
+    padding-top:.95rem;border-top:1px solid var(--line)}
+  .sig{display:grid;grid-template-columns:auto 1fr;column-gap:.85rem;align-items:baseline;
+    font-size:clamp(1.05rem,1.25vw,1.25rem);line-height:1.4}
+  .sig .lbl{font-family:var(--sans);color:var(--ink-faint);white-space:nowrap;
+    font-size:.72em;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+  .sig .val{color:var(--ink-dim)}
+  .sig .val code{font-size:.92em}
+
+  table{border-collapse:collapse;width:100%;font-size:clamp(1.1rem,1.5vw,1.4rem)}
+  th,td{text-align:left;padding:.85rem 1rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink-faint);font-weight:600;font-size:clamp(.85rem,1vw,1rem);text-transform:uppercase;letter-spacing:.06em}
+  td{color:var(--ink-dim)}
+  td:first-child{color:var(--ink);font-weight:600;white-space:nowrap}
+  tr:hover td{background:#ffffff06}
+  table code{white-space:nowrap}
+
+  .note{border-left:3px solid var(--accent);padding:.4rem 0 .4rem 1.3rem;margin:1.3rem 0;max-width:84ch}
+  .note.warn{border-color:var(--warn)}
+  .note p{margin:0;font-size:clamp(1.2rem,1.55vw,1.45rem);color:var(--ink);line-height:1.45}
+
+  .terminal{background:#0a0a0a;border:1px solid var(--line);border-radius:11px;
+    font-family:var(--mono);font-size:clamp(1.05rem,1.5vw,1.35rem);padding:1.4rem 1.6rem;
+    color:#cfd6dd;line-height:1.7;width:100%;overflow-x:auto;white-space:pre}
+  .terminal .c{color:var(--accent)}   /* command */
+  .terminal .o{color:var(--ink-faint)} /* output / comment */
+  .terminal .g{color:var(--good)}      /* highlight */
+  .terminal .r{color:var(--bad)}       /* failure */
+
+  .phase{padding:.85rem 1.2rem;border-radius:10px;border:1px solid var(--line-2);
+    background:var(--panel);font-family:var(--mono);font-size:clamp(1.05rem,1.25vw,1.25rem);text-align:center}
+  .phase.run{border-color:#3f5a40}
+  .phase.term{border-color:#5e3a32}
+
+  /* vertical sequence ladder */
+  .ladder{display:flex;flex-direction:column;width:100%}
+  .rung{display:grid;grid-template-columns:auto 1fr;column-gap:1.3rem;position:relative}
+  .rung .rail{display:flex;flex-direction:column;align-items:center}
+  .rung .dot{width:15px;height:15px;border-radius:50%;background:var(--line-2);margin-top:.4rem;z-index:2}
+  .rung .dot.k{background:var(--bad)}
+  .rung .dot.ok{background:var(--good)}
+  .rung .line{flex:1;width:2px;background:var(--line)}
+  .rung:last-child .line{display:none}
+  .rung .body{padding-bottom:1.6rem}
+  .rung .body b{color:var(--ink);font-size:clamp(1.2rem,1.45vw,1.4rem);font-weight:600}
+  .rung .body span{display:block;color:var(--ink-faint);font-size:clamp(1.02rem,1.2vw,1.18rem);margin-top:.2rem}
+
+  /* containment box: a boundary enclosing items over a shared substrate */
+  .boundary{position:relative;border:1.5px solid var(--line-2);border-radius:16px;
+    padding:1.6rem 1.4rem 1.4rem;background:#15151580;width:100%}
+  .boundary .tag{position:absolute;top:-.8rem;left:1.3rem;background:var(--bg);padding:0 .6rem;
+    font-family:var(--mono);font-size:.85rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim)}
+  .items{display:flex;gap:1rem;flex-wrap:wrap}
+  .item{flex:1 1 0;min-width:120px;background:var(--panel);border:1px solid var(--line-2);
+    border-radius:10px;padding:.95rem 1rem;text-align:center}
+  .item b{display:block;color:var(--ink);font-size:clamp(1.05rem,1.3vw,1.25rem);font-weight:600}
+  .item span{display:block;color:var(--ink-faint);font-family:var(--mono);font-size:.85rem;margin-top:.25rem}
+
+  /* mermaid: wraps a PRE-RENDERED inline <svg> (no CDN runtime) */
+  .mermaid{width:100%;display:flex;justify-content:center}
+  .mermaid svg{max-width:100%;height:auto;max-height:54vh;overflow:visible}
+  .mermaid svg text,.mermaid svg tspan{font-family:Helvetica,Arial,sans-serif !important}
+
+  .muted{color:var(--ink-faint)} .accent{color:var(--accent)}
+  .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  .sub{font-size:clamp(1.2rem,1.5vw,1.45rem);color:var(--ink-dim);line-height:1.4;
+    max-width:74ch;margin:.2rem 0 0}
+  h1:has(+ .sub), h2:has(+ .sub){margin-bottom:.5rem}
+
+  @media (max-width:880px){
+    .cards.c3,.cards.c2,.grid-2{grid-template-columns:1fr}
+    .slide{padding:4vh 6vw 8vh}
+  }
+
+  /* print / PDF: every slide on its own page (Cmd-P → Save as PDF) */
+  @media print{
+    @page{size:landscape;margin:0}
+    html,body{height:auto;overflow:visible}
+    body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .bar,.hud,.brand,.hint{display:none !important}
+    .deck{height:auto;position:static}
+    .slide{display:flex !important;position:relative;inset:auto;
+      width:100vw;height:100vh;overflow:hidden;break-after:page;page-break-after:always;animation:none}
+    .slide:last-child{break-after:auto;page-break-after:auto}
+  }
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div><div class="brand">M05 · STORAGE</div>
+<div class="hud"><b id="cur">1</b> / <span id="tot">1</span></div>
+
+<div class="deck" id="deck">
+
+  <!-- 1 — TITLE -->
+  <section class="slide">
+    <div class="wrap">
+      <h1>Storage<br/>that outlives the Pod</h1>
+      <p class="lead">How a Pod gets durable storage — PersistentVolumeClaims, PersistentVolumes, StorageClasses, dynamic provisioning, and access modes — and the three places on that path where a Pod stops before it ever runs.</p>
+      <div class="note" style="margin-top:1.8rem">
+        <p>The failure lands on the <strong>Pod</strong> — <code>Pending</code>, never starting — but the cause is one or two objects away. <code>kubectl get pvc</code> reads the claim, and the claim says why.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 — OBJECTIVES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What you'll walk away with</h2>
+      <ul>
+        <li><strong>The claim/volume split</strong> — a PVC is a request for storage, a PV is the real volume, a StorageClass is the template that provisions one to satisfy the other</li>
+        <li><strong>The storage chain</strong> — Pod → PVC → StorageClass → PV → attach → mount, and what owns each hop</li>
+        <li><strong>The <code>get pvc</code> triage</strong> — one command splits a storage-stuck Pod three ways: the claim is absent, <code>Pending</code>, or <code>Bound</code> but unattachable</li>
+        <li><strong>Provisioning</strong> — dynamic vs static, and why <code>WaitForFirstConsumer</code> holds a healthy claim <code>Pending</code></li>
+        <li><strong>Access modes and reclaim policy</strong> — RWO / ROX / RWX / RWOP and the Multi-Attach failure; why <code>delete pvc</code> can destroy data</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 3 — THE CLAIM/VOLUME SPLIT -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A request, a volume,<br/>and the template between them</h2>
+      <p class="sub" style="margin-bottom:1.6rem">A container's own filesystem is ephemeral — restart reverts it to the image, delete the Pod and its writes are gone. Durable storage is a separate object the Pod only references by name.</p>
+      <div class="cards c3">
+        <div class="card">
+          <h3><code>PersistentVolumeClaim</code></h3>
+          <p>A request for storage: a size, an access mode, optionally a class. The workload owns it; the Pod names it by <code>claimName</code>.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">scope</span><span class="val">namespaced</span></div></div>
+        </div>
+        <div class="card good">
+          <h3><code>PersistentVolume</code></h3>
+          <p>The real volume — a cloud disk, an NFS export, a local directory. It exists independently of any Pod.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">scope</span><span class="val">cluster-wide</span></div></div>
+        </div>
+        <div class="card">
+          <h3><code>StorageClass</code></h3>
+          <p>A named recipe: which provisioner to call, with what parameters, at what reclaim policy and binding mode.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">role</span><span class="val">provisions a PV on demand</span></div></div>
+        </div>
+      </div>
+      <div class="note"><p>The Pod references only the claim, in its own namespace — it never names a PV. That indirection is the design: the Pod stays disposable while the claim is the durable handle to its data.</p></div>
+    </div>
+  </section>
+
+  <!-- 4 — MENTAL MODEL (mermaid: storage path with three failure leaves) -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>One storage path, three places it stops</h2>
+      <p class="sub" style="margin-bottom:1.1rem">Each hop is owned by a different object. Read where the Pod stopped and you know which one to inspect.</p>
+      <div class="mermaid"><svg id="my-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" class="flowchart" style="max-width:100%;max-height:66vh;height:auto;width:auto;display:block;margin:0 auto;max-width: 823.871px; background-color: transparent;" viewBox="0 0 823.87109375 1054.09375" role="graphics-document document" aria-roledescription="flowchart-v2"><style>#my-svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;fill:#e6e6e6;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#my-svg .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#my-svg .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#my-svg .error-icon{fill:#1f1f1f;}#my-svg .error-text{fill:#e0e0e0;stroke:#e0e0e0;}#my-svg .edge-thickness-normal{stroke-width:1px;}#my-svg .edge-thickness-thick{stroke-width:3.5px;}#my-svg .edge-pattern-solid{stroke-dasharray:0;}#my-svg .edge-thickness-invisible{stroke-width:0;fill:none;}#my-svg .edge-pattern-dashed{stroke-dasharray:3;}#my-svg .edge-pattern-dotted{stroke-dasharray:2;}#my-svg .marker{fill:#9a9a9a;stroke:#9a9a9a;}#my-svg .marker.cross{stroke:#9a9a9a;}#my-svg svg{font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:16px;}#my-svg p{margin:0;}#my-svg .label{font-family:"trebuchet ms",verdana,arial,sans-serif;color:#e6e6e6;}#my-svg .cluster-label text{fill:#e0e0e0;}#my-svg .cluster-label span{color:#e0e0e0;}#my-svg .cluster-label span p{background-color:transparent;}#my-svg .label text,#my-svg span{fill:#e6e6e6;color:#e6e6e6;}#my-svg .node rect,#my-svg .node circle,#my-svg .node ellipse,#my-svg .node polygon,#my-svg .node path{fill:#2b2b2b;stroke:#7a7a7a;stroke-width:1px;}#my-svg .rough-node .label text,#my-svg .node .label text,#my-svg .image-shape .label,#my-svg .icon-shape .label{text-anchor:middle;}#my-svg .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#my-svg .rough-node .label,#my-svg .node .label,#my-svg .image-shape .label,#my-svg .icon-shape .label{text-align:center;}#my-svg .node.clickable{cursor:pointer;}#my-svg .root .anchor path{fill:#9a9a9a!important;stroke-width:0;stroke:#9a9a9a;}#my-svg .arrowheadPath{fill:#f0f0f0;}#my-svg .edgePath .path{stroke:#9a9a9a;stroke-width:2.0px;}#my-svg .flowchart-link{stroke:#9a9a9a;fill:none;}#my-svg .edgeLabel{background-color:#3a3a3a;text-align:center;}#my-svg .edgeLabel p{background-color:#3a3a3a;}#my-svg .edgeLabel rect{opacity:0.5;background-color:#3a3a3a;fill:#3a3a3a;}#my-svg .labelBkg{background-color:rgba(58, 58, 58, 0.5);}#my-svg .cluster rect{fill:#1f1f1f;stroke:hsl(0, 0%, 2.1568627451%);stroke-width:1px;}#my-svg .cluster text{fill:#e0e0e0;}#my-svg .cluster span{color:#e0e0e0;}#my-svg div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:"trebuchet ms",verdana,arial,sans-serif;font-size:12px;background:#1f1f1f;border:1px solid hsl(0, 0%, 2.1568627451%);border-radius:2px;pointer-events:none;z-index:100;}#my-svg .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#e6e6e6;}#my-svg rect.text{fill:none;stroke-width:0;}#my-svg .icon-shape,#my-svg .image-shape{background-color:#3a3a3a;text-align:center;}#my-svg .icon-shape p,#my-svg .image-shape p{background-color:#3a3a3a;padding:2px;}#my-svg .icon-shape rect,#my-svg .image-shape rect{opacity:0.5;background-color:#3a3a3a;fill:#3a3a3a;}#my-svg .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#my-svg .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#my-svg :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style><g><marker id="my-svg_flowchart-v2-pointEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-pointStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="4.5" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 5 L 10 10 L 10 0 z" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleEnd" class="marker flowchart-v2" viewBox="0 0 10 10" refX="11" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-circleStart" class="marker flowchart-v2" viewBox="0 0 10 10" refX="-1" refY="5" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><circle cx="5" cy="5" r="5" class="arrowMarkerPath" style="stroke-width: 1; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-crossEnd" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="12" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><marker id="my-svg_flowchart-v2-crossStart" class="marker cross flowchart-v2" viewBox="0 0 11 11" refX="-1" refY="5.2" markerUnits="userSpaceOnUse" markerWidth="11" markerHeight="11" orient="auto"><path d="M 1,1 l 9,9 M 10,1 l -9,9" class="arrowMarkerPath" style="stroke-width: 2; stroke-dasharray: 1, 0;"/></marker><g class="root"><g class="clusters"/><g class="edgePaths"><path d="M262.156,62L262.156,66.167C262.156,70.333,262.156,78.667,262.156,86.333C262.156,94,262.156,101,262.156,104.5L262.156,108" id="L_A_B_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_A_B_0" data-points="W3sieCI6MjYyLjE1NjI1LCJ5Ijo2Mn0seyJ4IjoyNjIuMTU2MjUsInkiOjg3fSx7IngiOjI2Mi4xNTYyNSwieSI6MTEyfV0=" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M213.051,273.129L200.542,287.396C188.034,301.664,163.017,330.199,150.508,352.769C138,375.339,138,391.943,138,400.245L138,408.547" id="L_B_E1_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_B_E1_0" data-points="W3sieCI6MjEzLjA1MDY4MTIzNjk1NTgyLCJ5IjoyNzMuMTI4ODA2MjM2OTU1OH0seyJ4IjoxMzgsInkiOjM1OC43MzQzNzV9LHsieCI6MTM4LCJ5Ijo0MTIuNTQ2ODc1fV0=" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M311.262,273.129L323.77,287.396C336.279,301.664,361.296,330.199,373.804,349.883C386.313,369.568,386.313,380.401,386.313,385.818L386.313,391.234" id="L_B_C_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_B_C_0" data-points="W3sieCI6MzExLjI2MTgxODc2MzA0NDIsInkiOjI3My4xMjg4MDYyMzY5NTU4fSx7IngiOjM4Ni4zMTI1LCJ5IjozNTguNzM0Mzc1fSx7IngiOjM4Ni4zMTI1LCJ5IjozOTUuMjM0Mzc1fV0=" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M346.712,492.259L329.219,504.942C311.726,517.626,276.74,542.993,259.247,568.779C241.754,594.565,241.754,620.771,241.754,633.874L241.754,646.977" id="L_C_E2_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_E2_0" data-points="W3sieCI6MzQ2LjcxMjI0NDg2NTk5MSwieSI6NDkyLjI1OTExOTg2NTk5MX0seyJ4IjoyNDEuNzUzOTA2MjUsInkiOjU2OC4zNTkzNzV9LHsieCI6MjQxLjc1MzkwNjI1LCJ5Ijo2NTAuOTc2NTYyNX1d" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M425.913,492.259L443.406,504.942C460.899,517.626,495.885,542.993,513.378,561.093C530.871,579.193,530.871,590.026,530.871,595.443L530.871,600.859" id="L_C_D_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_C_D_0" data-points="W3sieCI6NDI1LjkxMjc1NTEzNDAwOSwieSI6NDkyLjI1OTExOTg2NTk5MX0seyJ4Ijo1MzAuODcxMDkzNzUsInkiOjU2OC4zNTkzNzV9LHsieCI6NTMwLjg3MTA5Mzc1LCJ5Ijo2MDQuODU5Mzc1fV0=" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M474.61,766.832L458.153,782.293C441.697,797.753,408.784,828.673,392.328,849.55C375.871,870.427,375.871,881.26,375.871,886.677L375.871,892.094" id="L_D_E3_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_E3_0" data-points="W3sieCI6NDc0LjYwOTYyNjQ1NjE1MTQzLCJ5Ijo3NjYuODMyMjgyNzA2MTUxNH0seyJ4IjozNzUuODcxMDkzNzUsInkiOjg1OS41OTM3NX0seyJ4IjozNzUuODcxMDkzNzUsInkiOjg5Ni4wOTM3NX1d" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/><path d="M587.133,766.832L603.589,782.293C620.045,797.753,652.958,828.673,669.415,855.55C685.871,882.427,685.871,905.26,685.871,916.677L685.871,928.094" id="L_D_F_0" class="edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link" style=";" data-edge="true" data-et="edge" data-id="L_D_F_0" data-points="W3sieCI6NTg3LjEzMjU2MTA0Mzg0ODYsInkiOjc2Ni44MzIyODI3MDYxNTE0fSx7IngiOjY4NS44NzEwOTM3NSwieSI6ODU5LjU5Mzc1fSx7IngiOjY4NS44NzEwOTM3NSwieSI6OTMyLjA5Mzc1fV0=" marker-end="url(#my-svg_flowchart-v2-pointEnd)"/></g><g class="edgeLabels"><g><rect class="background" style="stroke: none"/></g><g class="edgeLabel"><g class="label" data-id="L_A_B_0" transform="translate(0, 0)"><text y="-10.1"><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"/></text></g></g><g class="edgeLabel" transform="translate(138, 358.734375)"><g class="label" data-id="L_B_E1_0" transform="translate(-10.6640625, -11.5)"><g><rect class="background" style="" x="-2" y="-1" width="21.328125" height="23"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">no</tspan></tspan></text></g></g></g><g class="edgeLabel" transform="translate(386.3125, 358.734375)"><g class="label" data-id="L_B_C_0" transform="translate(-13.546875, -11.5)"><g><rect class="background" style="" x="-2" y="-1" width="27.09375" height="23"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">yes</tspan></tspan></text></g></g></g><g class="edgeLabel" transform="translate(241.75390625, 568.359375)"><g class="label" data-id="L_C_E2_0" transform="translate(-72.625, -11.5)"><g><rect class="background" style="" x="-2" y="-1" width="145.25" height="23"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">no</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> →</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> stuck</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> Pending</tspan></tspan></text></g></g></g><g class="edgeLabel" transform="translate(530.87109375, 568.359375)"><g class="label" data-id="L_C_D_0" transform="translate(-42.1484375, -11.5)"><g><rect class="background" style="" x="-2" y="-1" width="84.296875" height="23"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">yes</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> →</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> a</tspan><tspan font-style="normal" class="text-inner-tspan" font-weight="normal"> PV</tspan></tspan></text></g></g></g><g class="edgeLabel" transform="translate(375.87109375, 859.59375)"><g class="label" data-id="L_D_E3_0" transform="translate(-10.6640625, -11.5)"><g><rect class="background" style="" x="-2" y="-1" width="21.328125" height="23"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">no</tspan></tspan></text></g></g></g><g class="edgeLabel" transform="translate(685.87109375, 859.59375)"><g class="label" data-id="L_D_F_0" transform="translate(-13.546875, -11.5)"><g><rect class="background" style="" x="-2" y="-1" width="27.09375" height="23"/><text y="-10.1" style=""><tspan class="text-outer-tspan" x="0" y="-0.1em" dy="1.1em"><tspan font-style="normal" class="text-inner-tspan" font-weight="normal">yes</tspan></tspan></text></g></g></g></g><g class="nodes"><g class="node default" id="flowchart-A-0" transform="translate(262.15625, 35)"><rect class="basic label-container" style="" x="-96.53125" y="-27" width="193.0625" height="54"/><g class="label" style="" transform="translate(-66.53125, -12)"><rect/><foreignObject width="133.0625" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>Pod names a claim</p></span></div></foreignObject></g></g><g class="node default" id="flowchart-B-1" transform="translate(262.15625, 217.1171875)"><polygon points="105.1171875,0 210.234375,-105.1171875 105.1171875,-210.234375 0,-105.1171875" class="label-container" transform="translate(-104.6171875, 105.1171875)"/><g class="label" style="" transform="translate(-66.1171875, -24)"><rect/><foreignObject width="132.234375" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>claim exists<br />in the namespace?</p></span></div></foreignObject></g></g><g class="node default" id="flowchart-E1-3" transform="translate(138, 463.546875)"><rect class="basic label-container" style="" x="-130" y="-51" width="260" height="102"/><g class="label" style="" transform="translate(-100, -36)"><rect/><foreignObject width="200" height="72"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Pod Pending<br />'persistentvolumeclaim not found'</p></span></div></foreignObject></g></g><g class="node default" id="flowchart-C-5" transform="translate(386.3125, 463.546875)"><polygon points="68.3125,0 136.625,-68.3125 68.3125,-136.625 0,-68.3125" class="label-container" transform="translate(-67.8125, 68.3125)"/><g class="label" style="" transform="translate(-41.3125, -12)"><rect/><foreignObject width="82.625" height="24"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>PVC Bound?</p></span></div></foreignObject></g></g><g class="node default" id="flowchart-E2-7" transform="translate(241.75390625, 713.9765625)"><rect class="basic label-container" style="" x="-130" y="-63" width="260" height="126"/><g class="label" style="" transform="translate(-100, -48)"><rect/><foreignObject width="200" height="96"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>no volume<br />bad / missing StorageClass, no matching PV</p></span></div></foreignObject></g></g><g class="node default" id="flowchart-D-9" transform="translate(530.87109375, 713.9765625)"><polygon points="109.1171875,0 218.234375,-109.1171875 109.1171875,-218.234375 0,-109.1171875" class="label-container" transform="translate(-108.6171875, 109.1171875)"/><g class="label" style="" transform="translate(-70.1171875, -24)"><rect/><foreignObject width="140.234375" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="nodeLabel"><p>volume attaches on<br />the Pod's node?</p></span></div></foreignObject></g></g><g class="node default" id="flowchart-E3-11" transform="translate(375.87109375, 971.09375)"><rect class="basic label-container" style="" x="-130" y="-75" width="260" height="150"/><g class="label" style="" transform="translate(-100, -60)"><rect/><foreignObject width="200" height="120"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>Pending / ContainerCreating<br />RWO across nodes — Multi-Attach / node affinity conflict</p></span></div></foreignObject></g></g><g class="node default" id="flowchart-F-13" transform="translate(685.87109375, 971.09375)"><rect class="basic label-container" style="" x="-130" y="-39" width="260" height="78"/><g class="label" style="" transform="translate(-100, -24)"><rect/><foreignObject width="200" height="48"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table; white-space: break-spaces; line-height: 1.5; max-width: 200px; text-align: center; width: 200px;"><span class="nodeLabel"><p>mounted; data persists across the Pod</p></span></div></foreignObject></g></g></g></g></g></svg></div>
+      <div class="note"><p>Read the claim first: the Pod's status only says it's stuck; the claim's <code>STATUS</code> says why.</p></div>
+    </div>
+  </section>
+
+  <!-- 5 — DYNAMIC VS STATIC -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Where the volume comes from</h2>
+      <div class="cards c2">
+        <div class="card good">
+          <h3>Dynamic provisioning</h3>
+          <p>The PVC names a StorageClass; creating the claim triggers that class's provisioner to create a matching PV on the spot — sized and configured to fit. No admin in the loop.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">when</span><span class="val">the default path</span></div></div>
+        </div>
+        <div class="card">
+          <h3>Static provisioning</h3>
+          <p>An admin creates PV objects ahead of time; a claim binds to whatever pre-existing volume matches on size, access mode, and class.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">when</span><span class="val">pre-provisioned pools</span></div></div>
+        </div>
+      </div>
+      <div class="grid-2 tight" style="margin-top:1.5rem">
+        <div class="note warn"><p>Name a <code>storageClassName</code> that doesn't exist — a typo, an uninstalled class — and there's no provisioner to call. No PV is created; the claim sits <code>Pending</code> forever and its Pod never starts. <code>describe pvc</code> names it: <code>storageclass ... not found</code>.</p></div>
+        <div class="note"><p><code>storageClassName</code> is immutable once the PVC exists. The fix is delete and recreate — safe while the claim never bound, a data-migration problem once it did.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 — GET PVC TRIAGE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2><code>kubectl get pvc</code> is the first look</h2>
+      <p class="sub" style="margin-bottom:1.3rem">The claim's <code>STATUS</code> column splits every storage-stuck Pod — before you reach for Pod logs that don't exist yet.</p>
+      <div class="terminal">
+<span class="o"># always the first command on a storage-stuck Pod</span>
+<span class="c">kubectl</span> get pvc -n cdr-storage
+<span class="o">NAME       STATUS    VOLUME    CAPACITY   ACCESS MODES   STORAGECLASS</span>
+cdr-data   <span class="g">Bound</span>     pvc-9f2a  1Gi        RWO            local-path
+
+<span class="o"># a Pod stuck Pending — the claim it names isn't in that list</span>
+<span class="c">kubectl</span> describe pod cdr-writer-0 -n cdr-storage
+  <span class="r">persistentvolumeclaim "cdr-dat" not found</span>
+      </div>
+      <div class="note" style="margin-top:1.3rem"><p>Three readings: <code>Bound</code> (storage is fine — look elsewhere), <code>Pending</code> (the claim can't get a volume), or the claim you expected isn't listed at all (a <code>claimName</code> typo, or a claim in another namespace — PVCs are namespaced).</p></div>
+    </div>
+  </section>
+
+  <!-- 7 — WAITFORFIRSTCONSUMER -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Not every <code>Pending</code> claim is broken</h2>
+      <p class="sub" style="margin-bottom:1.4rem">The one exception that trips people — a claim held <code>Pending</code> on purpose, and healthy.</p>
+      <div class="cards c2">
+        <div class="card">
+          <h3><code>Immediate</code></h3>
+          <p>Binds the PV as soon as the PVC is created, wherever the volume happens to land.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">binds</span><span class="val">at claim creation</span></div></div>
+        </div>
+        <div class="card good">
+          <h3><code>WaitForFirstConsumer</code></h3>
+          <p>Delays binding until a Pod actually uses the claim, so the volume is placed on the Pod's node. The default on most modern classes.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">binds</span><span class="val">when a Pod consumes it</span></div></div>
+        </div>
+      </div>
+      <div class="note"><p>A <code>WaitForFirstConsumer</code> claim with no consuming Pod shows <code>Pending</code> and <code>describe</code> says <code>waiting for first consumer</code> — that is normal. It is broken only once a Pod is trying to use it and it still won't bind. One question separates them: is a Pod actually using the claim yet?</p></div>
+    </div>
+  </section>
+
+  <!-- 8 — ACCESS MODES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Access modes count <em>nodes</em>, not Pods</h2>
+      <p class="sub" style="margin-bottom:1.4rem">The word that trips people is "Once" — it means one node, not one Pod. Two Pods on the same node can share an RWO volume; two on different nodes cannot.</p>
+      <table>
+        <tr><th>Mode</th><th>Short</th><th>Who may mount it</th></tr>
+        <tr><td>ReadWriteOnce</td><td><code>RWO</code></td><td class="muted">one node, read-write — Pods on that node share it</td></tr>
+        <tr><td>ReadOnlyMany</td><td><code>ROX</code></td><td class="muted">many nodes, read-only</td></tr>
+        <tr><td>ReadWriteMany</td><td><code>RWX</code></td><td class="muted">many nodes, read-write at once</td></tr>
+        <tr><td>ReadWriteOncePod</td><td><code>RWOP</code></td><td class="muted">exactly one Pod, read-write</td></tr>
+      </table>
+      <div class="note" style="margin-top:1.3rem"><p>The access mode is a request the volume plugin enforces at attach time. <strong>RWX</strong> is what genuinely spans nodes — it needs network file storage behind it, not a block disk.</p></div>
+    </div>
+  </section>
+
+  <!-- 9 — ATTACH & MULTI-ATTACH -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A <code>Bound</code> claim can still strand the Pod</h2>
+      <p class="sub" style="margin-bottom:1.4rem">After it binds, a volume is made usable in two steps — <strong>attach</strong> (make it available to a node), then <strong>mount</strong> (expose it in the container). Attach is where the access mode bites.</p>
+      <div class="cards c2">
+        <div class="card">
+          <h3>The setup</h3>
+          <p>An RWO-backed Deployment scaled so two replicas schedule onto two different nodes. The first node attaches the volume — exclusively.</p>
+        </div>
+        <div class="card bad">
+          <h3>The second replica</h3>
+          <p>asks for that same RWO volume from another node. It can't have it — the Pod hangs <code>ContainerCreating</code> while its claim still reads <code>Bound</code>.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">block volume</span><span class="val"><code>Multi-Attach error</code></span></div>
+            <div class="sig"><span class="lbl">local volume</span><span class="val"><code>volume node affinity conflict</code></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="note"><p>RWO is doing what it promised, not failing. Stop asking one volume to span nodes: run a single node-bound consumer, or move to <strong>RWX</strong> if replicas genuinely must share it across nodes.</p></div>
+    </div>
+  </section>
+
+  <!-- 10 — RECLAIM POLICY -->
+  <section class="slide">
+    <div class="wrap">
+      <h2><code>reclaimPolicy</code> decides what a delete destroys</h2>
+      <p class="sub" style="margin-bottom:1.4rem">When a PVC is deleted, the StorageClass's reclaim policy decides the PV's fate.</p>
+      <div class="cards c2">
+        <div class="card bad">
+          <h3><code>Delete</code></h3>
+          <p>Destroys the underlying storage along with the PV. The data is gone. The default on most dynamic classes.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">on delete pvc</span><span class="val">storage destroyed</span></div></div>
+        </div>
+        <div class="card good">
+          <h3><code>Retain</code></h3>
+          <p>Keeps the PV and its data, moving it to <code>Released</code> for an admin to recover by hand.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">on delete pvc</span><span class="val">data preserved</span></div></div>
+        </div>
+      </div>
+      <div class="note warn"><p><code>kubectl delete pvc</code> is not harmless cleanup — on a <code>Delete</code>-policy class it is a data-destruction command, and the claim looks like a lightweight request object, which makes the blast radius easy to underestimate. Put anything you can't lose on <code>Retain</code>.</p></div>
+    </div>
+  </section>
+
+  <!-- 11 — THE STORAGE DIFFERENTIAL -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>The storage differential</h2>
+      <p class="sub" style="margin-bottom:1.4rem">Three ways a Pod fails to get storage, in the order the chain hits them. <code>get pvc</code> gives each a distinct signature.</p>
+      <div class="cards c3">
+        <div class="card bad">
+          <h3>Claim absent</h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">get pvc</span><span class="val">claim not listed</span></div>
+            <div class="sig"><span class="lbl">cause</span><span class="val"><code>claimName</code> typo / wrong namespace</span></div>
+            <div class="sig"><span class="lbl">fix</span><span class="val">correct the name</span></div>
+          </div>
+        </div>
+        <div class="card bad">
+          <h3>Claim <code>Pending</code></h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">get pvc</span><span class="val"><code>Pending</code>, has a consumer</span></div>
+            <div class="sig"><span class="lbl">cause</span><span class="val">missing class, or no matching PV</span></div>
+            <div class="sig"><span class="lbl">fix</span><span class="val">fix the class (delete+recreate)</span></div>
+          </div>
+        </div>
+        <div class="card bad">
+          <h3><code>Bound</code>, still stuck</h3>
+          <div class="sigs" style="border-top:none;margin-top:.3rem;padding-top:.3rem">
+            <div class="sig"><span class="lbl">get pvc</span><span class="val"><code>Bound</code></span></div>
+            <div class="sig"><span class="lbl">cause</span><span class="val">RWO volume asked to span nodes</span></div>
+            <div class="sig"><span class="lbl">fix</span><span class="val">one consumer, or RWX</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="note"><p>One <code>Pending</code> is healthy — <code>WaitForFirstConsumer</code> with no consumer yet. A claim is broken only when a Pod is trying to use it and it still won't bind.</p></div>
+    </div>
+  </section>
+
+  <!-- 12 — COMMON FAILURE MODES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Common failure modes</h2>
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th><th>Where to look</th></tr>
+        <tr><td>Pod <code>Pending</code>, <code>unbound ... PersistentVolumeClaims</code></td><td>its PVC is <code>Pending</code> — can't bind</td><td class="muted"><code>get pvc</code>; then <code>describe pvc</code> for the reason</td></tr>
+        <tr><td>PVC <code>Pending</code>, <code>storageclass ... not found</code></td><td>class name typo or uninstalled</td><td class="muted"><code>get storageclass</code>; fix the name (delete+recreate)</td></tr>
+        <tr><td>PVC <code>Pending</code>, <code>waiting for first consumer</code></td><td>healthy <code>WaitForFirstConsumer</code> — no bug</td><td class="muted">schedule a Pod that uses it</td></tr>
+        <tr><td>Pod <code>Pending</code>, <code>persistentvolumeclaim "x" not found</code></td><td><code>claimName</code> typo, or claim in another namespace</td><td class="muted"><code>get pvc -n &lt;ns&gt;</code>; correct the name</td></tr>
+        <tr><td><code>Bound</code> PVC, Pod stuck, <code>Multi-Attach error</code></td><td>RWO volume asked for on a second node</td><td class="muted"><code>get pods -o wide</code>; one consumer, or RWX</td></tr>
+        <tr><td>same, <code>volume node affinity conflict</code></td><td>RWO local volume pinned to another node</td><td class="muted"><code>describe pv</code> node affinity vs the Pod's node</td></tr>
+        <tr><td>data gone after <code>delete pvc</code></td><td><code>Delete</code> reclaim policy destroyed the PV</td><td class="muted"><code>get storageclass -o yaml</code>; use <code>Retain</code></td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- 13 — RECAP -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What to carry forward</h2>
+      <ul>
+        <li><strong>A PVC is a request, a PV is the volume, a StorageClass provisions one from the other.</strong> The Pod names only the claim — that indirection keeps it disposable while its data persists.</li>
+        <li><strong><code>kubectl get pvc</code> is the first look, and it splits every storage-stuck Pod three ways:</strong> the claim is absent, <code>Pending</code>, or <code>Bound</code> but the Pod's still stuck.</li>
+        <li><strong>Not all <code>Pending</code> is broken.</strong> <code>WaitForFirstConsumer</code> holds a claim <code>Pending</code> until a Pod uses it — broken only if a Pod is trying to use it and it won't bind.</li>
+        <li><strong>Access modes count nodes, not Pods.</strong> RWO is one node at a time — a shared RWO volume can't back replicas on two nodes. RWX is what spans nodes.</li>
+        <li><strong><code>reclaimPolicy: Delete</code> makes <code>kubectl delete pvc</code> a data-destruction command.</strong> Put anything you can't lose on <code>Retain</code>.</li>
+      </ul>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const bar = document.getElementById('bar');
+  const cur = document.getElementById('cur');
+  document.getElementById('tot').textContent = slides.length;
+  let i = 0;
+
+  function show(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s,k)=>s.classList.toggle('active', k===i));
+    bar.style.width = ((i+1)/slides.length*100) + '%';
+    cur.textContent = i+1;
+    history.replaceState(null,'','#'+(i+1));
+  }
+  const next=()=>show(i+1), prev=()=>show(i-1);
+
+  document.addEventListener('keydown', e=>{
+    if(['ArrowRight','PageDown',' '].includes(e.key)){ e.preventDefault(); next(); }
+    else if(['ArrowLeft','PageUp'].includes(e.key)){ e.preventDefault(); prev(); }
+    else if(e.key==='Home') show(0);
+    else if(e.key==='End') show(slides.length-1);
+    else if(e.key==='f'||e.key==='F'){
+      if(!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+  document.getElementById('deck').addEventListener('click', e=>{
+    if(e.target.closest('a')) return;
+    (e.clientX > window.innerWidth/2) ? next() : prev();
+  });
+
+  const start = parseInt((location.hash||'').replace('#',''),10);
+  show(Number.isFinite(start) && start>0 ? start-1 : 0);
+</script>
+</body>
+</html>
