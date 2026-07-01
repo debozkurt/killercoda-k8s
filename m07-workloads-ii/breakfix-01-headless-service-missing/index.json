@@ -1,0 +1,19 @@
+{
+  "title": "M07 — Break/fix 01: Headless Service Missing",
+  "description": "session-store's Pods are all Running, but its members can't find each other — session-store-0.session-store... returns NXDOMAIN. The StatefulSet's governing headless Service was never created. Find it missing and create it.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the missing headless Service", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
