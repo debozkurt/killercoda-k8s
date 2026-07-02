@@ -1,0 +1,19 @@
+{
+  "title": "M24 — Break/fix 03: No Leader Ever Elected (Leader-Election RBAC)",
+  "description": "call-coordinator's Pods are Running, but no leader is ever elected and no Lease is held. The ServiceAccount's leader-election Role is missing the verbs needed to acquire and renew the Lease lock. Prove it with auth can-i and restore the Role.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the failed election", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
