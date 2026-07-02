@@ -189,8 +189,8 @@ The first three walk the `Forbidden` differential — one phrase in the message 
 
 ## Production thinking
 
-- A ServiceAccount is granted `cluster-admin` "to unblock a rollout" and never walked back. What's the blast radius of that one binding if the Pod using it is compromised — and how would least-privilege (`auth can-i --list` to see what it actually uses, then a scoped Role) have bounded it?
-- You enforce `restricted` on a namespace that already runs a dozen workloads. Existing Pods keep running; the next deploy of any of them fails admission. How do you sequence it — `warn`/`audit` first, fix the `securityContext`s, *then* `enforce` — so you learn what breaks before it breaks in production?
+- A ServiceAccount is granted `cluster-admin` "to unblock a rollout" and never walked back. What's the blast radius of that one binding if the Pod using it is ever compromised, and how would you find out what the workload actually needs so you can scope it back down?
+- You enforce `restricted` on a namespace that already runs a dozen workloads. Existing Pods keep running; the next deploy of any of them fails admission. How would you sequence turning enforcement on so you learn what breaks before it breaks a production rollout?
 - A workload authenticates as `default` and someone "fixes" the Forbidden by granting `default` the permissions it needed. Why is that the wrong fix — what does it hand to every *other* Pod in the namespace that also uses `default`, and what should they have done instead?
 
 ## References
