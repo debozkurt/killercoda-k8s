@@ -1,0 +1,19 @@
+{
+  "title": "M07 — Break/fix 02: Ordered Rollout Stall",
+  "description": "session-store is stuck at READY 0/3 with only Pod-0 present, Running but never Ready. Under OrderedReady, an un-ready Pod-0 blocks every ordinal behind it. Find why Pod-0 won't go Ready and unblock the set.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the stalled rollout", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
