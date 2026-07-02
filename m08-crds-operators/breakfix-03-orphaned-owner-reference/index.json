@@ -1,0 +1,19 @@
+{
+  "title": "M08 — Break/fix 03: Orphaned Child (Missing Owner Reference)",
+  "description": "Tenant vega was offboarded weeks ago — its MediaTenant is gone — but vega-media is still Running and holding capacity. Cascading deletion should have removed it. Find why it was orphaned instead of collected, and reclaim the capacity.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the orphan", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

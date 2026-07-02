@@ -1,0 +1,19 @@
+{
+  "title": "M08 — Break/fix 01: Custom Resource Rejected by Schema",
+  "description": "A product team's new MediaTenant, vega, never appeared — kubectl get shows only orion and lyra, and no vega-media Deployment exists. The manifest is at /root/vega-tenant.yaml. Find why the API server refused it and get vega provisioned.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the rejected resource", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
