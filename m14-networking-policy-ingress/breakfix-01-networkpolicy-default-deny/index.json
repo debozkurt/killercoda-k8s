@@ -1,0 +1,19 @@
+{
+  "title": "M14 — Break/fix 01: NetworkPolicy Default-Deny",
+  "description": "session-broker in media went dark — callers time out — but its Pods are healthy, its Service has endpoints, and DNS resolves. A default-deny locked the namespace and no allow was ever added. Add the allow without removing the deny.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the silent timeout", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
