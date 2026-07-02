@@ -27,7 +27,7 @@ kubectl auth can-i create leases.coordination.k8s.io -n call-routing --as=system
 kubectl auth can-i update leases.coordination.k8s.io -n call-routing --as=system:serviceaccount:call-routing:coordinator
 ```{{exec}}
 
-All three now return `yes`. Prove it end to end — acquire the lock *as the ServiceAccount*, exactly as the election client would:
+All three now return `yes`. `call-coordinator` runs a placeholder image with no built-in election client, so nothing will create the Lease on its own — stand in for that client and acquire the lock *as the ServiceAccount*, exactly as a real leader-election client would:
 
 ```bash
 kubectl create -f - --as=system:serviceaccount:call-routing:coordinator <<'EOF'
@@ -41,4 +41,4 @@ EOF
 kubectl get lease call-coordinator -n call-routing
 ```{{exec}}
 
-The create succeeds — permission denied is gone — and the Lease now exists with a `HOLDER`. With the verbs restored, a replica can acquire and renew the lock, so leadership can be established and the singleton work can run. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+The create succeeds — permission denied is gone — and the Lease now exists with a `HOLDER`. With the verbs restored, a real workload's embedded election client would now acquire and renew this lock on its own; here you did it by hand to prove the permission works end to end. Leadership can be established and the singleton work can run. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.

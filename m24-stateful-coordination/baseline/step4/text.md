@@ -21,11 +21,13 @@ kubectl get lease -n call-routing
 kubectl get lease call-coordinator -n call-routing -o yaml
 ```{{exec}}
 
+> **Lab note:** `call-coordinator` runs a placeholder image (nginx) that doesn't itself run a leader-election client, so its Lease here is *staged* for you to read — the fields and the RBAC that gates them are real, but `renewTime` is written once at setup and won't keep advancing the way the live control-plane Leases above do. A real singleton embeds an election client (exactly as `kube-controller-manager` does) that creates this Lease and renews it every few seconds on its own.
+
 Read four fields under `spec`:
 
 - `holderIdentity` — the replica that currently holds the lock (the leader). The standby sees this and stays passive.
 - `leaseDurationSeconds` — how long the lock is valid without a renewal (here 15s). If the holder goes silent for longer, the lock is considered expired and a challenger may claim it.
-- `renewTime` — when the holder last proved it's alive. A live leader bumps this every few seconds; a `renewTime` that stops advancing is a leader that died.
+- `renewTime` — when the holder last proved it's alive. A live leader (like the control-plane Leases above) bumps this every few seconds; a `renewTime` that stops advancing is a leader that died.
 - `acquireTime` — when the current holder first took the lock.
 
 The whole protocol is those fields: hold, renew before expiry, and if you can't, let someone else take over.
