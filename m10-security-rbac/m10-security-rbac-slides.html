@@ -363,7 +363,7 @@
   <!-- TWO SCOPES -->
   <section class="slide">
     <div class="wrap">
-      <h2>Two scopes, and the boundary bites</h2>
+      <h2>Namespaced vs cluster scope;<br>a mismatch grants nothing</h2>
       <div class="cards c2">
         <div class="card">
           <h3>Namespaced <span class="tag">— Role + RoleBinding</span></h3>
@@ -380,7 +380,7 @@
       <div class="note warn" style="margin-top:1.5rem"><p>Put <code>nodes</code> in a namespaced Role
         and bind it with a RoleBinding: RBAC accepts the YAML and grants <em>nothing</em>. Nodes live
         outside every namespace, so the request is denied <code>at the cluster scope</code> — and
-        that word, <em>scope</em>, is the whole tell.</p></div>
+        that phrase in the error tells you the <em>scope</em>, not the verb, is wrong.</p></div>
     </div>
   </section>
 
