@@ -1,0 +1,19 @@
+{
+  "title": "M13 — Break/fix 03: Metrics — a scrape target that's DOWN",
+  "description": "call-metrics is Running 1/1, kubectl top works, and its /metrics endpoint serves fine on port 80 — but its dashboards are flat. The prometheus.io/port annotation points at 9090, where nothing listens, so the scrape is refused and the target is DOWN. Point the scrape port at the port /metrics is actually served on.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the flat dashboards", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

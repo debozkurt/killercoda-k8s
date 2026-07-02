@@ -1,0 +1,19 @@
+{
+  "title": "M13 — Break/fix 01: Logs — an app that writes to a file",
+  "description": "session-logger is Running 1/1 but kubectl logs shows only a startup banner. It writes its real logs to a file inside the container, and the kubelet captures only stdout/stderr. Restore visibility — log to stdout, or add a streaming sidecar.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the empty log", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
