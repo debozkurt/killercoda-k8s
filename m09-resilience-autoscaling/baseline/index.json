@@ -1,0 +1,21 @@
+{
+  "title": "M09 — Resilience & Autoscaling — Baseline",
+  "description": "Tour how Polyphone stays available across change: the Deployment rolling-update strategy and rollout history, a working HorizontalPodAutoscaler, a PodDisruptionBudget's allowed disruptions, and the graceful-shutdown lifecycle.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Rolling updates and rollback", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "The Horizontal Pod Autoscaler", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "PodDisruptionBudgets", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "Graceful shutdown", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
