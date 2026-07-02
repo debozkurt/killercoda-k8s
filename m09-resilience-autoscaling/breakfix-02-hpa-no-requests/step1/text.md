@@ -38,4 +38,4 @@ kubectl get deployment sip-router -n signaling \
   -o jsonpath='{.spec.template.spec.containers[0].resources.requests}'; echo
 ```{{exec}}
 
-`sip-router` has `cpu: 25m` — a denominator — so its HPA reads a real percentage. `transcode-scaler` has none. metrics-server is scraping the Pod fine; the missing piece is the request the percentage is measured against. Add it next.
+`sip-router` requests `cpu: 25m` — a denominator — which is exactly why the baseline's HPA on it reads a real percentage; `transcode-scaler` has none, so its HPA here can't. metrics-server is scraping the Pod fine; the missing piece is the request the percentage is measured against. Add it next.
