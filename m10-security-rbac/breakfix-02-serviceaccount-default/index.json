@@ -1,0 +1,19 @@
+{
+  "title": "M10 — Break/fix 02: ServiceAccount — running as default",
+  "description": "route-watcher CrashLoopBackOffs with a 403 Forbidden — but the message names ...:default, not the SA someone bound. The Pod omits serviceAccountName. Set it and the correct identity is used.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the Forbidden", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

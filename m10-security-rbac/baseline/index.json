@@ -1,0 +1,21 @@
+{
+  "title": "M10 — Security I: RBAC & Pod Security — Baseline",
+  "description": "Tour the fleet's security posture: who its Pods are (ServiceAccounts and projected tokens), what they may do (RBAC roles, bindings, kubectl auth can-i), the securityContext they carry, and how PodSecurity admission enforces a standard per namespace.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Who the Pods are: ServiceAccounts & identity", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "What an identity may do: RBAC", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "A Pod's security posture: securityContext", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "Namespace enforcement: PodSecurity admission", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
