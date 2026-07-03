@@ -1,0 +1,21 @@
+{
+  "title": "M11 — Secrets at Scale — Baseline",
+  "description": "Tour a healthy secrets pipeline on the Polyphone fleet: a backing store (vault-backend) standing in for an external secrets manager, SecretSync objects that model ESO ExternalSecrets, the secret-operator reconcile loop that materializes a Kubernetes Secret for each, and the consumers running on those materialized Secrets.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "The pipeline inputs: store and SecretSyncs", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "The materialized Secret: a derived object", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "The operator reconciling: reading sync status", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "The consumer: the chain end to end", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
