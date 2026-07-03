@@ -1,0 +1,21 @@
+{
+  "title": "M12 — PKI & TLS — Baseline",
+  "description": "Tour a healthy PKI on the fleet: cert-manager and the internal CA (a SelfSigned bootstrap issuer, the CA Certificate, and the CA ClusterIssuer), a leaf Certificate reconciled into a kubernetes.io/tls Secret (decode it and read its SANs), an mTLS call between two workloads (config-client -> config-api), and certificate expiry + automatic renewal.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "cert-manager and the internal CA", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "A Certificate becomes a TLS Secret", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "mTLS between two workloads", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "Expiry and automatic renewal", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
