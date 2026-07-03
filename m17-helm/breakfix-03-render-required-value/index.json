@@ -1,0 +1,19 @@
+{
+  "title": "M17 — Break/fix 03: Render Required Value",
+  "description": "The voicemail install failed and nothing deployed. No release, no pods. Read the render error, reproduce it offline with helm template, and supply the missing value.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "An install that rendered nothing", "text": "step1/text.md" },
+      { "title": "Supply the value and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

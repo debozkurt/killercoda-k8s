@@ -1,0 +1,19 @@
+{
+  "title": "M17 — Break/fix 02: Bad Upgrade, Rollback",
+  "description": "A voicemail upgrade reported success, but the rolled pods are stuck. helm status says deployed. The revision history holds the fix.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Success that isn't", "text": "step1/text.md" },
+      { "title": "Roll back and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
