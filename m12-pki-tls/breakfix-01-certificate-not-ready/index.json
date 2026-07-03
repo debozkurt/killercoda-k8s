@@ -1,0 +1,19 @@
+{
+  "title": "M12 — Break/fix 01: a Certificate that won't issue",
+  "description": "config-api is stuck ContainerCreating and its Certificate reads Ready: False. The issuerRef names an issuer that doesn't exist, so cert-manager never signs it, the kubernetes.io/tls Secret is never written, and the Pod that mounts it can't start. Climb the issuance ladder — Certificate then CertificateRequest — and repoint issuerRef at the real internal-CA issuer.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the stuck server", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

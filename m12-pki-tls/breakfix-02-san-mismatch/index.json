@@ -1,0 +1,19 @@
+{
+  "title": "M12 — Break/fix 02: a cert valid for the wrong name",
+  "description": "config-api is Running, its Certificate is Ready, and the TLS Secret exists — but the mTLS call fails with 'no alternative certificate subject name matches target host name'. The server cert's SANs omit config-api.media.svc.cluster.local, the name the client dials. Read the cert's SANs, put the real dnsNames back, and reload nginx.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the handshake failure", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

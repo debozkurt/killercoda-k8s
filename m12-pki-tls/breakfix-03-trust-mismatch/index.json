@@ -1,0 +1,19 @@
+{
+  "title": "M12 — Break/fix 03: the client trusts the wrong CA",
+  "description": "config-api's cert is issued, Ready, and correctly named — but config-client's mTLS call fails with 'unable to get local issuer certificate'. The client mounts the wrong trust bundle (legacy-ca-bundle, an unrelated CA), so it can't verify the server's cert, which is signed by the internal CA. Point the client's trust volume back at internal-ca-bundle.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the trust failure", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
