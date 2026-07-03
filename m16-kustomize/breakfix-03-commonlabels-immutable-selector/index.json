@@ -1,0 +1,19 @@
+{
+  "title": "M16 — Break/fix 03: commonLabels vs the Immutable Selector",
+  "description": "edge-relay runs on the lab spec; promoting the prod overlay is rejected with 'field is immutable'. A label transformer is writing into the Deployment's selector. Move it off the selector and let the promotion land.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Read the rejected apply", "text": "step1/text.md" },
+      { "title": "Move labels off the selector and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

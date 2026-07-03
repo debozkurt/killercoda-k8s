@@ -1,0 +1,19 @@
+{
+  "title": "M16 — Break/fix 01: Patch Target Mismatch",
+  "description": "The prod promotion of edge-relay isn't landing and the workload is missing from the cluster. The apply never got past `kustomize build`. Read the build error, find the patch that targets a resource that doesn't exist, and fix it.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Read the build error", "text": "step1/text.md" },
+      { "title": "Fix the patch target and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
