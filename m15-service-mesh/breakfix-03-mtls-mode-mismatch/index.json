@@ -1,0 +1,19 @@
+{
+  "title": "M15 — Break/fix 03: mTLS Mode Mismatch",
+  "description": "session-broker 503s even though its Pods are 2/2, the route targets a subset with endpoints, and mTLS is 'on'. The DestinationRule tells callers to send plaintext while the PeerAuthentication requires mTLS — the two halves disagree. Align them.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the mTLS mismatch", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

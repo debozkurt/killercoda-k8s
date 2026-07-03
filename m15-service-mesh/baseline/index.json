@@ -1,0 +1,21 @@
+{
+  "title": "M15 — Service Mesh — Baseline",
+  "description": "Tour the mesh healthy: the injected Envoy sidecar that puts a pod in the mesh, a VirtualService/DestinationRule shaping traffic to session-broker, STRICT mTLS enforced between meshed pods, and the istioctl commands that read what Envoy actually programmed.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "The sidecar: how a pod joins the mesh", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "Traffic management: routes, timeouts, retries", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "Mesh-managed mTLS", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "Reading Envoy config with istioctl", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

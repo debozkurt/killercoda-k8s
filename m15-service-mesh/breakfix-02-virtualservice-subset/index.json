@@ -1,0 +1,19 @@
+{
+  "title": "M15 — Break/fix 02: VirtualService Subset",
+  "description": "session-broker returns 503 through the mesh, but its Pods are 2/2, in the mesh, with endpoints and working mTLS. The VirtualService routes to a subset that has no pods, so Envoy has an empty cluster and no healthy upstream. Route it back to a subset that exists.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the 503 with istioctl", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

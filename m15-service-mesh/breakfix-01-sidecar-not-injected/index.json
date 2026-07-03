@@ -1,0 +1,19 @@
+{
+  "title": "M15 — Break/fix 01: Sidecar Not Injected",
+  "description": "Calls to session-broker fail with 503, but its Pods are Running/Ready and its Service has endpoints. The workload was opted out of sidecar injection, so it isn't in the mesh — and with mTLS required upstream, callers can't reach it. Re-enroll it in the mesh.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the failing calls", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
