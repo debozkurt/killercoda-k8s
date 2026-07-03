@@ -1,0 +1,19 @@
+{
+  "title": "M08 — Break/fix 02: Reconciliation Stuck (Operator RBAC)",
+  "description": "The tenant-operator Pod is Running, but no MediaTenant ever reaches Ready and no child Deployments exist — every tenant sits at phase=Provisioning. Nothing crashed. Read status, then the operator's logs, to find why reconciliation makes no progress, and unblock it.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the stuck reconciliation", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

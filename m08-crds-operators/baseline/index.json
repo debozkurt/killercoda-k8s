@@ -1,0 +1,21 @@
+{
+  "title": "M08 — CRDs & Operators — Baseline",
+  "description": "Tour a working operator on the Polyphone fleet: a MediaTenant CustomResourceDefinition that extends the API, two MediaTenant custom resources, and the tenant-operator control loop that reconciles each into a child media Deployment, stamps an ownerReference back to the CR, and reports progress in .status.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "The CRD: a new type in the API", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "Custom resources: spec you set, status the operator writes", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "The operator reconciling: reading operator-managed state", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "Owner references: the chain cascading deletion follows", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
