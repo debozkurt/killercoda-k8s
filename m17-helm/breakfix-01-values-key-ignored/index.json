@@ -1,0 +1,19 @@
+{
+  "title": "M17 — Break/fix 01: Values Key Ignored",
+  "description": "A values file sets replicas: 3, but the voicemail release runs one pod. The value is present in the release, yet the workload never changed. Find out why Helm ignored it.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Why the override did nothing", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
