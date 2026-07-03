@@ -1,0 +1,21 @@
+{
+  "title": "M14 — Networking II: Policy & Ingress — Baseline",
+  "description": "Tour the two traffic controls healthy: a default-deny plus an allow in `media` (enforcement proven both ways), a correct cross-namespace allow, and an Ingress routing external HTTP to a Service.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "The default-allow to default-deny flip", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "Enforcement, proven both ways", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "Cross-namespace peer selection", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "The Ingress front door", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

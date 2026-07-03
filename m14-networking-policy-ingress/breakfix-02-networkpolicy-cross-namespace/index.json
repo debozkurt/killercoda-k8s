@@ -1,0 +1,19 @@
+{
+  "title": "M14 — Break/fix 02: NetworkPolicy Cross-Namespace",
+  "description": "An allow policy exists and names sip-app, but the cross-namespace caller is still denied. The `from` peer is a bare podSelector — namespace-local — so it matches nothing. Add the namespaceSelector.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the allow that allows nothing", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

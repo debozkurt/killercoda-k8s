@@ -1,0 +1,19 @@
+{
+  "title": "M14 — Break/fix 03: Ingress Misrouting",
+  "description": "The portal Ingress returns 503, but portal-ui's Pods, Service, and endpoints are all healthy. The rule forwards to a port the Service doesn't expose. Read describe ingress against the Service and fix the port.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the 503", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
