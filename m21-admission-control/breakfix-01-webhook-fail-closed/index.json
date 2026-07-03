@@ -1,0 +1,19 @@
+{
+  "title": "M21 — Break/fix 01: A Fail-Closed Webhook Wedges Deploys",
+  "description": "billing-api sits at 0/1 with no Pods. The admission-guard webhook backend is down, and with failurePolicy: Fail the API server rejects every Pod create in tenant-apps — a failed call, not a policy denial. Read the FailedCreate event, distinguish 'failed calling webhook' from 'denied the request', and restore the backend.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the 0/1 with no Pods", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "title": "M21 — Break/fix 02: A Mutating Webhook That Never Fires",
+  "description": "orders-api sits at 0/1 with no Pods, rejected by the validating webhook for a missing env label. But the author never sets env — the mutating webhook is supposed to. Its rules match UPDATE instead of CREATE, so it never fires on new Pods. The denial is at validation; the fault is upstream in mutation. Fix the mutating config's operations.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the validating denial", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
