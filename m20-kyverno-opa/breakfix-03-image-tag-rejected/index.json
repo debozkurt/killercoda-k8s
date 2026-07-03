@@ -1,0 +1,19 @@
+{
+  "title": "M20 — Break/fix 03: Image Admission Rejects the Tag",
+  "description": "call-recorder sits at 0/1 with no Pods. The image-admission policy (Enforce) rejects its Pods because the image is pinned to :latest. Read the denial and pin the tag — the supply-chain gate.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the image rejection", "text": "step1/text.md" },
+      { "title": "Pin the tag and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

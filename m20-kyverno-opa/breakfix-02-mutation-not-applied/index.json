@@ -1,0 +1,19 @@
+{
+  "title": "M20 — Break/fix 02: A Mutation That Never Fired",
+  "description": "tenant-portal runs fine but is missing the owner label the platform injects on every tenant Pod. The mutate policy's match names the wrong namespace, so it never selected the Pods. Fix the policy, then re-admit.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the missing label", "text": "step1/text.md" },
+      { "title": "Fix the policy and re-admit", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

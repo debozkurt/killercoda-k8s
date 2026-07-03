@@ -1,0 +1,21 @@
+{
+  "title": "M20 — Policy as Code: Kyverno & OPA Gatekeeper — Baseline",
+  "description": "Tour a policy engine working: Kyverno running as admission webhooks, three ClusterPolicies scoped to tenant-apps, and a compliant workload that gets admitted, mutated (owner label injected), and image-gated.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Kyverno as admission webhooks", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "Validation admits the compliant, rejects the rest", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "Mutation injects a default", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "Image admission gates the tag", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
