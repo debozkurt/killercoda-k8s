@@ -1,0 +1,19 @@
+{
+  "title": "M21 — Break/fix 03: A Webhook Whose Scope Is Too Broad",
+  "description": "sip-canary in the signaling namespace sits at 0/1, rejected by the admission-guard validating webhook — a webhook that only governs tenant-apps. Its namespaceSelector was widened to {}, so it now intercepts every namespace. Read the webhook's scope, see it reaching where it shouldn't, and narrow it back.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose a denial in the wrong namespace", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "title": "M21 — Admission Control: Validating & Mutating Webhooks — Baseline",
+  "description": "Tour raw admission webhooks working: a minimal admission-guard server, a MutatingWebhookConfiguration and a ValidatingWebhookConfiguration scoped to tenant-apps, and a bare Pod admitted because mutation injects a label validation then requires — the mutate-then-validate ordering, end to end.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "The webhook backend and its two configurations", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "Mutate then validate admits a bare Pod", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "failurePolicy and scope: the blast radius", "text": "step3/text.md", "verify": "step3/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
