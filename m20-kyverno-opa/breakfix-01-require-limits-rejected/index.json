@@ -1,0 +1,19 @@
+{
+  "title": "M20 — Break/fix 01: Validation Rejects a Rollout",
+  "description": "billing-api sits at 0/1 with no Pods. A Kyverno validate policy (Enforce) rejects its Pods at the ReplicaSet because it declares no resource limits. Read the denial, find the rule, and fix the workload to comply.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the 0/1 with no Pods", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
