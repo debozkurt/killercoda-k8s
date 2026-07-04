@@ -35,7 +35,7 @@ flux reconcile kustomization apps --with-source
 kubectl get deploy -n app-services -l 'app in (dialplan,voicemail)'
 ```{{exec}}
 
-`dialplan` appears and becomes ready; `voicemail` follows once its dependency (`apps`) is ready and helm-controller installs it. Give it a few seconds and re-run the `get` if `voicemail` isn't up yet.
+`dialplan` appears and becomes ready; `voicemail` follows once its dependency (the `message-store` release) is ready and helm-controller installs it. Give it a few seconds and re-run the `get` if `voicemail` isn't up yet.
 
 ## The durable fix
 

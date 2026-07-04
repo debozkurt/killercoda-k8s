@@ -8,7 +8,7 @@ helm-controller runs Helm — the same install/upgrade model from M17 — but dr
 flux get helmreleases
 ```{{exec}}
 
-`voicemail`, `READY True`, message about the installed revision. helm-controller rendered `./charts/voicemail` and installed it.
+Two releases — `message-store` and `voicemail` — both `READY True`, each with a message about its installed revision. helm-controller rendered `./charts/voicemail` and `./charts/message-store` and installed them.
 
 ```bash
 kubectl get helmrelease voicemail -n flux-system -o yaml | grep -A10 '^spec:'
@@ -24,7 +24,7 @@ helm-controller uses Helm's own release storage, so the M17 commands still work:
 helm list -n app-services
 ```{{exec}}
 
-`voicemail`, `deployed`. And the workload is ordinary:
+`voicemail` and `message-store`, both `deployed`. And the workload is ordinary:
 
 ```bash
 kubectl get deploy voicemail -n app-services
@@ -38,7 +38,7 @@ kubectl get deploy voicemail -n app-services
 kubectl get helmrelease voicemail -n flux-system -o jsonpath='{.spec.dependsOn}{"\n"}'
 ```{{exec}}
 
-`[{"name":"apps"}]`. The release `dependsOn` the `apps` Kustomization — helm-controller waited until `apps` was `Ready` before installing `voicemail`. That's how you order a release after the config or CRDs it needs.
+`[{"name":"message-store"}]`. The release `dependsOn` the `message-store` HelmRelease — helm-controller waited until `message-store` was `Ready` before installing `voicemail`. `dependsOn` references other HelmReleases (same kind), so this is how you order an app release behind a release it needs — here its backing store.
 
 ## Verify
 

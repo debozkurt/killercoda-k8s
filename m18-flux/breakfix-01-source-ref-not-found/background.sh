@@ -690,8 +690,8 @@ EOF
 #     cluster to match it. This block:
 #       1. installs the pinned `flux` CLI and its controllers (`flux install`)
 #       2. runs a tiny in-cluster Gitea git server (source for GitRepository)
-#       3. seeds a config repo (an `apps` Kustomize dir + a `voicemail` Helm
-#          chart) and pushes it to Gitea
+#       3. seeds a config repo (an `apps` Kustomize dir + `voicemail` and
+#          `message-store` Helm charts) and pushes it to Gitea
 #       4. applies the Flux custom resources that reconcile that repo
 #     Per-scenario mutations are appended AFTER this shared block.
 # ===========================================================================
@@ -785,7 +785,7 @@ curl -sf -u flux:flux-admin -X POST "http://localhost:30300/api/v1/user/repos" \
 # `cat > file` (not piped to kubectl) so the Helm chart's Go-template YAML is
 # written verbatim, not applied.
 REPO=/root/polyphone-config
-mkdir -p "$REPO/apps" "$REPO/charts/voicemail/templates"
+mkdir -p "$REPO/apps" "$REPO/charts/voicemail/templates" "$REPO/charts/message-store/templates"
 
 # apps/ — a plain-manifest Kustomize dir the Flux `apps` Kustomization builds.
 cat > "$REPO/apps/kustomization.yaml" <<'GIT_EOF'
@@ -898,6 +898,79 @@ spec:
       targetPort: 80
 GIT_EOF
 
+# charts/message-store — the voicemail app's backing store, rendered by its own
+# `message-store` HelmRelease. voicemail's HelmRelease dependsOn this release, so
+# it installs first — a real same-kind (HelmRelease -> HelmRelease) ordering.
+cat > "$REPO/charts/message-store/Chart.yaml" <<'GIT_EOF'
+apiVersion: v2
+name: message-store
+description: Polyphone voicemail message store — lab chart for M18 (Flux)
+type: application
+version: 0.1.0
+appVersion: "1.25"
+GIT_EOF
+
+cat > "$REPO/charts/message-store/values.yaml" <<'GIT_EOF'
+replicaCount: 1
+image:
+  repository: nginx
+  tag: "1.25"
+  pullPolicy: IfNotPresent
+service:
+  port: 80
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits:   { cpu: 100m, memory: 64Mi }
+GIT_EOF
+
+cat > "$REPO/charts/message-store/templates/deployment.yaml" <<'GIT_EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: message-store
+  labels:
+    app: message-store
+    plane: app
+    tier: lab
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: message-store
+  template:
+    metadata:
+      labels:
+        app: message-store
+        plane: app
+        tier: lab
+    spec:
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 80
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+GIT_EOF
+
+cat > "$REPO/charts/message-store/templates/service.yaml" <<'GIT_EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: message-store
+  labels:
+    app: message-store
+    plane: app
+    tier: lab
+spec:
+  selector:
+    app: message-store
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: 80
+GIT_EOF
+
 # Commit the tree and push it to Gitea as branch `main` (the host has git and
 # reaches Gitea on the NodePort). This is the one and only revision the repo
 # starts with.
@@ -907,7 +980,9 @@ git -C "$REPO" -c user.email=setup@polyphone.example -c user.name=setup commit -
 git -C "$REPO" push -q "http://flux:flux-admin@localhost:30300/flux/polyphone-config.git" main 2>/dev/null
 
 # --- 4. apply the Flux custom resources --------------------------------------
-# GitRepository (source) -> Kustomization `apps` -> HelmRelease `voicemail`.
+# GitRepository (source) -> Kustomization `apps` + HelmReleases `message-store`
+# and `voicemail` (ordered after message-store via dependsOn). The source's
+# branch is mutated below; with no artifact, none of the consumers install.
 cat <<'EOF' | kubectl apply -f - >/dev/null
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
@@ -945,6 +1020,23 @@ spec:
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
+  name: message-store
+  namespace: flux-system
+spec:
+  interval: 1m
+  targetNamespace: app-services
+  chart:
+    spec:
+      chart: ./charts/message-store
+      sourceRef:
+        kind: GitRepository
+        name: polyphone-config
+  values:
+    replicaCount: 1
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
   name: voicemail
   namespace: flux-system
 spec:
@@ -956,8 +1048,9 @@ spec:
       sourceRef:
         kind: GitRepository
         name: polyphone-config
+  # voicemail waits for its backing store's HelmRelease (same-kind dependsOn).
   dependsOn:
-    - name: apps
+    - name: message-store
   values:
     replicaCount: 2
 EOF

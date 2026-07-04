@@ -5,7 +5,7 @@
 
 ## Lesson summary
 
-M18 teaches GitOps with Flux — git as declared state, an in-cluster controller reconciling the cluster to match it — and the three ways the pipeline stalls without touching your workload. The `baseline/` scenario tours a healthy pipeline: a `GitRepository` source and its artifact, an `apps` Kustomization applying the repo, drift correction reverting a hand-scaled Deployment, and a `voicemail` HelmRelease ordered after `apps` by `dependsOn`. Three break/fix scenarios isolate one failure each:
+M18 teaches GitOps with Flux — git as declared state, an in-cluster controller reconciling the cluster to match it — and the three ways the pipeline stalls without touching your workload. The `baseline/` scenario tours a healthy pipeline: a `GitRepository` source and its artifact, an `apps` Kustomization applying the repo, drift correction reverting a hand-scaled Deployment, and a `voicemail` HelmRelease ordered after the `message-store` release by `dependsOn`. Three break/fix scenarios isolate one failure each:
 
 - `breakfix-01-source-ref-not-found` — *a source pointed at a non-existent branch produces no artifact; every consumer stalls on it*
 - `breakfix-02-kustomization-suspended` — *a suspended consumer stops reconciling, so drift never corrects and looks healthy*
@@ -20,7 +20,7 @@ No broken state. Each step produces predictable output.
 - **Step 1 (Flux and its sources):** `flux check` shows source/kustomize/helm controllers green. `flux get sources git` shows `polyphone-config` `READY True`, message `stored artifact for revision 'main@sha1:...'`. `flux get all` is the whole pipeline in one view.
 - **Step 2 (the Kustomization):** `flux get kustomizations` shows `apps` `READY True`, `Applied revision: main@sha1:...`. It built `./apps` and applied `dialplan` into `app-services` (`targetNamespace`); `flux tree kustomization apps` lists what it manages. The Flux `Kustomization` CRD is not the `kustomization.yaml` file it builds.
 - **Step 3 (drift correction):** `kubectl scale deployment dialplan --replicas=5` drifts it; `flux reconcile kustomization apps --with-source` (or waiting one interval) reverts it to the git-declared 2 via server-side apply. Flux owns the field; fix in git, not with `kubectl`.
-- **Step 4 (HelmRelease and dependencies):** `flux get helmreleases` shows `voicemail` `READY True`; its chart is sourced from the GitRepository (`./charts/voicemail`), and `helm list -n app-services` shows the real release. `spec.dependsOn: [{name: apps}]` ordered it after the Kustomization.
+- **Step 4 (HelmRelease and dependencies):** `flux get helmreleases` shows both `message-store` and `voicemail` `READY True`; the chart is sourced from the GitRepository (`./charts/voicemail`), and `helm list -n app-services` shows the real releases. `spec.dependsOn: [{name: message-store}]` ordered `voicemail` after the `message-store` release — a same-kind (HelmRelease → HelmRelease) dependency.
 
 ---
 
@@ -130,34 +130,34 @@ The anti-pattern: `kubectl scale dialplan --replicas=2` to "fix" it. It papers o
 
 ## Break/fix 03 — HelmRelease Dependency
 
-**Symptom:** The `voicemail` HelmRelease is stuck `READY False` and never installs — no `voicemail` Deployment in `app-services` — even though the source is `Ready`, the `apps` Kustomization is `Ready`, `dialplan` is running, and the chart renders.
+**Symptom:** The `voicemail` HelmRelease is stuck `READY False` and never installs — no `voicemail` Deployment in `app-services` — even though the source is `Ready`, the `apps` Kustomization is `Ready`, `dialplan` and `message-store` are running, and the chart renders.
 
-**Root cause:** `spec.dependsOn` names a Kustomization called `platform-config` that doesn't exist; the real one applied by this repo is `apps`. `dependsOn` gates a release until every listed object is `Ready`, and an object that doesn't exist can never be ready, so helm-controller holds the release as `DependencyNotReady` indefinitely<sup><a href="https://fluxcd.io/flux/components/helm/helmreleases/">[3]</a></sup>. This is Flux waiting correctly on a reference that happens to be wrong (a typo or a stale rename).
+**Root cause:** `spec.dependsOn` names a HelmRelease called `message-cache` that doesn't exist; the backing-store release `voicemail` should wait for is `message-store` (the store was renamed and the dependency reference never caught up). A `HelmRelease`'s `dependsOn` references other HelmReleases, and gates the release until every listed one is `Ready`; an object that doesn't exist can never be ready, so helm-controller holds the release as `DependencyNotReady` indefinitely<sup><a href="https://fluxcd.io/flux/components/helm/helmreleases/">[3]</a></sup>. This is Flux waiting correctly on a reference that happens to be wrong (a typo or a stale rename).
 
 **Diagnostic commands (the canonical path):**
 
 ```bash
 # 1. Read the release's Ready condition — it says why it's waiting
 flux get helmreleases
-# voicemail  READY False  message: dependency 'flux-system/platform-config' is not ready
+# voicemail  READY False  message: dependency 'flux-system/message-cache' is not ready
 kubectl get helmrelease voicemail -n flux-system \
   -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}{"\n"}'   # DependencyNotReady
 
-# 2. Does the named dependency exist?
-flux get kustomizations                                # only 'apps' — no 'platform-config'
+# 2. Does the named dependency exist? dependsOn is same-kind, so check HelmReleases
+flux get helmreleases                                  # message-store is READY True — no 'message-cache'
 kubectl get helmrelease voicemail -n flux-system -o jsonpath='{.spec.dependsOn}{"\n"}'
-# [{"name":"platform-config"}]  -> points at nothing
+# [{"name":"message-cache"}]  -> points at nothing
 
 # 3. Rule out the other layers
 flux get sources git                                   # READY True
 kubectl get deploy dialplan -n app-services            # READY 2/2
 ```
 
-**Fix:** Point `dependsOn` at the Kustomization that actually exists, then reconcile:
+**Fix:** Point `dependsOn` at the release that actually exists, then reconcile:
 
 ```bash
 kubectl patch helmrelease voicemail -n flux-system \
-  --type=merge -p '{"spec":{"dependsOn":[{"name":"apps"}]}}'
+  --type=merge -p '{"spec":{"dependsOn":[{"name":"message-store"}]}}'
 flux reconcile helmrelease voicemail
 ```
 
@@ -172,7 +172,7 @@ kubectl get deploy voicemail -n app-services           # READY 2/2
 **What this scenario tests:**
 
 - Did you read *why* the release said it wasn't ready (`DependencyNotReady`) instead of assuming a render or install failure? A blocked release is different from a failed one.
-- Did you verify the named dependency exists (`flux get kustomizations`) — turning "waiting" into "waiting on nothing"?
+- Did you verify the named dependency exists (`flux get helmreleases`, since `dependsOn` is same-kind) — turning "waiting" into "waiting on nothing"?
 - Did you confirm the rest of the pipeline was healthy, isolating the fault to the reference?
 
 The anti-pattern: dig into the chart, values, or helm-controller logs looking for a render error — when the release never got as far as rendering, because its dependency gate never opened.

@@ -1,12 +1,12 @@
 # Step 2 — Fix it and verify
 
-The `voicemail` release `dependsOn` a Kustomization named `platform-config` that doesn't exist. The real one is `apps`. Point the dependency at the object that's actually there.
+The `voicemail` release `dependsOn` a HelmRelease named `message-cache` that doesn't exist. The real backing store is `message-store`. Point the dependency at the release that's actually there.
 
 ## Correct the dependency
 
 ```bash
 kubectl patch helmrelease voicemail -n flux-system \
-  --type=merge -p '{"spec":{"dependsOn":[{"name":"apps"}]}}'
+  --type=merge -p '{"spec":{"dependsOn":[{"name":"message-store"}]}}'
 ```{{exec}}
 
 Then reconcile so helm-controller re-checks the dependency and installs:
@@ -15,7 +15,7 @@ Then reconcile so helm-controller re-checks the dependency and installs:
 flux reconcile helmrelease voicemail
 ```{{exec}}
 
-With `apps` already `Ready`, the dependency gate opens and helm-controller renders the chart and installs the release. Confirm:
+With `message-store` already `Ready`, the dependency gate opens and helm-controller renders the chart and installs the release. Confirm:
 
 ```bash
 flux get helmreleases

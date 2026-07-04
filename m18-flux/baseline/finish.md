@@ -1,6 +1,6 @@
 # Done
 
-You toured a Flux pipeline end to end: the `GitRepository` source and its artifact, the `apps` Kustomization applying the repo, drift correction reverting a hand-scaled Deployment, and the `voicemail` HelmRelease ordered after `apps` by `dependsOn`. The repo lives on the in-cluster git server and is mirrored at `/root/polyphone-config`.
+You toured a Flux pipeline end to end: the `GitRepository` source and its artifact, the `apps` Kustomization applying the repo, drift correction reverting a hand-scaled Deployment, and the `voicemail` HelmRelease ordered after the `message-store` release by `dependsOn`. The repo lives on the in-cluster git server and is mirrored at `/root/polyphone-config`.
 
 **Next:**
 

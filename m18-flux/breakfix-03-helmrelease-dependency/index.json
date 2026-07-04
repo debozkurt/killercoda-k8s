@@ -1,6 +1,6 @@
 {
   "title": "M18 — Break/fix 03: HelmRelease Dependency",
-  "description": "A HelmRelease is stuck not-ready and never installs, though the source, the Kustomization, and the chart are all healthy. Read the dependsOn message and correct the reference.",
+  "description": "A HelmRelease is stuck not-ready and never installs, though the source, the apps Kustomization, and its message-store dependency are all healthy. Read the dependsOn message and correct the reference.",
   "details": {
     "intro": {
       "text": "intro.md",

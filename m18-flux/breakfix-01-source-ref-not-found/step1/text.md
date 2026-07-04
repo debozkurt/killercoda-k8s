@@ -34,7 +34,7 @@ The `Ready` condition is `False` with the reason and the failing ref. This is th
 flux get kustomizations
 ```{{exec}}
 
-`apps` is not ready either — but its message points back at the source (no artifact). The Kustomization isn't broken; it has nothing to build. Same story for the HelmRelease:
+`apps` is not ready either — but its message points back at the source (no artifact). The Kustomization isn't broken; it has nothing to build. Same story for the HelmReleases:
 
 ```bash
 flux get helmreleases

@@ -1,6 +1,6 @@
 # Done
 
-You diagnosed a release that was blocked on purpose — not failing to render or install, but waiting on a `dependsOn` that named a Kustomization (`platform-config`) which doesn't exist and never would. Reading the `Ready` condition (`DependencyNotReady`) and confirming the named dependency against `flux get kustomizations` pointed straight at the wrong reference. Correcting it to `apps` let the release install.
+You diagnosed a release that was blocked on purpose — not failing to render or install, but waiting on a `dependsOn` that named a HelmRelease (`message-cache`) which doesn't exist and never would. Reading the `Ready` condition (`DependencyNotReady`) and confirming the named dependency against `flux get helmreleases` — since `dependsOn` is same-kind — pointed straight at the wrong reference. Correcting it to `message-store` let the release install.
 
 **Next:**
 
