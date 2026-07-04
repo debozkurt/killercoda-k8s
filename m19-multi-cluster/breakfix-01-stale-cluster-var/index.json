@@ -1,0 +1,19 @@
+{
+  "title": "M19 — Break/fix 01: Stale Cluster Variable",
+  "description": "prod-eu-central-1 is healthy and running, but it reports the wrong region. A region overlay was cloned from its sibling and its REGION variable never updated. Trace the value to its owning layer and fix the stale cluster variable.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Trace the wrong value to its layer", "text": "step1/text.md" },
+      { "title": "Fix the stale variable and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

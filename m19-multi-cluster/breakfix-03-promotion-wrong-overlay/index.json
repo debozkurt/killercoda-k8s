@@ -1,0 +1,19 @@
+{
+  "title": "M19 — Break/fix 03: Promotion in the Wrong Overlay",
+  "description": "A promotion of nginx:1.27 to stage didn't take — stage still runs 1.25 — while prod unexpectedly renders 1.27. The image pin landed in the wrong tier's overlay. Diagnose the two-sided symptom and move the pin to the layer that owns that promotion step.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the two-sided symptom", "text": "step1/text.md" },
+      { "title": "Move the pin to the right overlay and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
