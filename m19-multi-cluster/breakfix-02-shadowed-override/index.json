@@ -1,0 +1,19 @@
+{
+  "title": "M19 — Break/fix 02: Shadowed Override",
+  "description": "The us-east-1 region raised its session-capacity standard to 8000, but prod-us-east-1 still renders 5000. The region overlay is correct — a leftover per-cluster override sits later in the composition stack and wins. Trace the winning layer and remove the shadow.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Find the layer that's winning", "text": "step1/text.md" },
+      { "title": "Remove the shadow and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "title": "M19 — Multi-cluster Fleet — Baseline",
+  "description": "Tour a healthy fleet repo: one edge-relay base composed through region and cluster overlays into four clusters. Read the layout, trace each rendered field to the layer that set it, watch an image promote lab -> stage -> prod, and apply one cluster.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "The fleet layout", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "Cluster vars and the rendering trace", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "Promotion across tiers", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "Apply and observe", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
