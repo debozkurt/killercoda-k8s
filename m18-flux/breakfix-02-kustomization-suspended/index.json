@@ -1,0 +1,19 @@
+{
+  "title": "M18 — Break/fix 02: Kustomization Suspended",
+  "description": "A hand-scaled Deployment won't revert to its git-declared count, and get output looks healthy. Find the suspended consumer and resume it.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Why the drift won't revert", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "title": "M18 — Flux (GitOps Delivery) — Baseline",
+  "description": "Tour a healthy Flux pipeline on the Polyphone cluster. Read a GitRepository source and its artifact, watch a Kustomization apply the repo, see Flux revert drift, and read a HelmRelease ordered by dependsOn.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Flux and its sources", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "The Kustomization", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "Drift correction", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "HelmRelease and dependencies", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
