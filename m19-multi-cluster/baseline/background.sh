@@ -681,14 +681,11 @@ spec:
 EOF
 
 # ---------------------------------------------------------------------------
-# Wait for the fleet to come up
+# Fleet-settle wait MOVED to the end (just before `touch .setup-complete`) so the
+# on-disk /root/fleet repo below is written FIRST. A slow boot that hits
+# Killercoda's background-script runtime cap then can't leave the learner an
+# empty repo — the files (the whole point of this module) exist regardless.
 # ---------------------------------------------------------------------------
-
-kubectl wait --for=condition=Available deployment --all -A --timeout=240s >/dev/null 2>&1
-# StatefulSets don't have an Available condition; wait for at least one ready pod
-for ns in media signaling app-services edge; do
-  kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=120s >/dev/null 2>&1
-done
 
 
 # ===========================================================================
@@ -902,5 +899,11 @@ EOF
 #     hand — a GitOps controller renders each path and applies it). ------------
 kubectl apply -k /root/fleet/clusters/prod-us-east-1 >/dev/null 2>&1
 kubectl rollout status deployment/edge-relay -n edge --timeout=90s >/dev/null 2>&1
+
+# --- fleet settle (best-effort, LAST so nothing critical sits behind it) ------
+kubectl wait --for=condition=Available deployment --all -A --timeout=120s >/dev/null 2>&1
+for ns in media signaling app-services edge; do
+  kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=60s >/dev/null 2>&1
+done
 
 touch /tmp/.setup-complete

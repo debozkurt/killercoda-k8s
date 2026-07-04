@@ -684,7 +684,7 @@ EOF
 # Wait for the fleet to come up
 # ---------------------------------------------------------------------------
 
-kubectl wait --for=condition=Available deployment --all -A --timeout=240s >/dev/null 2>&1
+kubectl wait --for=condition=Available deployment --all -A --timeout=120s >/dev/null 2>&1
 # StatefulSets don't have an Available condition; wait for at least one ready pod
 for ns in media signaling app-services edge; do
   kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=120s >/dev/null 2>&1
