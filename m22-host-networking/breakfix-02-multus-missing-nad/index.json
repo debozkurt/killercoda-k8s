@@ -1,0 +1,19 @@
+{
+  "title": "M22 — Break/fix 02: Multi-NIC Pod Stuck ContainerCreating",
+  "description": "media-probe in edge is stuck ContainerCreating. It asks Multus for a network by bare name, but the NetworkAttachmentDefinition lives in another namespace. Reference it cross-namespace.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the Pod that won't start", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

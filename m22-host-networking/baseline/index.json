@@ -1,0 +1,21 @@
+{
+  "title": "M22 — Host Networking & Multi-NIC — Baseline",
+  "description": "Tour the healthy host-network path: a hostNetwork Pod on the node's stack, a hostPort mapped onto a node port, a second NIC from a Multus NAD, and a NodePort's externalTrafficPolicy.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "hostNetwork — the Pod is the node", "text": "step1/text.md", "verify": "step1/verify.sh" },
+      { "title": "hostPort — one port onto the node", "text": "step2/text.md", "verify": "step2/verify.sh" },
+      { "title": "A second NIC with Multus", "text": "step3/text.md", "verify": "step3/verify.sh" },
+      { "title": "externalTrafficPolicy on a NodePort", "text": "step4/text.md", "verify": "step4/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
