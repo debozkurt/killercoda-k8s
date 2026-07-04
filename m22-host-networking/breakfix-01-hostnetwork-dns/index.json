@@ -1,0 +1,19 @@
+{
+  "title": "M22 — Break/fix 01: hostNetwork Pod Lost Cluster DNS",
+  "description": "rtp-relay is Running but can't resolve in-cluster Service names. A hostNetwork Pod left at the default dnsPolicy uses the node's resolver, not CoreDNS. Give it ClusterFirstWithHostNet.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the resolver a hostNetwork Pod got", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

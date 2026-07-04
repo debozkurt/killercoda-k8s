@@ -1,0 +1,19 @@
+{
+  "title": "M22 — Break/fix 03: NodePort Blackholes on One Node",
+  "description": "rtp-ingress answers on one node's IP and hangs on the other. externalTrafficPolicy Local drops traffic on nodes with no local endpoint. Switch to Cluster, or put an endpoint on every node.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the per-node reachability split", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
