@@ -41,7 +41,7 @@ The full fleet boots in every lesson's `baseline/` scenario. Each module's break
 | M00 | Mental Model & kubectl Fluency            | Cluster anatomy, contexts, namespaces, the resource model       |
 | M01 | Workloads I — Pods, Deployments, ReplicaSets | Lifecycle, probes, controllers, declarative reconciliation     |
 | M01b | Workloads: Jobs & CronJobs               | Run-to-completion + scheduled batch, `restartPolicy` OnFailure/Never, completions/parallelism, `backoffLimit`. Split from M07 so the lifecycle-only batch controllers are taught right after M01 |
-| M02 | Container Images & Registries             | Image anatomy, references vs digests, pull semantics, imagePullSecrets, registry auth, mirrors, promotion, scanning, signing |
+| M02 | Container Images & Registries             | Image anatomy, references vs digests, pull semantics + imagePullPolicy/cache, imagePullSecrets & registry auth — the pull-failure differential (scanning/signing → M20; mirrors/promotion → M16–19) |
 | M03 | Configuration                             | ConfigMaps, Secrets (basic), env injection, projected volumes   |
 | M04 | Networking I — Services & DNS             | Service types, Endpoints, kube-proxy, CoreDNS                   |
 | M05 | Storage                                   | PV/PVC, StorageClass, CSI, RWO vs RWX, dynamic provisioning     |
@@ -53,13 +53,13 @@ The full fleet boots in every lesson's `baseline/` scenario. Each module's break
 
 | ID  | Title                                     | Core concepts                                                   |
 |-----|-------------------------------------------|-----------------------------------------------------------------|
-| M09 | Resilience & Autoscaling                  | PDBs, HPA + Cluster Autoscaler + VPA + KEDA, rolling updates, rollbacks, graceful shutdown |
+| M09 | Resilience & Autoscaling                  | PDBs, HPA, rolling updates, rollbacks, graceful shutdown (VPA/KEDA/Cluster-Autoscaler concept-only — not installed) |
 | M10 | Security I — RBAC & Pod Security          | RBAC, ServiceAccounts, SecurityContext, PodSecurity admission   |
-| M11 | Security II — Secrets at Scale            | External Secrets Operator, Vault, sealed-secrets, sops; GitOps-safe secret handling |
-| M12 | PKI & TLS                                 | cert-manager, internal CA, mTLS between workloads, ACME for public certs |
-| M13 | Observability                             | Events, logs (sidecar + centralized stack), metrics (Prometheus operator), traces (OpenTelemetry) |
+| M11 | Security II — Secrets at Scale            | External-secrets sync via a stand-in operator + backing store; sync-failure debugging (real ESO/Vault/sealed-secrets/sops named as the production tools) |
+| M12 | PKI & TLS                                 | cert-manager, a SelfSigned internal CA + leaf Certificates, workload mTLS (ACME/public certs named only) |
+| M13 | Observability                             | Events, container logs (+ the stdout contract), kubectl top, the Prometheus scrape-annotation contract — no Prometheus install (centralized log stack + traces/OpenTelemetry named as the production layer) |
 | M14 | Networking II — Policy & Ingress          | NetworkPolicies, Ingress controllers, multi-tenant patterns     |
-| M15 | Service Mesh                              | Sidecar injection, traffic management (retries/timeouts/circuit breakers), debugging envoy config, mesh-managed mTLS |
+| M15 | Service Mesh                              | Sidecar injection, traffic routing (VirtualService/DestinationRule subsets), mesh-managed mTLS (PeerAuthentication) |
 
 ### Tier 3 — Platform Engineering (branchable)
 
@@ -74,7 +74,7 @@ The full fleet boots in every lesson's `baseline/` scenario. Each module's break
 **Track B — Policy & Compliance**
 | ID  | Title                  | Core concepts                                            |
 |-----|------------------------|----------------------------------------------------------|
-| M20 | Kyverno / OPA Gatekeeper | Policy-as-code, validation, mutation, signed-image admission |
+| M20 | Kyverno / OPA Gatekeeper | Policy-as-code: validation, mutation, image-tag restriction (require-limits / add-owner-label / disallow-latest-tag); signed-image admission named as an extension |
 | M21 | Admission Control      | Validating vs mutating webhooks, admission ordering     |
 
 **Track C — Real-Time / Latency-Sensitive Workloads**
