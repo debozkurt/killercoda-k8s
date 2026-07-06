@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>M19 · Multi-cluster Fleet</title>
+<style>
+  :root{
+    --bg:#0f0f0f;
+    --panel:#1b1b1b;
+    --panel-2:#262626;
+    --ink:#ececec;
+    --ink-dim:#b2b2b2;
+    --ink-faint:#7d7d7d;
+    --line:#373737;
+    --line-2:#565656;
+    --accent:#6db3f2;
+    --good:#7bc47f;
+    --bad:#e08a7b;
+    --warn:#d9b46a;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:1560px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;overflow:hidden;
+  }
+
+  /* ---------- deck / slides ---------- */
+  .deck{height:100vh;width:100vw;position:relative}
+  .slide{
+    position:absolute;inset:0;display:none;
+    flex-direction:column;justify-content:center;align-items:center;
+    padding:4vh 5.5vw 6vh;overflow-y:auto;
+    animation:fade .3s ease;
+  }
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .wrap{width:100%;max-width:var(--maxw)}
+
+  /* ---------- type ---------- */
+  h1{font-size:clamp(3rem,6vw,4.6rem);line-height:1.03;margin:0 0 1.4rem;font-weight:700;letter-spacing:-.015em}
+  h2{font-size:clamp(2.1rem,3.9vw,3.2rem);line-height:1.08;margin:0 0 1.8rem;font-weight:650;letter-spacing:-.015em}
+  h3{font-size:clamp(1.25rem,1.5vw,1.5rem);margin:0 0 .6rem;font-weight:600;color:var(--ink)}
+  p{font-size:clamp(1.2rem,1.55vw,1.5rem);line-height:1.5;color:var(--ink-dim);margin:.55rem 0;max-width:70ch}
+  .lead{font-size:clamp(1.5rem,2.3vw,2rem);color:var(--ink);max-width:56ch;line-height:1.38}
+  strong{color:var(--ink);font-weight:650}
+  em{color:var(--ink-dim);font-style:italic}
+  code,.mono{font-family:var(--mono);font-size:.88em;
+    background:var(--panel-2);padding:.08em .42em;border-radius:5px;color:#dde6ee;
+    overflow-wrap:break-word}
+
+  ul{margin:.6rem 0;padding:0;list-style:none;max-width:88ch}
+  li{font-size:clamp(1.2rem,1.65vw,1.55rem);line-height:1.48;color:var(--ink-dim);
+    padding:.6rem 0 .6rem 1.8rem;position:relative}
+  li::before{content:"";position:absolute;left:.1rem;top:1.0em;width:.42rem;height:.42rem;
+    border-radius:50%;background:var(--ink-dim)}
+  li strong{color:var(--ink)}
+
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:2.4rem;align-items:start;width:100%}
+  .grid-2.tight{gap:1.6rem}
+  .grid-2 > *{min-width:0}
+  .vcenter{align-items:center}
+
+  /* ---------- chrome ---------- */
+  .bar{position:fixed;left:0;bottom:0;height:3px;background:var(--accent);
+    width:0;transition:width .3s ease;z-index:50}
+  .hud{position:fixed;bottom:14px;right:22px;font-family:var(--mono);
+    font-size:.78rem;color:var(--ink-faint);z-index:50;letter-spacing:.05em}
+  .hud b{color:var(--ink-dim);font-weight:600}
+  .brand{position:fixed;bottom:14px;left:22px;font-family:var(--mono);
+    font-size:.72rem;color:var(--ink-faint);z-index:50;letter-spacing:.12em}
+  .hint{position:fixed;top:16px;right:22px;font-family:var(--mono);font-size:.7rem;
+    color:var(--ink-faint);z-index:50;opacity:.65}
+
+  /* ---------- diagram primitives ---------- */
+  .node{
+    background:var(--panel);border:1px solid var(--line-2);border-radius:11px;
+    padding:1rem 1.4rem;text-align:center;min-width:0;
+  }
+  .node .t{font-weight:650;color:var(--ink);font-size:clamp(1.1rem,1.35vw,1.35rem)}
+  .node .s{font-size:clamp(.85rem,1vw,1rem);color:var(--ink-faint);font-family:var(--mono);margin-top:.3rem;white-space:normal}
+  .node.good{border-color:#3f5a40}
+  .node.bad{border-color:#5e3a32}
+  .arrow{color:var(--line-2);font-size:2rem;flex:0 0 auto;padding:0 .2rem;position:relative}
+  .arrow .lbl{font-family:var(--mono);font-size:.78rem;color:var(--ink-faint);
+    position:absolute;left:50%;top:-1.3rem;transform:translateX(-50%);white-space:nowrap}
+  .flow{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;
+    padding:1.5rem 1.6rem;min-width:0}
+  .card.good{border-color:#33502f;background:linear-gradient(180deg,#15201480,#1a1a1a)}
+  .card.bad{border-color:#5a3830;background:linear-gradient(180deg,#20161480,#1a1a1a)}
+  .card.warn{border-color:#5a5030;background:linear-gradient(180deg,#1e1b1280,#1a1a1a)}
+  .card h3{font-size:clamp(1.2rem,1.45vw,1.45rem);letter-spacing:0;color:var(--ink);
+    text-transform:none;font-weight:600}
+  .card h3 code{font-size:.95em}
+  .card h3 .tag{color:var(--ink-faint);font-weight:500;font-size:.92rem}
+  .card p{font-size:clamp(1.12rem,1.35vw,1.32rem);margin:.45rem 0;max-width:none;line-height:1.45}
+  .card ul{max-width:none}
+  .card li{font-size:clamp(1.08rem,1.3vw,1.28rem);padding:.4rem 0 .4rem 1.5rem}
+  .cards{display:grid;gap:1.6rem;width:100%}
+  .cards.c3{grid-template-columns:repeat(3,1fr)}
+  .cards.c2{grid-template-columns:1fr 1fr}
+
+  /* labelled signal / key-value rows inside cards */
+  .sigs{display:flex;flex-direction:column;gap:.7rem;margin-top:1rem;
+    padding-top:.95rem;border-top:1px solid var(--line)}
+  .sig{display:grid;grid-template-columns:auto 1fr;column-gap:.85rem;align-items:baseline;
+    font-size:clamp(1.05rem,1.25vw,1.25rem);line-height:1.4}
+  .sig .lbl{font-family:var(--sans);color:var(--ink-faint);white-space:nowrap;
+    font-size:.72em;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+  .sig .val{color:var(--ink-dim)}
+  .sig .val code{font-size:.92em}
+
+  table{border-collapse:collapse;width:100%;font-size:clamp(1.1rem,1.5vw,1.4rem)}
+  th,td{text-align:left;padding:.85rem 1rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink-faint);font-weight:600;font-size:clamp(.85rem,1vw,1rem);text-transform:uppercase;letter-spacing:.06em}
+  td{color:var(--ink-dim)}
+  td:first-child{color:var(--ink);font-weight:600;white-space:nowrap}
+  tr:hover td{background:#ffffff06}
+  table code{white-space:nowrap}
+
+  .note{border-left:3px solid var(--accent);padding:.4rem 0 .4rem 1.3rem;margin:1.3rem 0;max-width:84ch}
+  .note.warn{border-color:var(--warn)}
+  .note p{margin:0;font-size:clamp(1.2rem,1.55vw,1.45rem);color:var(--ink);line-height:1.45}
+
+  .terminal{background:#0a0a0a;border:1px solid var(--line);border-radius:11px;
+    font-family:var(--mono);font-size:clamp(1.05rem,1.5vw,1.35rem);padding:1.4rem 1.6rem;
+    color:#cfd6dd;line-height:1.7;width:100%;overflow-x:auto;white-space:pre}
+  .terminal .c{color:var(--accent)}   /* command */
+  .terminal .o{color:var(--ink-faint)} /* output / comment */
+  .terminal .g{color:var(--good)}      /* highlight */
+
+  .phase{padding:.85rem 1.2rem;border-radius:10px;border:1px solid var(--line-2);
+    background:var(--panel);font-family:var(--mono);font-size:clamp(1.05rem,1.25vw,1.25rem);text-align:center}
+  .phase.run{border-color:#3f5a40}
+  .phase.term{border-color:#5e3a32}
+
+  /* vertical sequence ladder */
+  .ladder{display:flex;flex-direction:column;width:100%}
+  .rung{display:grid;grid-template-columns:auto 1fr;column-gap:1.3rem;position:relative}
+  .rung .rail{display:flex;flex-direction:column;align-items:center}
+  .rung .dot{width:15px;height:15px;border-radius:50%;background:var(--line-2);margin-top:.4rem;z-index:2}
+  .rung .dot.k{background:var(--bad)}
+  .rung .line{flex:1;width:2px;background:var(--line)}
+  .rung:last-child .line{display:none}
+  .rung .body{padding-bottom:1.6rem}
+  .rung .body b{color:var(--ink);font-size:clamp(1.2rem,1.45vw,1.4rem);font-weight:600}
+  .rung .body span{display:block;color:var(--ink-faint);font-size:clamp(1.02rem,1.2vw,1.18rem);margin-top:.2rem}
+
+  /* containment box: a boundary enclosing items over a shared substrate */
+  .boundary{position:relative;border:1.5px solid var(--line-2);border-radius:16px;
+    padding:1.6rem 1.4rem 1.4rem;background:#15151580;width:100%}
+  .boundary .tag{position:absolute;top:-.8rem;left:1.3rem;background:var(--bg);padding:0 .6rem;
+    font-family:var(--mono);font-size:.85rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim)}
+  .items{display:flex;gap:1rem;flex-wrap:wrap}
+  .item{flex:1 1 0;min-width:120px;background:var(--panel);border:1px solid var(--line-2);
+    border-radius:10px;padding:.95rem 1rem;text-align:center}
+  .item b{display:block;color:var(--ink);font-size:clamp(1.05rem,1.3vw,1.25rem);font-weight:600}
+  .item span{display:block;color:var(--ink-faint);font-family:var(--mono);font-size:.85rem;margin-top:.25rem}
+  .item.ghost{border-style:dashed;background:transparent}
+  .item.ghost b{color:var(--ink-faint);font-weight:500}
+  .substrate{margin-top:1rem;border:1px dashed var(--line-2);border-radius:9px;padding:.8rem;
+    text-align:center;font-family:var(--mono);font-size:clamp(.92rem,1.1vw,1.08rem);color:var(--ink-dim)}
+  .substrate b{color:var(--ink)}
+
+  /* inline citation — attach to a specific claim, not a whole slide */
+  /* (no .cite / .footnote — slides never carry citations or footnotes; sources live in the companion markdown) */
+
+  /* mermaid: wraps a PRE-RENDERED inline <svg> (no CDN runtime — see SKILL.md "Diagrams") */
+  .mermaid{width:100%;display:flex;justify-content:center}
+  .mermaid svg{max-width:100%;height:auto}
+
+  .muted{color:var(--ink-faint)} .accent{color:var(--accent)}
+  .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  .sub{font-size:clamp(1.2rem,1.5vw,1.45rem);color:var(--ink-dim);line-height:1.4;
+    max-width:74ch;margin:.2rem 0 0}
+  /* subheader sits tight under its heading (no kicker; one heading per slide) */
+  h1:has(+ .sub), h2:has(+ .sub){margin-bottom:.5rem}
+
+  @media (max-width:880px){
+    .cards.c3,.cards.c2,.grid-2{grid-template-columns:1fr}
+    .slide{padding:4vh 6vw 8vh}
+  }
+
+  /* print / PDF: every slide on its own page (Cmd-P → Save as PDF) */
+  @media print{
+    @page{size:landscape;margin:0}
+    html,body{height:auto;overflow:visible}
+    body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .bar,.hud,.brand,.hint{display:none !important}
+    .deck{height:auto;position:static}
+    .slide{display:flex !important;position:relative;inset:auto;
+      width:100vw;height:100vh;overflow:hidden;break-after:page;page-break-after:always;animation:none}
+    .slide:last-child{break-after:auto;page-break-after:auto}
+  }
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div>
+<div class="hint">← → navigate · F fullscreen</div>
+<div class="brand">M19 · MULTI-CLUSTER FLEET</div>
+<div class="hud"><b id="cur">1</b> / <span id="tot">1</span></div>
+
+<div class="deck" id="deck">
+
+  <!-- 1 · TITLE -->
+  <section class="slide">
+    <div class="wrap">
+      <h1>Multi-cluster Fleet</h1>
+      <p class="lead">One repo describes many nearly-identical clusters. Each cluster's desired
+        state is composed from shared layers — a base, its region, its own overlay — and rendered
+        on demand.</p>
+      <div class="note" style="margin-top:1.8rem">
+        <p>At fleet scale a failure is not a crash. It is valid YAML that applies cleanly, runs,
+          and is simply <strong>wrong for one cluster</strong>. The fix is always the same shape:
+          render the cluster, find the surprising value, trace it to the layer that set it.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 · OBJECTIVES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What you'll walk away with</h2>
+      <ul>
+        <li>Structure a fleet repo as <strong>base &rarr; region &rarr; cluster</strong> layers, and
+          read any cluster's <code>kustomization.yaml</code> as a path through that stack</li>
+        <li>Render one cluster with <code>kubectl kustomize clusters/&lt;cluster&gt;</code> and trace
+          every field to the layer that set it</li>
+        <li>Reason about <strong>cluster variables</strong> — region, tier, capacity, image — and know
+          which layer owns each</li>
+        <li>Apply <strong>composition order</strong>: when two layers set the same field, the later
+          one wins</li>
+        <li>Move a change through <strong>promotion</strong> — lab, then stage, then prod — and see
+          that the layer you edit <em>is</em> the blast radius</li>
+        <li>Locate a fleet misconfiguration to its owning layer, because at fleet scale "the value is
+          wrong" has three distinct root causes</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 3 · THE FLEET IS THE UNIT -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>The unit of operation is the fleet,<br/>not the cluster</h2>
+      <div class="grid-2 vcenter">
+        <div>
+          <p>A <strong>fleet</strong> is the set of clusters you run as one thing. Differentiated,
+            not independent — the same workloads and contracts, departing only where they genuinely
+            must.</p>
+          <p>Two axes carry all the variation:</p>
+          <ul>
+            <li><strong>Where</strong> a cluster runs — its region</li>
+            <li><strong>How ripe</strong> its tier is — lab, stage, prod</li>
+          </ul>
+          <p>The source of truth is no longer any one API server. It is a git repo that describes
+            the whole fleet at once.</p>
+        </div>
+        <div class="card">
+          <h3>Same base, different arguments</h3>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">region axis</span><span class="val"><code>us-east-1</code>, <code>eu-central-1</code>, …</span></div>
+            <div class="sig"><span class="lbl">tier axis</span><span class="val">lab &rarr; stage &rarr; prod</span></div>
+            <div class="sig"><span class="lbl">shared</span><span class="val">workloads, contracts, defaults</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · THE REPO IS A TREE OF LAYERS -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A fleet repo is a tree of kustomizations</h2>
+      <div class="grid-2 vcenter">
+        <div class="terminal">fleet/
+  base/                <span class="o"># what every cluster runs</span>
+  regions/
+    us-east-1/         <span class="o"># region-scoped: REGION, capacity</span>
+    eu-central-1/
+  clusters/
+    lab-us-east-1/     <span class="o"># a leaf: composes its region,</span>
+    stage-us-east-1/   <span class="o"># pins tier + image + replicas</span>
+    prod-us-east-1/
+    prod-eu-central-1/ <span class="o"># composes eu-central-1 instead</span></div>
+        <div>
+          <p>Each cluster overlay's <code>resources:</code> names its region overlay; the region's
+            names the base. So <code>clusters/prod-us-east-1</code> reads as a <strong>path</strong>:
+            base &rarr; region &rarr; this leaf.</p>
+          <p>The only copied text is the small leaf that says "I am prod, in us-east-1, on this
+            image." One base, and the differences at the edges.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 · A FUNCTION EVALUATED ONCE PER CLUSTER -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A fleet repo is a function<br/>evaluated once per cluster</h2>
+      <div class="flow" style="margin:2.6rem 0;justify-content:center;gap:1rem">
+        <div class="node"><div class="t">base</div><div class="s">fleet-wide</div></div>
+        <div class="arrow">&rarr;</div>
+        <div class="node"><div class="t">region</div><div class="s">overlay</div></div>
+        <div class="arrow">&rarr;</div>
+        <div class="node"><div class="t">cluster</div><div class="s">overlay</div></div>
+        <div class="arrow"><span class="lbl">render</span>&rarr;</div>
+        <div class="node good"><div class="t">manifests</div><div class="s">plain YAML</div></div>
+      </div>
+      <p class="lead" style="text-align:center;max-width:74ch;margin:0 auto">Every cluster is the
+        same base folded with different arguments. The cluster's API server never learns Kustomize
+        exists — a GitOps controller renders the path and applies the result.</p>
+    </div>
+  </section>
+
+  <!-- 6 · CLUSTER VARIABLES: ONE OWNING LAYER -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Every cluster variable has one owning layer</h2>
+      <div class="grid-2 vcenter">
+        <div>
+          <p>A <strong>cluster variable</strong> is any value that makes one cluster or region differ
+            from the identical majority. The rule that keeps a fleet legible: each variable has
+            <em>exactly one</em> owning layer.</p>
+          <p>One home per value means "where do I change this?" has one answer — and a rendering
+            trace has one place to land.</p>
+        </div>
+        <div class="card">
+          <table style="margin-top:.2rem">
+            <tr><th>Variable</th><th>Owning layer</th></tr>
+            <tr><td>fleet defaults</td><td class="muted">base</td></tr>
+            <tr><td><code>REGION</code>, capacity</td><td class="muted">region overlay</td></tr>
+            <tr><td>tier, replicas, image</td><td class="muted">cluster overlay</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="note warn">
+        <p>A new region overlay is almost always born by copying its nearest sibling — which is
+          exactly how its <code>REGION</code> ends up stale. The clone still names the sibling, the
+          render is valid, the apply succeeds, and the workload reports the wrong region.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 · COMPOSITION ORDER / LAST-WRITER-WINS -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Composition is ordered;<br/>the last layer to set a field wins</h2>
+      <div class="grid-2 vcenter">
+        <div>
+          <p>Layers accumulate base-first, then region, then cluster. When more than one sets the
+            same field, the one later in the stack — the more specific layer — wins.</p>
+          <p>Reading the final render is never enough. You have to know <em>which</em> layer put each
+            value there, because that is where you fix it.</p>
+        </div>
+        <div class="card">
+          <h3>e.g. tracing <code>MAX_SESSIONS</code></h3>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">base</span><span class="val"><code>500</code> — the fleet floor</span></div>
+            <div class="sig"><span class="lbl">region</span><span class="val"><code>8000</code> merged on — wins over base</span></div>
+            <div class="sig"><span class="lbl">cluster</span><span class="val">silent — <code>8000</code> survives to the render</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · THE RENDER IS THE MICROSCOPE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>The render is the microscope</h2>
+      <div class="terminal"><span class="o"># render exactly what one cluster receives — touches no cluster</span>
+<span class="c">kubectl</span> kustomize clusters/prod-us-east-1
+
+<span class="o"># attribute a surprising value: grep the whole path, last hit wins</span>
+<span class="c">grep</span> -rn MAX_SESSIONS base regions/us-east-1 clusters/prod-us-east-1</div>
+      <p>When a value is wrong, render the cluster, find it, then walk <em>up</em> the path. Grep each
+        layer for the key and take the <strong>last</strong> layer that sets it — that is the entire
+        trace algorithm.</p>
+      <div class="note"><p>If the render disagrees with the layer you thought owned the value, a
+        later layer is <strong>shadowing</strong> it — and that later layer is your bug.</p></div>
+    </div>
+  </section>
+
+  <!-- 9 · THE LAYER YOU EDIT IS THE BLAST RADIUS -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>The layer you edit is the blast radius</h2>
+      <div class="cards c3">
+        <div class="card bad">
+          <h3>Edit the base</h3>
+          <p>Reserved for what the whole fleet must take at once, on purpose — a security floor, a
+            dropped-capability fix, a corrected default.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">radius</span><span class="val">every cluster</span></div></div>
+        </div>
+        <div class="card">
+          <h3>Edit a region overlay</h3>
+          <p>The geographic blast radius — placement, regional capacity, <code>REGION</code>.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">radius</span><span class="val">one region</span></div></div>
+        </div>
+        <div class="card good">
+          <h3>Edit a cluster overlay</h3>
+          <p>The narrowest change you can make — tier, replicas, the image under test.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">radius</span><span class="val">one cluster</span></div></div>
+        </div>
+      </div>
+      <p class="lead" style="text-align:center;max-width:74ch;margin:1.6rem auto 0">The same one-line
+        change is a fleet-wide rollout or a single-cluster tweak, depending only on the file it lands
+        in.</p>
+    </div>
+  </section>
+
+  <!-- 10 · PROMOTION ADVANCES A PIN -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Promotion advances a pin, in order</h2>
+      <div class="flow" style="margin:1.4rem 0 1.9rem;justify-content:center">
+        <div class="phase">lab<br/><span class="muted" style="font-size:.76rem">first gate</span></div>
+        <div class="arrow">&rarr;</div>
+        <div class="phase run">stage<br/><span class="muted" style="font-size:.76rem">second gate</span></div>
+        <div class="arrow">&rarr;</div>
+        <div class="phase run">prod<br/><span class="muted" style="font-size:.76rem">customers</span></div>
+      </div>
+      <p style="max-width:82ch">A change moves through tiers in sequence, gating at each. In a layered
+        fleet that is not a copy into every cluster — it is <strong>advancing a pin</strong> from one
+        tier's overlay to the next. Between promotions the tiers legitimately run different images;
+        that is the gate working, not drift.</p>
+      <div class="cards c2" style="margin-top:1.4rem">
+        <div class="card bad">
+          <h3>Pin it in the base</h3>
+          <p>Lab, stage, and prod all take it in one commit. The gate is bypassed and an untested
+            change lands in front of customers.</p>
+        </div>
+        <div class="card bad">
+          <h3>Pin it in the wrong tier</h3>
+          <p>Promote prod's overlay instead of stage's, and prod overshoots the gate while stage
+            never advances — exactly backwards from what you intended.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 · THREE ROOT CAUSES (centerpiece) -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>"The value is wrong" has three root causes</h2>
+      <p class="sub">One symptom every time — a value is wrong for one cluster. Three different layers
+        at fault, three different fixes. The render tells you which.</p>
+      <div class="cards c3" style="margin-top:1.6rem">
+        <div class="card warn">
+          <h3>Stale in the owning layer</h3>
+          <p>The right layer owns the value, but its copy is out of date — a cloned overlay whose
+            variable was never updated.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">fix</span><span class="val">update it in that layer</span></div></div>
+        </div>
+        <div class="card warn">
+          <h3>Shadowed by a later layer</h3>
+          <p>The owning layer is correct, but a more-specific layer overrides it — a leftover
+            per-cluster pin winning over the new standard.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">fix</span><span class="val">remove the shadow</span></div></div>
+        </div>
+        <div class="card warn">
+          <h3>Right value, wrong layer</h3>
+          <p>The change is correct but landed where the blast radius is wrong — a promotion pinned
+            in prod instead of stage.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">fix</span><span class="val">move it to the owning layer</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 · FIELD GUIDE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Field guide: symptom, cause, where to look</h2>
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th><th>Where to look</th></tr>
+        <tr>
+          <td>Runs fine, reports the wrong value</td>
+          <td>A cluster var is stale in its owning layer</td>
+          <td class="muted"><code>kubectl kustomize &lt;cluster&gt; | grep &lt;VAR&gt;</code> vs the layer's literal</td>
+        </tr>
+        <tr>
+          <td>A layer you edited doesn't change the render</td>
+          <td>A later, more-specific layer sets the field and wins</td>
+          <td class="muted">Grep the whole path base&rarr;region&rarr;cluster; last hit wins</td>
+        </tr>
+        <tr>
+          <td>A tier you promoted didn't change</td>
+          <td>The pin was added to a different tier's overlay</td>
+          <td class="muted">Diff the two rendered tiers</td>
+        </tr>
+        <tr>
+          <td>A change reached every tier at once</td>
+          <td>It was committed to the base, not a tier overlay</td>
+          <td class="muted">The base kustomization — a per-tier value doesn't belong there</td>
+        </tr>
+        <tr>
+          <td>Two regions diverge on a shared value</td>
+          <td>The value lives in each region instead of the base</td>
+          <td class="muted">Move it down to the base; keep only differences in regions</td>
+        </tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- 13 · RECAP -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Recap</h2>
+      <ul>
+        <li><strong>A fleet repo is a function evaluated once per cluster.</strong>
+          <code>kubectl kustomize clusters/&lt;cluster&gt;</code> folds base &rarr; region &rarr; cluster
+          into the exact manifests that cluster receives.</li>
+        <li><strong>Composition is ordered; the last layer to set a field wins.</strong> Trace each
+          surprising value up its path and take the last layer that set it.</li>
+        <li><strong>Every cluster variable has one owning layer.</strong> One home per value keeps
+          "where do I fix this?" answerable.</li>
+        <li><strong>The layer you edit is the blast radius.</strong> Promotion is advancing a pin
+          lab &rarr; stage &rarr; prod, never editing the base for a per-tier change.</li>
+        <li><strong>"The value is wrong" has three root causes</strong> — stale, shadowed, or
+          wrong-layer — each fixed in a different place. The render tells you which.</li>
+      </ul>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const bar = document.getElementById('bar');
+  const cur = document.getElementById('cur');
+  document.getElementById('tot').textContent = slides.length;
+  let i = 0;
+
+  function show(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s,k)=>s.classList.toggle('active', k===i));
+    bar.style.width = ((i+1)/slides.length*100) + '%';
+    cur.textContent = i+1;
+    history.replaceState(null,'','#'+(i+1));
+  }
+  const next=()=>show(i+1), prev=()=>show(i-1);
+
+  document.addEventListener('keydown', e=>{
+    if(['ArrowRight','PageDown',' '].includes(e.key)){ e.preventDefault(); next(); }
+    else if(['ArrowLeft','PageUp'].includes(e.key)){ e.preventDefault(); prev(); }
+    else if(e.key==='Home') show(0);
+    else if(e.key==='End') show(slides.length-1);
+    else if(e.key==='f'||e.key==='F'){
+      if(!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+  document.getElementById('deck').addEventListener('click', e=>{
+    if(e.target.closest('a')) return;
+    (e.clientX > window.innerWidth/2) ? next() : prev();
+  });
+
+  const start = parseInt((location.hash||'').replace('#',''),10);
+  show(Number.isFinite(start) && start>0 ? start-1 : 0);
+</script>
+</body>
+</html>
