@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>M16 — Kustomize: Bases &amp; Overlays</title>
+<style>
+  :root{
+    --bg:#0f0f0f;
+    --panel:#1b1b1b;
+    --panel-2:#262626;
+    --ink:#ececec;
+    --ink-dim:#b2b2b2;
+    --ink-faint:#7d7d7d;
+    --line:#373737;
+    --line-2:#565656;
+    --accent:#6db3f2;
+    --good:#7bc47f;
+    --bad:#e08a7b;
+    --warn:#d9b46a;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:1560px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;overflow:hidden;
+  }
+
+  /* ---------- deck / slides ---------- */
+  .deck{height:100vh;width:100vw;position:relative}
+  .slide{
+    position:absolute;inset:0;display:none;
+    flex-direction:column;justify-content:center;align-items:center;
+    padding:4vh 5.5vw 6vh;overflow-y:auto;
+    animation:fade .3s ease;
+  }
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .wrap{width:100%;max-width:var(--maxw)}
+
+  /* ---------- type ---------- */
+  h1{font-size:clamp(3rem,6vw,4.6rem);line-height:1.03;margin:0 0 1.4rem;font-weight:700;letter-spacing:-.015em}
+  h2{font-size:clamp(2.1rem,3.9vw,3.2rem);line-height:1.08;margin:0 0 1.8rem;font-weight:650;letter-spacing:-.015em}
+  h3{font-size:clamp(1.25rem,1.5vw,1.5rem);margin:0 0 .6rem;font-weight:600;color:var(--ink)}
+  p{font-size:clamp(1.2rem,1.55vw,1.5rem);line-height:1.5;color:var(--ink-dim);margin:.55rem 0;max-width:70ch}
+  .lead{font-size:clamp(1.5rem,2.3vw,2rem);color:var(--ink);max-width:56ch;line-height:1.38}
+  strong{color:var(--ink);font-weight:650}
+  em{color:var(--ink-dim);font-style:italic}
+  code,.mono{font-family:var(--mono);font-size:.88em;
+    background:var(--panel-2);padding:.08em .42em;border-radius:5px;color:#dde6ee;
+    overflow-wrap:break-word}
+
+  ul{margin:.6rem 0;padding:0;list-style:none;max-width:88ch}
+  li{font-size:clamp(1.2rem,1.65vw,1.55rem);line-height:1.48;color:var(--ink-dim);
+    padding:.6rem 0 .6rem 1.8rem;position:relative}
+  li::before{content:"";position:absolute;left:.1rem;top:1.0em;width:.42rem;height:.42rem;
+    border-radius:50%;background:var(--ink-dim)}
+  li strong{color:var(--ink)}
+
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:2.4rem;align-items:start;width:100%}
+  .grid-2.tight{gap:1.6rem}
+  .grid-2 > *{min-width:0}
+  .vcenter{align-items:center}
+
+  /* ---------- chrome ---------- */
+  .bar{position:fixed;left:0;bottom:0;height:3px;background:var(--accent);
+    width:0;transition:width .3s ease;z-index:50}
+  .hud{position:fixed;bottom:14px;right:22px;font-family:var(--mono);
+    font-size:.78rem;color:var(--ink-faint);z-index:50;letter-spacing:.05em}
+  .hud b{color:var(--ink-dim);font-weight:600}
+  .brand{position:fixed;bottom:14px;left:22px;font-family:var(--mono);
+    font-size:.72rem;color:var(--ink-faint);z-index:50;letter-spacing:.12em}
+  .hint{position:fixed;top:16px;right:22px;font-family:var(--mono);font-size:.7rem;
+    color:var(--ink-faint);z-index:50;opacity:.65}
+
+  /* ---------- diagram primitives ---------- */
+  .node{
+    background:var(--panel);border:1px solid var(--line-2);border-radius:11px;
+    padding:1rem 1.4rem;text-align:center;min-width:0;
+  }
+  .node .t{font-weight:650;color:var(--ink);font-size:clamp(1.1rem,1.35vw,1.35rem)}
+  .node .s{font-size:clamp(.85rem,1vw,1rem);color:var(--ink-faint);font-family:var(--mono);margin-top:.3rem;white-space:normal}
+  .node.good{border-color:#3f5a40}
+  .node.bad{border-color:#5e3a32}
+  .arrow{color:var(--line-2);font-size:2rem;flex:0 0 auto;padding:0 .2rem;position:relative}
+  .arrow .lbl{font-family:var(--mono);font-size:.78rem;color:var(--ink-faint);
+    position:absolute;left:50%;top:-1.3rem;transform:translateX(-50%);white-space:nowrap}
+  .flow{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;
+    padding:1.5rem 1.6rem;min-width:0}
+  .card.good{border-color:#33502f;background:linear-gradient(180deg,#15201480,#1a1a1a)}
+  .card.bad{border-color:#5a3830;background:linear-gradient(180deg,#20161480,#1a1a1a)}
+  .card.warn{border-color:#5a5030;background:linear-gradient(180deg,#1e1b1280,#1a1a1a)}
+  .card h3{font-size:clamp(1.2rem,1.45vw,1.45rem);letter-spacing:0;color:var(--ink);
+    text-transform:none;font-weight:600}
+  .card h3 code{font-size:.95em}
+  .card h3 .tag{color:var(--ink-faint);font-weight:500;font-size:.92rem}
+  .card p{font-size:clamp(1.12rem,1.35vw,1.32rem);margin:.45rem 0;max-width:none;line-height:1.45}
+  .card ul{max-width:none}
+  .card li{font-size:clamp(1.08rem,1.3vw,1.28rem);padding:.4rem 0 .4rem 1.5rem}
+  .cards{display:grid;gap:1.6rem;width:100%}
+  .cards.c3{grid-template-columns:repeat(3,1fr)}
+  .cards.c2{grid-template-columns:1fr 1fr}
+
+  /* labelled signal / key-value rows inside cards */
+  .sigs{display:flex;flex-direction:column;gap:.7rem;margin-top:1rem;
+    padding-top:.95rem;border-top:1px solid var(--line)}
+  .sig{display:grid;grid-template-columns:auto 1fr;column-gap:.85rem;align-items:baseline;
+    font-size:clamp(1.05rem,1.25vw,1.25rem);line-height:1.4}
+  .sig .lbl{font-family:var(--sans);color:var(--ink-faint);white-space:nowrap;
+    font-size:.72em;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+  .sig .val{color:var(--ink-dim)}
+  .sig .val code{font-size:.92em}
+
+  table{border-collapse:collapse;width:100%;font-size:clamp(1.1rem,1.5vw,1.4rem)}
+  th,td{text-align:left;padding:.85rem 1rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink-faint);font-weight:600;font-size:clamp(.85rem,1vw,1rem);text-transform:uppercase;letter-spacing:.06em}
+  td{color:var(--ink-dim)}
+  td:first-child{color:var(--ink);font-weight:600;white-space:nowrap}
+  tr:hover td{background:#ffffff06}
+  table code{white-space:nowrap}
+
+  .note{border-left:3px solid var(--accent);padding:.4rem 0 .4rem 1.3rem;margin:1.3rem 0;max-width:84ch}
+  .note.warn{border-color:var(--warn)}
+  .note p{margin:0;font-size:clamp(1.2rem,1.55vw,1.45rem);color:var(--ink);line-height:1.45}
+
+  .terminal{background:#0a0a0a;border:1px solid var(--line);border-radius:11px;
+    font-family:var(--mono);font-size:clamp(1.05rem,1.5vw,1.35rem);padding:1.4rem 1.6rem;
+    color:#cfd6dd;line-height:1.7;width:100%;overflow-x:auto;white-space:pre}
+  .terminal .c{color:var(--accent)}   /* command */
+  .terminal .o{color:var(--ink-faint)} /* output / comment */
+  .terminal .g{color:var(--good)}      /* highlight */
+
+  .phase{padding:.85rem 1.2rem;border-radius:10px;border:1px solid var(--line-2);
+    background:var(--panel);font-family:var(--mono);font-size:clamp(1.05rem,1.25vw,1.25rem);text-align:center}
+  .phase.run{border-color:#3f5a40}
+  .phase.term{border-color:#5e3a32}
+
+  /* vertical sequence ladder */
+  .ladder{display:flex;flex-direction:column;width:100%}
+  .rung{display:grid;grid-template-columns:auto 1fr;column-gap:1.3rem;position:relative}
+  .rung .rail{display:flex;flex-direction:column;align-items:center}
+  .rung .dot{width:15px;height:15px;border-radius:50%;background:var(--line-2);margin-top:.4rem;z-index:2}
+  .rung .dot.k{background:var(--bad)}
+  .rung .line{flex:1;width:2px;background:var(--line)}
+  .rung:last-child .line{display:none}
+  .rung .body{padding-bottom:1.6rem}
+  .rung .body b{color:var(--ink);font-size:clamp(1.2rem,1.45vw,1.4rem);font-weight:600}
+  .rung .body span{display:block;color:var(--ink-faint);font-size:clamp(1.02rem,1.2vw,1.18rem);margin-top:.2rem}
+
+  /* containment box: a boundary enclosing items over a shared substrate */
+  .boundary{position:relative;border:1.5px solid var(--line-2);border-radius:16px;
+    padding:1.6rem 1.4rem 1.4rem;background:#15151580;width:100%}
+  .boundary .tag{position:absolute;top:-.8rem;left:1.3rem;background:var(--bg);padding:0 .6rem;
+    font-family:var(--mono);font-size:.85rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim)}
+  .items{display:flex;gap:1rem;flex-wrap:wrap}
+  .item{flex:1 1 0;min-width:120px;background:var(--panel);border:1px solid var(--line-2);
+    border-radius:10px;padding:.95rem 1rem;text-align:center}
+  .item b{display:block;color:var(--ink);font-size:clamp(1.05rem,1.3vw,1.25rem);font-weight:600}
+  .item span{display:block;color:var(--ink-faint);font-family:var(--mono);font-size:.85rem;margin-top:.25rem}
+  .item.ghost{border-style:dashed;background:transparent}
+  .item.ghost b{color:var(--ink-faint);font-weight:500}
+  .substrate{margin-top:1rem;border:1px dashed var(--line-2);border-radius:9px;padding:.8rem;
+    text-align:center;font-family:var(--mono);font-size:clamp(.92rem,1.1vw,1.08rem);color:var(--ink-dim)}
+  .substrate b{color:var(--ink)}
+
+  /* inline citation — attach to a specific claim, not a whole slide */
+  /* (no .cite / .footnote — slides never carry citations or footnotes; sources live in the companion markdown) */
+
+  /* mermaid: wraps a PRE-RENDERED inline <svg> (no CDN runtime — see SKILL.md "Diagrams") */
+  .mermaid{width:100%;display:flex;justify-content:center}
+  .mermaid svg{max-width:100%;height:auto}
+
+  .muted{color:var(--ink-faint)} .accent{color:var(--accent)}
+  .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  .sub{font-size:clamp(1.2rem,1.5vw,1.45rem);color:var(--ink-dim);line-height:1.4;
+    max-width:74ch;margin:.2rem 0 0}
+  /* subheader sits tight under its heading (no kicker; one heading per slide) */
+  h1:has(+ .sub), h2:has(+ .sub){margin-bottom:.5rem}
+
+  @media (max-width:880px){
+    .cards.c3,.cards.c2,.grid-2{grid-template-columns:1fr}
+    .slide{padding:4vh 6vw 8vh}
+  }
+
+  /* print / PDF: every slide on its own page (Cmd-P → Save as PDF) */
+  @media print{
+    @page{size:landscape;margin:0}
+    html,body{height:auto;overflow:visible}
+    body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .bar,.hud,.brand,.hint{display:none !important}
+    .deck{height:auto;position:static}
+    .slide{display:flex !important;position:relative;inset:auto;
+      width:100vw;height:100vh;overflow:hidden;break-after:page;page-break-after:always;animation:none}
+    .slide:last-child{break-after:auto;page-break-after:auto}
+  }
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div>
+<div class="hint">← → navigate · F fullscreen</div>
+<div class="brand">M16 · KUSTOMIZE</div>
+<div class="hud"><b id="cur">1</b> / <span id="tot">1</span></div>
+<div class="deck" id="deck">
+
+  <!-- 1 · TITLE -->
+  <section class="slide">
+    <div class="wrap">
+      <h1>Kustomize —<br/>bases &amp; overlays</h1>
+      <p class="lead">One base, many environments, no templating language. Kustomize composes
+        plain YAML with more YAML — and its failures land in three separate layers.</p>
+      <div class="note" style="margin-top:1.8rem">
+        <p>Every Kustomize problem is a <strong>build</strong>, an <strong>apply</strong>, or a
+          <strong>runtime</strong> failure — and each has a different first command. Name the layer
+          and you have most of the fix.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 · OBJECTIVES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What you'll walk away with</h2>
+      <ul>
+        <li>Compose an environment from a shared <strong>base</strong> plus environment-specific
+          <strong>overlays</strong>, and read any <code>kustomization.yaml</code></li>
+        <li>Render locally with <code>kubectl kustomize</code> and apply with
+          <code>kubectl apply -k</code> — and know why rendering first is the discipline</li>
+        <li>Patch two ways — strategic-merge and JSON 6902 — and understand how a patch finds the
+          resource it targets</li>
+        <li>Generate ConfigMaps and Secrets, and reason about the <strong>name-suffix hash</strong>
+          and the reference rewriting it drives</li>
+        <li>Apply transformers — <code>namespace</code>, <code>labels</code>, <code>images</code>,
+          <code>namePrefix</code> — without the immutable-selector trap</li>
+        <li>Reuse cross-cutting slices with <strong>components</strong></li>
+        <li>Locate any failure to <strong>build</strong>, <strong>apply</strong>, or
+          <strong>runtime</strong> — each has a different first command</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 3 · MENTAL MODEL: renders, never runs -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Kustomize renders; it never runs</h2>
+      <p class="sub"><code>kubectl kustomize &lt;dir&gt;</code> is a pure function — a directory of
+        YAML in, one stream of YAML out, no cluster touched. <code>apply -k</code> is that same
+        function with an apply stapled on the end.</p>
+      <div class="grid-2 vcenter" style="margin-top:1.2rem">
+        <div>
+          <p>The cluster never sees the kustomization — only the rendered objects, which look exactly
+            like hand-written manifests. Nothing in the cluster knows Kustomize exists.</p>
+          <p>That one fact organizes every failure you will debug: the problem is in the render, in
+            the apply, or in what the render produced at runtime.</p>
+        </div>
+        <div class="card">
+          <h3>Two commands, one function</h3>
+          <div class="sigs" style="border-top:none;padding-top:0;margin-top:0">
+            <div class="sig"><span class="lbl">kustomize</span><span class="val"><code>kubectl kustomize</code> — build, print, touch nothing</span></div>
+            <div class="sig"><span class="lbl">apply -k</span><span class="val">build, then apply the result</span></div>
+            <div class="sig"><span class="lbl">the cluster</span><span class="val">sees plain objects, never the kustomization</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.3rem">
+        <p>Because rendering is separate from applying, <strong>render first, every time</strong>.
+          <code>kubectl kustomize</code> shows you exactly what the cluster will get before it gets it.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · THE SPINE: three layers -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Every failure lands in one of three layers</h2>
+      <p class="sub">The render is a pipeline. A Kustomize problem sits in exactly one stage, and the
+        stage decides your first command.</p>
+      <div class="flow" style="justify-content:center;gap:.7rem;margin:1.4rem 0 1.8rem">
+        <div class="node"><div class="t">base + overlay</div><div class="s">the input files</div></div>
+        <div class="arrow"><span class="lbl">build</span>&rarr;</div>
+        <div class="node"><div class="t">rendered YAML</div><div class="s">one stream</div></div>
+        <div class="arrow"><span class="lbl">apply</span>&rarr;</div>
+        <div class="node"><div class="t">API server</div><div class="s">admission</div></div>
+        <div class="arrow"><span class="lbl">run</span>&rarr;</div>
+        <div class="node good"><div class="t">running Pods</div><div class="s">the workload</div></div>
+      </div>
+      <div class="cards c3">
+        <div class="card">
+          <h3>Build</h3>
+          <p><code>kustomize build</code> errors; nothing reaches the cluster. <code>describe</code>
+            has nothing to show — nothing was created.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">first</span><span class="val"><code>kubectl kustomize &lt;dir&gt;</code>, read the error</span></div></div>
+        </div>
+        <div class="card">
+          <h3>Apply</h3>
+          <p>Valid render, but the API server rejects an object — an immutable field, a quota, a bad
+            reference.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">first</span><span class="val">re-run <code>apply -k</code>; diff render vs live</span></div></div>
+        </div>
+        <div class="card">
+          <h3>Runtime</h3>
+          <p>Build and apply both succeed, but the render is <em>wrong</em>, and it only bites when a
+            Pod runs.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">first</span><span class="val"><code>get &rarr; describe &rarr; events &rarr; logs</code>, vs the render</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 · COMPOSITION -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>One base is the source of truth;<br/>overlays are reviewable diffs</h2>
+      <p class="sub">A base captures what every environment shares. Each overlay points its
+        <code>resources:</code> at that base, then layers on only its departures.</p>
+      <div class="grid-2 tight" style="margin-top:1.1rem">
+        <div class="terminal">
+<span class="o"># base/kustomization.yaml — the common core</span>
+resources:
+  - deployment.yaml
+  - service.yaml
+namespace: edge
+configMapGenerator:
+  - name: edge-relay-config
+    literals: [LOG_LEVEL=info]
+        </div>
+        <div class="terminal">
+<span class="o"># overlays/prod/kustomization.yaml — the diff</span>
+resources:
+  - <span class="g">../../base</span>
+images:
+  - {name: nginx, newTag: <span class="g">"1.27"</span>}
+patches:
+  - path: replicas-patch.yaml
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.2rem">
+        <p><code>resources:</code> does double duty — raw manifest files <em>and</em> other
+          kustomizations, which is how composition happens. A fix to the base reaches every
+          environment on the next build. A wrong relative path fails the build:
+          <code>accumulating resources ... no such file</code>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 · PATCHES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A transformer touches everything;<br/>a patch touches what it targets</h2>
+      <p class="sub">Because a patch changes specific resources, it must identify <em>which</em> — and
+        if it can't, Kustomize fails the build rather than silently doing nothing.</p>
+      <div class="cards c2" style="margin-top:1.1rem">
+        <div class="card">
+          <h3>Strategic-merge</h3>
+          <p>A partial resource. Matched by <code>apiVersion</code>/<code>kind</code>/<code>name</code>,
+            then merged — it understands list-merge keys and reads like the resource. The default for
+            shaping fields.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">miss</span><span class="val"><code>failed to find unique target for patch</code></span></div></div>
+        </div>
+        <div class="card">
+          <h3>JSON 6902</h3>
+          <p>An operation list against explicit paths — <code>/spec/replicas</code> — on a named
+            <code>target:</code>. Positional: <code>containers/0</code> is by index. For
+            <code>add</code>/<code>remove</code>/<code>replace</code> where merge semantics get in the way.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">trait</span><span class="val">precise and brittle — reorder the list, break the index</span></div></div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.2rem">
+        <p>A mismatched target is a <strong>build</strong> failure — nothing reaches the cluster.
+          Reconcile the two names: either the patch is stale, or the base was renamed.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 · GENERATORS: name tracks content -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A generator ties a config object's name<br/>to its contents</h2>
+      <p class="sub"><code>configMapGenerator</code> builds a ConfigMap and appends a hash of its data
+        to the name — <code>edge-relay-config-4f9dk2</code>. Different content, different name.</p>
+      <div class="grid-2 vcenter" style="margin-top:1.1rem">
+        <div>
+          <p>A hand-written ConfigMap has a fixed name; edit its data and running Pods keep their old
+            values, because no Pod template changed to trigger a rollout.</p>
+          <p>A generator ties the name to the content, so any edit becomes a new name, a reference
+            change, a Pod-template change — a rollout. <strong>Config change becomes rollout,
+            automatically.</strong></p>
+        </div>
+        <div class="flow" style="flex-direction:column;align-items:stretch;gap:.55rem">
+          <div class="node"><div class="t">edit literals</div><div class="s">data changes</div></div>
+          <div class="arrow" style="align-self:center">&darr;</div>
+          <div class="node"><div class="t">new hash</div><div class="s">new object name</div></div>
+          <div class="arrow" style="align-self:center">&darr;</div>
+          <div class="node"><div class="t">references rewritten</div><div class="s">Pod template changes</div></div>
+          <div class="arrow" style="align-self:center">&darr;</div>
+          <div class="node good"><div class="t">Deployment rolls</div><div class="s">new config live</div></div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.2rem">
+        <p><code>secretGenerator</code> works identically but base64-encodes — base64 is not
+          encryption. <code>disableNameSuffixHash: true</code> gives a stable name, at the cost of the
+          automatic rollout.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · THE NAME MATCH (runtime layer) -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Reference rewriting binds<br/>only on a name match</h2>
+      <p class="sub">For the hash to reach a Deployment, Kustomize rewrites references — but only where
+        the reference's name equals the generator's declared name.</p>
+      <div class="grid-2 vcenter" style="margin-top:1.1rem">
+        <div>
+          <p>A Deployment whose <code>envFrom</code> names <code>edge-relay-config</code> gets
+            rewritten to the hashed name. One that names <code>edge-relay-conf</code> does not —
+            Kustomize never recognizes it as a reference to this generator.</p>
+          <p>The name match is the load-bearing detail. Get it wrong and the render is internally
+            inconsistent while still being valid YAML.</p>
+        </div>
+        <div class="card bad">
+          <h3>A valid apply that can't start</h3>
+          <p>The render holds a hashed ConfigMap and a Deployment pointing at a plain name that
+            doesn't exist. Valid YAML, clean apply, and a Pod stuck in
+            <code>CreateContainerConfigError</code>.</p>
+        </div>
+      </div>
+      <div class="note warn" style="margin-top:1.2rem">
+        <p>This is the <strong>runtime</strong> layer — build and apply both succeeded. First move:
+          <code>kubectl kustomize</code> and compare the generated name to the reference.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9 · IMMUTABLE-SELECTOR TRAP (apply layer) -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Labels that reach the selector<br/>collide with immutability</h2>
+      <p class="sub"><code>commonLabels</code> writes onto metadata, Pod templates, <em>and every
+        selector</em>. The modern <code>labels:</code> transformer leaves selectors alone unless you
+        set <code>includeSelectors: true</code>.</p>
+      <div class="grid-2 vcenter" style="margin-top:1.1rem">
+        <div>
+          <p>A Deployment's selector is <strong>immutable after creation</strong> — it's the identity
+            link between the Deployment and the ReplicaSets and Pods it owns.</p>
+          <p>On a fresh namespace, <code>commonLabels</code> is harmless; the selector is being set for
+            the first time. Promote that same overlay over an <em>already-running</em> Deployment and
+            the API server rejects it.</p>
+        </div>
+        <div class="card bad">
+          <h3>The apply rejection</h3>
+          <p><code>spec.selector ... field is immutable</code> — the build was fine, the render valid.
+            The object already in the cluster is what made the apply illegal.</p>
+        </div>
+      </div>
+      <div class="note warn" style="margin-top:1.2rem">
+        <p>This is the <strong>apply</strong> layer. Keep labels off the selector —
+          <code>labels:</code> with <code>includeSelectors: false</code> — for anything already
+          running; reserve selector-touching labels for greenfield resources.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 · COMPONENTS -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A base can't carry patches;<br/>a component can</h2>
+      <p class="sub">A component — <code>kind: Component</code> — is a reusable slice of patches,
+        resources, and generators that an overlay opts into via <code>components:</code>.</p>
+      <div class="cards c2" style="margin-top:1.1rem">
+        <div class="card">
+          <h3>Base <span class="tag">what everyone builds on</span></h3>
+          <p>Raw resources plus the transforms common to every environment. It renders on its own.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">reach for it</span><span class="val">when the same <em>resources</em> recur across overlays</span></div></div>
+        </div>
+        <div class="card">
+          <h3>Component <span class="tag">a capability you turn on</span></h3>
+          <p>An optional slice some environments enable — a regional-affinity pin, a debug sidecar, a
+            monitoring annotation set. Prod enables it, lab skips it, from one definition.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">reach for it</span><span class="val">when the same <em>change</em> recurs across overlays</span></div></div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.2rem">
+        <p>Extract a component when the same change is copy-pasted across overlays — but not too early.
+          A premature abstraction is its own cost.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 · FAILURE MODES TABLE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Common failure modes</h2>
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th><th>Where to look</th></tr>
+        <tr>
+          <td><code>find unique target for patch</code></td>
+          <td>a patch target matches no resource</td>
+          <td class="muted">the patch's name/kind vs the base's real names</td>
+        </tr>
+        <tr>
+          <td><code>accumulating resources ... no such file</code></td>
+          <td>a <code>resources:</code> path is wrong</td>
+          <td class="muted">the relative paths in <code>kustomization.yaml</code></td>
+        </tr>
+        <tr>
+          <td>Pod <code>CreateContainerConfigError</code></td>
+          <td>a reference name ≠ the generator's name</td>
+          <td class="muted"><code>kubectl kustomize</code> — generated name vs reference</td>
+        </tr>
+        <tr>
+          <td><code>spec.selector ... field is immutable</code></td>
+          <td>a label transformer wrote into the selector</td>
+          <td class="muted">the live selector vs the render</td>
+        </tr>
+        <tr>
+          <td>stale <code>*-&lt;hash&gt;</code> ConfigMaps piling up</td>
+          <td>generators create; <code>apply</code> never deletes</td>
+          <td class="muted"><code>apply -k --prune</code>, or a GitOps controller's GC</td>
+        </tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- 12 · RECAP -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What to carry forward</h2>
+      <ul>
+        <li><strong>Kustomize renders; it never runs.</strong> <code>kubectl kustomize</code> is a
+          pure function; <code>apply -k</code> is that plus an apply. Render before you apply.</li>
+        <li><strong>One base is the source of truth; overlays are reviewable diffs.</strong> No
+          templating language — YAML transformed by YAML.</li>
+        <li><strong>A generator ties a ConfigMap's name to its contents and rewrites references by name
+          match.</strong> Break the match and you get a valid apply that can't start.</li>
+        <li><strong>Failures live in three layers — build, apply, runtime.</strong> An empty cluster
+          means read the build; an immutable-field rejection means diff live-vs-render; a broken Pod
+          means the normal loop.</li>
+        <li><strong>Transformers that reach into selectors collide with immutability.</strong> Keep
+          labels off the selector for anything already running.</li>
+      </ul>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const bar = document.getElementById('bar');
+  const cur = document.getElementById('cur');
+  document.getElementById('tot').textContent = slides.length;
+  let i = 0;
+
+  function show(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s,k)=>s.classList.toggle('active', k===i));
+    bar.style.width = ((i+1)/slides.length*100) + '%';
+    cur.textContent = i+1;
+    history.replaceState(null,'','#'+(i+1));
+  }
+  const next=()=>show(i+1), prev=()=>show(i-1);
+
+  document.addEventListener('keydown', e=>{
+    if(['ArrowRight','PageDown',' '].includes(e.key)){ e.preventDefault(); next(); }
+    else if(['ArrowLeft','PageUp'].includes(e.key)){ e.preventDefault(); prev(); }
+    else if(e.key==='Home') show(0);
+    else if(e.key==='End') show(slides.length-1);
+    else if(e.key==='f'||e.key==='F'){
+      if(!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+  document.getElementById('deck').addEventListener('click', e=>{
+    if(e.target.closest('a')) return;
+    (e.clientX > window.innerWidth/2) ? next() : prev();
+  });
+
+  const start = parseInt((location.hash||'').replace('#',''),10);
+  show(Number.isFinite(start) && start>0 ? start-1 : 0);
+</script>
+</body>
+</html>
