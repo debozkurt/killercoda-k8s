@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>M17 — Helm Fundamentals</title>
+<style>
+  :root{
+    --bg:#0f0f0f;
+    --panel:#1b1b1b;
+    --panel-2:#262626;
+    --ink:#ececec;
+    --ink-dim:#b2b2b2;
+    --ink-faint:#7d7d7d;
+    --line:#373737;
+    --line-2:#565656;
+    --accent:#6db3f2;
+    --good:#7bc47f;
+    --bad:#e08a7b;
+    --warn:#d9b46a;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:1560px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;overflow:hidden;
+  }
+
+  /* ---------- deck / slides ---------- */
+  .deck{height:100vh;width:100vw;position:relative}
+  .slide{
+    position:absolute;inset:0;display:none;
+    flex-direction:column;justify-content:center;align-items:center;
+    padding:4vh 5.5vw 6vh;overflow-y:auto;
+    animation:fade .3s ease;
+  }
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .wrap{width:100%;max-width:var(--maxw)}
+
+  /* ---------- type ---------- */
+  h1{font-size:clamp(3rem,6vw,4.6rem);line-height:1.03;margin:0 0 1.4rem;font-weight:700;letter-spacing:-.015em}
+  h2{font-size:clamp(2.1rem,3.9vw,3.2rem);line-height:1.08;margin:0 0 1.8rem;font-weight:650;letter-spacing:-.015em}
+  h3{font-size:clamp(1.25rem,1.5vw,1.5rem);margin:0 0 .6rem;font-weight:600;color:var(--ink)}
+  p{font-size:clamp(1.2rem,1.55vw,1.5rem);line-height:1.5;color:var(--ink-dim);margin:.55rem 0;max-width:70ch}
+  .lead{font-size:clamp(1.5rem,2.3vw,2rem);color:var(--ink);max-width:56ch;line-height:1.38}
+  strong{color:var(--ink);font-weight:650}
+  em{color:var(--ink-dim);font-style:italic}
+  code,.mono{font-family:var(--mono);font-size:.88em;
+    background:var(--panel-2);padding:.08em .42em;border-radius:5px;color:#dde6ee;
+    overflow-wrap:break-word}
+
+  ul{margin:.6rem 0;padding:0;list-style:none;max-width:88ch}
+  li{font-size:clamp(1.2rem,1.65vw,1.55rem);line-height:1.48;color:var(--ink-dim);
+    padding:.6rem 0 .6rem 1.8rem;position:relative}
+  li::before{content:"";position:absolute;left:.1rem;top:1.0em;width:.42rem;height:.42rem;
+    border-radius:50%;background:var(--ink-dim)}
+  li strong{color:var(--ink)}
+
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:2.4rem;align-items:start;width:100%}
+  .grid-2.tight{gap:1.6rem}
+  .grid-2 > *{min-width:0}
+  .vcenter{align-items:center}
+
+  /* ---------- chrome ---------- */
+  .bar{position:fixed;left:0;bottom:0;height:3px;background:var(--accent);
+    width:0;transition:width .3s ease;z-index:50}
+  .hud{position:fixed;bottom:14px;right:22px;font-family:var(--mono);
+    font-size:.78rem;color:var(--ink-faint);z-index:50;letter-spacing:.05em}
+  .hud b{color:var(--ink-dim);font-weight:600}
+  .brand{position:fixed;bottom:14px;left:22px;font-family:var(--mono);
+    font-size:.72rem;color:var(--ink-faint);z-index:50;letter-spacing:.12em}
+  .hint{position:fixed;top:16px;right:22px;font-family:var(--mono);font-size:.7rem;
+    color:var(--ink-faint);z-index:50;opacity:.65}
+
+  /* ---------- diagram primitives ---------- */
+  .node{
+    background:var(--panel);border:1px solid var(--line-2);border-radius:11px;
+    padding:1rem 1.4rem;text-align:center;min-width:0;
+  }
+  .node .t{font-weight:650;color:var(--ink);font-size:clamp(1.1rem,1.35vw,1.35rem)}
+  .node .s{font-size:clamp(.85rem,1vw,1rem);color:var(--ink-faint);font-family:var(--mono);margin-top:.3rem;white-space:normal}
+  .node.good{border-color:#3f5a40}
+  .node.bad{border-color:#5e3a32}
+  .arrow{color:var(--line-2);font-size:2rem;flex:0 0 auto;padding:0 .2rem;position:relative}
+  .arrow .lbl{font-family:var(--mono);font-size:.78rem;color:var(--ink-faint);
+    position:absolute;left:50%;top:-1.3rem;transform:translateX(-50%);white-space:nowrap}
+  .flow{display:flex;align-items:center;gap:.9rem;flex-wrap:wrap}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;
+    padding:1.5rem 1.6rem;min-width:0}
+  .card.good{border-color:#33502f;background:linear-gradient(180deg,#15201480,#1a1a1a)}
+  .card.bad{border-color:#5a3830;background:linear-gradient(180deg,#20161480,#1a1a1a)}
+  .card.warn{border-color:#5a5030;background:linear-gradient(180deg,#1e1b1280,#1a1a1a)}
+  .card h3{font-size:clamp(1.2rem,1.45vw,1.45rem);letter-spacing:0;color:var(--ink);
+    text-transform:none;font-weight:600}
+  .card h3 code{font-size:.95em}
+  .card h3 .tag{color:var(--ink-faint);font-weight:500;font-size:.92rem}
+  .card p{font-size:clamp(1.12rem,1.35vw,1.32rem);margin:.45rem 0;max-width:none;line-height:1.45}
+  .card ul{max-width:none}
+  .card li{font-size:clamp(1.08rem,1.3vw,1.28rem);padding:.4rem 0 .4rem 1.5rem}
+  .cards{display:grid;gap:1.6rem;width:100%}
+  .cards.c3{grid-template-columns:repeat(3,1fr)}
+  .cards.c2{grid-template-columns:1fr 1fr}
+
+  /* labelled signal / key-value rows inside cards */
+  .sigs{display:flex;flex-direction:column;gap:.7rem;margin-top:1rem;
+    padding-top:.95rem;border-top:1px solid var(--line)}
+  .sig{display:grid;grid-template-columns:auto 1fr;column-gap:.85rem;align-items:baseline;
+    font-size:clamp(1.05rem,1.25vw,1.25rem);line-height:1.4}
+  .sig .lbl{font-family:var(--sans);color:var(--ink-faint);white-space:nowrap;
+    font-size:.72em;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+  .sig .val{color:var(--ink-dim)}
+  .sig .val code{font-size:.92em}
+
+  table{border-collapse:collapse;width:100%;font-size:clamp(1.1rem,1.5vw,1.4rem)}
+  th,td{text-align:left;padding:.85rem 1rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink-faint);font-weight:600;font-size:clamp(.85rem,1vw,1rem);text-transform:uppercase;letter-spacing:.06em}
+  td{color:var(--ink-dim)}
+  td:first-child{color:var(--ink);font-weight:600;white-space:nowrap}
+  tr:hover td{background:#ffffff06}
+  table code{white-space:nowrap}
+
+  .note{border-left:3px solid var(--accent);padding:.4rem 0 .4rem 1.3rem;margin:1.3rem 0;max-width:84ch}
+  .note.warn{border-color:var(--warn)}
+  .note p{margin:0;font-size:clamp(1.2rem,1.55vw,1.45rem);color:var(--ink);line-height:1.45}
+
+  .terminal{background:#0a0a0a;border:1px solid var(--line);border-radius:11px;
+    font-family:var(--mono);font-size:clamp(1.05rem,1.5vw,1.35rem);padding:1.4rem 1.6rem;
+    color:#cfd6dd;line-height:1.7;width:100%;overflow-x:auto;white-space:pre}
+  .terminal .c{color:var(--accent)}   /* command */
+  .terminal .o{color:var(--ink-faint)} /* output / comment */
+  .terminal .g{color:var(--good)}      /* highlight */
+  .terminal .r{color:var(--bad)}       /* error */
+
+  .phase{padding:.85rem 1.2rem;border-radius:10px;border:1px solid var(--line-2);
+    background:var(--panel);font-family:var(--mono);font-size:clamp(1.05rem,1.25vw,1.25rem);text-align:center}
+  .phase.run{border-color:#3f5a40}
+  .phase.term{border-color:#5e3a32}
+
+  /* vertical sequence ladder */
+  .ladder{display:flex;flex-direction:column;width:100%}
+  .rung{display:grid;grid-template-columns:auto 1fr;column-gap:1.3rem;position:relative}
+  .rung .rail{display:flex;flex-direction:column;align-items:center}
+  .rung .dot{width:15px;height:15px;border-radius:50%;background:var(--line-2);margin-top:.4rem;z-index:2}
+  .rung .dot.k{background:var(--bad)}
+  .rung .dot.g{background:var(--good)}
+  .rung .line{flex:1;width:2px;background:var(--line)}
+  .rung:last-child .line{display:none}
+  .rung .body{padding-bottom:1.6rem}
+  .rung .body b{color:var(--ink);font-size:clamp(1.2rem,1.45vw,1.4rem);font-weight:600}
+  .rung .body span{display:block;color:var(--ink-faint);font-size:clamp(1.02rem,1.2vw,1.18rem);margin-top:.2rem}
+
+  /* containment box: a boundary enclosing items over a shared substrate */
+  .boundary{position:relative;border:1.5px solid var(--line-2);border-radius:16px;
+    padding:1.6rem 1.4rem 1.4rem;background:#15151580;width:100%}
+  .boundary .tag{position:absolute;top:-.8rem;left:1.3rem;background:var(--bg);padding:0 .6rem;
+    font-family:var(--mono);font-size:.85rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim)}
+  .items{display:flex;gap:1rem;flex-wrap:wrap}
+  .item{flex:1 1 0;min-width:120px;background:var(--panel);border:1px solid var(--line-2);
+    border-radius:10px;padding:.95rem 1rem;text-align:center}
+  .item b{display:block;color:var(--ink);font-size:clamp(1.05rem,1.3vw,1.25rem);font-weight:600}
+  .item span{display:block;color:var(--ink-faint);font-family:var(--mono);font-size:.85rem;margin-top:.25rem}
+  .item.ghost{border-style:dashed;background:transparent}
+  .item.ghost b{color:var(--ink-faint);font-weight:500}
+  .substrate{margin-top:1rem;border:1px dashed var(--line-2);border-radius:9px;padding:.8rem;
+    text-align:center;font-family:var(--mono);font-size:clamp(.92rem,1.1vw,1.08rem);color:var(--ink-dim)}
+  .substrate b{color:var(--ink)}
+
+  /* inline citation — attach to a specific claim, not a whole slide */
+  /* (no .cite / .footnote — slides never carry citations or footnotes; sources live in the companion markdown) */
+
+  /* mermaid: wraps a PRE-RENDERED inline <svg> (no CDN runtime — see SKILL.md "Diagrams") */
+  .mermaid{width:100%;display:flex;justify-content:center}
+  .mermaid svg{max-width:100%;height:auto}
+
+  .muted{color:var(--ink-faint)} .accent{color:var(--accent)}
+  .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  .sub{font-size:clamp(1.2rem,1.5vw,1.45rem);color:var(--ink-dim);line-height:1.4;
+    max-width:74ch;margin:.2rem 0 0}
+  /* subheader sits tight under its heading (no kicker; one heading per slide) */
+  h1:has(+ .sub), h2:has(+ .sub){margin-bottom:.5rem}
+
+  @media (max-width:880px){
+    .cards.c3,.cards.c2,.grid-2{grid-template-columns:1fr}
+    .slide{padding:4vh 6vw 8vh}
+  }
+
+  /* print / PDF: every slide on its own page (Cmd-P → Save as PDF) */
+  @media print{
+    @page{size:landscape;margin:0}
+    html,body{height:auto;overflow:visible}
+    body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .bar,.hud,.brand,.hint{display:none !important}
+    .deck{height:auto;position:static}
+    .slide{display:flex !important;position:relative;inset:auto;
+      width:100vw;height:100vh;overflow:hidden;break-after:page;page-break-after:always;animation:none}
+    .slide:last-child{break-after:auto;page-break-after:auto}
+  }
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div>
+<div class="hint">← → navigate · F fullscreen</div>
+<div class="brand">M17 · HELM</div>
+<div class="hud"><b id="cur">1</b> / <span id="tot">1</span></div>
+<div class="deck" id="deck">
+
+  <!-- 1 · TITLE -->
+  <section class="slide">
+    <div class="wrap">
+      <h1>Helm Fundamentals</h1>
+      <p class="lead">The Kubernetes package manager. A chart plus values renders into manifests;
+        Helm applies them and records the result as a release you can upgrade and roll back.</p>
+      <div class="note" style="margin-top:1.8rem">
+        <p>What runs in the cluster is the <strong>render's output</strong>, and Helm keeps its own
+          record of that output. Debugging Helm means reading its state — values, manifest, history —
+          not just the cluster's.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 · OBJECTIVES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What you'll walk away with</h2>
+      <ul>
+        <li>Read a chart on disk — <code>Chart.yaml</code>, <code>values.yaml</code>,
+          <code>templates/</code> — and know which keys the templates actually consume</li>
+        <li>Trace a value from your <code>--set</code>/<code>-f</code> input through the render to the
+          live object with <code>helm template</code> and <code>helm get manifest</code></li>
+        <li>Reason about <strong>values precedence</strong>, and why Helm silently keeps override keys
+          it never reads</li>
+        <li>Use the release model — revisions, <code>helm history</code>, <code>helm status</code>,
+          <code>helm rollback</code> — to recover from a bad upgrade</li>
+        <li>Read past a green <code>helm status</code> to the Pods that Helm never waited on</li>
+        <li>Decide when Helm is the right tool and when <strong>Kustomize</strong> fits better</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 3 · MENTAL MODEL + PIPELINE FLOW -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Helm is render plus bookkeeping<br/>over <code>kubectl apply</code></h2>
+      <p class="sub">It does two jobs the API server doesn't: it turns one parameterized chart into
+        per-environment manifests, and it remembers what it applied so it can upgrade and roll back
+        as a unit.</p>
+      <div class="flow" style="justify-content:center;gap:.7rem;margin:2rem 0 1.4rem">
+        <div class="node"><div class="t">Chart + values</div><div class="s">defaults + overrides</div></div>
+        <div class="arrow"><span class="lbl">merge</span>&rarr;</div>
+        <div class="node"><div class="t">Render</div><div class="s">templates → YAML</div></div>
+        <div class="arrow"><span class="lbl">apply</span>&rarr;</div>
+        <div class="node good"><div class="t">Release</div><div class="s">a recorded revision</div></div>
+        <div class="arrow">&rarr;</div>
+        <div class="node"><div class="t">Live objects</div><div class="s">Deployment, Service</div></div>
+      </div>
+      <div class="note">
+        <p>The pipeline has three stages — <strong>merge</strong>, <strong>render</strong>,
+          <strong>apply</strong> — and every failure this module covers lives in exactly one of them.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · THE SPINE: three failures, one per stage -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Three ways Helm bites, one per stage</h2>
+      <p class="sub">None of them looks like a normal Kubernetes problem. Each fails at a different
+        point in the pipeline and leaves a different signature.</p>
+      <div class="cards c3" style="margin-top:1.5rem">
+        <div class="card warn">
+          <h3>Value carried but inert</h3>
+          <p>An override sits at a key the chart never reads. It renders the default anyway — no error.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">stage</span><span class="val">merge → render</span></div>
+            <div class="sig"><span class="lbl">read</span><span class="val"><code>get values -a</code> vs <code>get manifest</code></span></div>
+          </div>
+        </div>
+        <div class="card bad">
+          <h3>Render aborts, nothing deploys</h3>
+          <p>A <code>required</code> value is missing, so the render fails client-side. No manifest,
+            no Pod to describe.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">stage</span><span class="val">render</span></div>
+            <div class="sig"><span class="lbl">read</span><span class="val">the error, then <code>helm template</code></span></div>
+          </div>
+        </div>
+        <div class="card bad">
+          <h3>Applied, but Pods wedged</h3>
+          <p>A valid-but-wrong manifest applies cleanly. Helm records <code>deployed</code> while the
+            rollout is stuck.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">stage</span><span class="val">apply</span></div>
+            <div class="sig"><span class="lbl">read</span><span class="val"><code>kubectl get pods</code>, then <code>helm history</code></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 · THE THREE VIEWS -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Helm keeps three views<br/>the plain cluster can't give you</h2>
+      <p class="sub">Because Helm records its own inputs and outputs, you compare these three against
+        the live objects — and the discrepancy names the stage that failed.</p>
+      <div class="cards c3" style="margin-top:1.5rem">
+        <div class="card">
+          <h3><code>helm get values</code></h3>
+          <p>The <strong>inputs</strong> — the values that fed the render. Add <code>-a</code> for the
+            effective merge, defaults included.</p>
+        </div>
+        <div class="card">
+          <h3><code>helm get manifest</code></h3>
+          <p>The <strong>rendered output</strong> Helm actually applied, read back from stored release
+            state — the authoritative answer, not the chart on disk.</p>
+        </div>
+        <div class="card">
+          <h3><code>helm history</code></h3>
+          <p>The <strong>timeline</strong> of revisions. Every install, upgrade, and rollback is a
+            numbered entry with a status.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 · CHART ANATOMY -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A chart is inputs and templates</h2>
+      <div class="grid-2 vcenter">
+        <div>
+          <p><code>values.yaml</code> holds the defaults; <code>templates/</code> holds manifests with
+            holes. <code>helm install</code> merges your overrides over the defaults, evaluates the
+            templates, and applies the result.</p>
+          <ul>
+            <li>A template reads <strong>specific key paths</strong> — it pulls the ones it names and
+              ignores every other key in your values</li>
+            <li>Templates are Go <code>text/template</code> plus the Sprig functions, so values have
+              types and a missing key renders as <code>&lt;no value&gt;</code>, not an error</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3><code>templates/deployment.yaml</code></h3>
+          <div class="terminal" style="margin-top:.7rem">
+<span class="o"># the template names the key it reads</span>
+spec:
+  replicas: <span class="g">{{ .Values.replicaCount }}</span>
+  # ...
+    image: <span class="g">"{{ .Values.image.repository }}:{{ .Values.image.tag }}"</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 · helm template / helm get manifest -->
+  <section class="slide">
+    <div class="wrap">
+      <h2><code>helm template</code> renders offline;<br/><code>required</code> fails before the cluster</h2>
+      <p class="sub"><code>helm template</code> runs merge + render locally and prints the manifests
+        without touching the cluster — the most useful command in the kit. It answers "what would
+        these values produce?" and reproduces render errors offline.</p>
+      <div class="terminal" style="margin-top:1.2rem">
+<span class="o"># see what the values render to — no cluster needed</span>
+<span class="c">helm</span> template voicemail ./chart -f prod-values.yaml
+
+<span class="o"># a required value that is missing aborts the render, client-side</span>
+<span class="r">Error:</span> execution error: sipRealm is required
+      </div>
+      <div class="note warn" style="margin-top:1.2rem">
+        <p>A <code>required</code> failure happens before anything is applied — there is no Pod, no
+          event, nothing for the normal <code>get → describe → events</code> loop to find. The error
+          text and <code>helm template</code> are the entire diagnosis.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · VALUES PRECEDENCE STAIRCASE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Values merge in a fixed precedence,<br/>lowest to highest</h2>
+      <div class="flow" style="justify-content:center;gap:.7rem;margin:1.8rem 0 1.4rem">
+        <div class="node"><div class="t">values.yaml</div><div class="s">chart defaults</div></div>
+        <div class="arrow"><span class="lbl">then</span>&rarr;</div>
+        <div class="node"><div class="t">-f valuesA</div><div class="s">earlier file</div></div>
+        <div class="arrow"><span class="lbl">then</span>&rarr;</div>
+        <div class="node"><div class="t">-f valuesB</div><div class="s">rightmost wins</div></div>
+        <div class="arrow"><span class="lbl">then</span>&rarr;</div>
+        <div class="node good"><div class="t">--set</div><div class="s">highest</div></div>
+      </div>
+      <div class="grid-2 tight">
+        <div class="note"><p>Repeated <code>-f</code> files layer left to right; the rightmost wins a
+          conflict. <code>--set</code> beats every file.</p></div>
+        <div class="note"><p>It is a <strong>deep merge</strong>, not a replace: a file that sets
+          <code>image.tag</code> leaves <code>image.repository</code> at the chart default.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9 · WRONG KEY SILENTLY IGNORED -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Helm does not validate your overrides</h2>
+      <p class="sub">Set the wrong key — a typo, or <code>replicas</code> when the chart reads
+        <code>replicaCount</code> — and Helm keeps your key in the release values and renders the
+        default anyway. No warning.</p>
+      <div class="grid-2 tight" style="margin-top:1.1rem">
+        <div class="terminal">
+<span class="o"># what you ASKED for — shows your (wrong) key, misleading alone</span>
+<span class="c">helm</span> get values voicemail
+
+<span class="o"># what actually TOOK — effective merge, defaults included</span>
+<span class="c">helm</span> get values voicemail <span class="g">-a</span>
+
+<span class="o"># what RENDERED and applied — the ground truth</span>
+<span class="c">helm</span> get manifest voicemail
+        </div>
+        <div>
+          <div class="card bad">
+            <h3>The wrong-key signature</h3>
+            <p>Your key appears in <code>get values</code>, sits <em>beside</em> the real key in
+              <code>get values -a</code>, and never reaches <code>get manifest</code>.</p>
+          </div>
+          <div class="note" style="margin-top:1.1rem">
+            <p>A chart shipping <code>values.schema.json</code> turns this whole class of bug into an
+              install-time validation error instead of a silent no-op.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 · RELEASES & REVISIONS IN THE CLUSTER -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A release is a revision history<br/>stored in the cluster</h2>
+      <p class="sub">Every install, upgrade, and rollback writes a new revision and keeps the old ones.
+        The state lives in the cluster, so any operator with access sees the same history — Helm holds
+        no local state.</p>
+      <div class="boundary" style="margin-top:1.3rem">
+        <span class="tag">release namespace</span>
+        <div class="items">
+          <div class="item"><b>revision 1</b><span>install</span></div>
+          <div class="item"><b>revision 2</b><span>upgrade</span></div>
+          <div class="item"><b>revision 3</b><span>rollback</span></div>
+        </div>
+        <div class="substrate">each stored as a Secret — <b>sh.helm.release.v1.&lt;release&gt;.v&lt;n&gt;</b></div>
+      </div>
+      <div class="grid-2 tight" style="margin-top:1.3rem">
+        <div class="note"><p><code>helm status</code> is the current snapshot — which revision is
+          live, deployed or failed.</p></div>
+        <div class="note"><p><code>helm history</code> is the timeline — and every bad upgrade has a
+          prior good revision to return to.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 · deployed != healthy -->
+  <section class="slide">
+    <div class="wrap">
+      <h2><code>helm status: deployed</code> means<br/>"applied", not "healthy"</h2>
+      <p class="sub">By default <code>helm upgrade</code> returns as soon as the apply succeeds — it
+        does not wait for Pods to become ready. Helm grades the manifest, not the rollout.</p>
+      <div class="flow" style="justify-content:center;gap:.7rem;margin:1.6rem 0">
+        <div class="phase run">upgrade<br/><span class="muted" style="font-size:.76rem">bad image tag</span></div>
+        <div class="arrow">&rarr;</div>
+        <div class="phase">manifest applied<br/><span class="muted" style="font-size:.76rem">valid Deployment</span></div>
+        <div class="arrow">&rarr;</div>
+        <div class="phase run">status: deployed<br/><span class="muted" style="font-size:.76rem">exit 0</span></div>
+        <div class="arrow">&rarr;</div>
+        <div class="phase term">rollout wedged<br/><span class="muted" style="font-size:.76rem">ImagePullBackOff</span></div>
+      </div>
+      <div class="note warn">
+        <p>Read past a green status to <code>kubectl get pods</code> / <code>kubectl rollout status</code>.
+          <code>--wait</code> makes the upgrade block on readiness; <code>--atomic</code> adds
+          <code>--wait</code> and auto-rolls-back on failure — at the cost of deploy latency and the
+          <code>watch</code> RBAC it needs.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 · rollback rolls forward -->
+  <section class="slide">
+    <div class="wrap">
+      <h2><code>helm rollback</code> rolls forward,<br/>and recovery goes through Helm</h2>
+      <div class="grid-2 vcenter">
+        <div class="ladder">
+          <div class="rung"><div class="rail"><div class="dot g"></div><div class="line"></div></div>
+            <div class="body"><b>revision 1</b><span>the last good release</span></div></div>
+          <div class="rung"><div class="rail"><div class="dot k"></div><div class="line"></div></div>
+            <div class="body"><b class="bad">revision 2</b><span>the bad upgrade — stays in history</span></div></div>
+          <div class="rung"><div class="rail"><div class="dot g"></div></div>
+            <div class="body"><b class="good">revision 3</b><span>rollback re-applies rev 1's manifests</span></div></div>
+        </div>
+        <div>
+          <div class="card"><h3>A new revision, not a rewind</h3>
+            <p><code>helm rollback &lt;release&gt; 1</code> re-applies an old revision's manifests as
+              revision 3. The broken revision is kept in the timeline.</p></div>
+          <div class="note warn" style="margin-top:1.1rem">
+            <p>Recover through Helm, not <code>kubectl rollout undo</code>. Undoing at the Deployment
+              fixes the live object but leaves the release pointing at the break — the next
+              <code>helm upgrade</code> or reconcile re-applies it.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13 · HELM vs KUSTOMIZE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Helm vs Kustomize:<br/>both solve one config, many environments</h2>
+      <div class="cards c2" style="margin-top:1.2rem">
+        <div class="card">
+          <h3>Helm</h3>
+          <p>Templated and packaged: manifests with <code>{{ }}</code> holes, parameterized with
+            values, versioned with dependencies and rollback as a unit.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">tracking</span><span class="val">revisions, history, rollback</span></div>
+            <div class="sig"><span class="lbl">fits</span><span class="val">third-party apps, install-and-forget</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Kustomize</h3>
+          <p>Template-free: real manifests as a base plus <em>patches</em> that override fields;
+            <code>kubectl apply -k</code> builds the result.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">tracking</span><span class="val">none — the cluster is the state</span></div>
+            <div class="sig"><span class="lbl">fits</span><span class="val">your own manifests, small per-env deltas</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.3rem">
+        <p>Reach for Helm when you consume someone else's packaged app or want release/rollback
+          semantics; reach for Kustomize when you own the manifests and the per-environment difference
+          is a handful of patches. They also compose.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 14 · COMMON FAILURE MODES -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Common failure modes</h2>
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th><th>Where to look</th></tr>
+        <tr>
+          <td>Value set, no effect</td>
+          <td>wrong key path, or a higher-precedence source overriding it</td>
+          <td class="muted"><code>helm get values -a</code> vs <code>get manifest</code></td>
+        </tr>
+        <tr>
+          <td><code>status: deployed</code>, Pods unhealthy</td>
+          <td>Helm graded the apply, not readiness (no <code>--wait</code>)</td>
+          <td class="muted"><code>kubectl get pods</code>; then <code>helm history</code></td>
+        </tr>
+        <tr>
+          <td>Install errors, nothing deployed</td>
+          <td>render failure — <code>required</code> value missing or template error</td>
+          <td class="muted">the error names it; reproduce with <code>helm template</code></td>
+        </tr>
+        <tr>
+          <td><code>another operation in progress</code></td>
+          <td>a prior <code>--wait</code> upgrade was interrupted, release stuck</td>
+          <td class="muted"><code>helm history</code>; <code>helm rollback</code> to the last good</td>
+        </tr>
+        <tr>
+          <td>Live object reverts your <code>kubectl edit</code></td>
+          <td>you edited a Helm-managed object; the release still holds the old manifest</td>
+          <td class="muted">change values and <code>helm upgrade</code>, not <code>kubectl edit</code></td>
+        </tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- 15 · RECAP -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>What to carry forward</h2>
+      <ul>
+        <li><strong>Helm is render plus bookkeeping.</strong> Chart + values → manifests → an applied,
+          versioned release. Every failure lives in one of those stages.</li>
+        <li><strong>Templates read named key paths; Helm doesn't validate overrides.</strong> A
+          wrong-key value is kept but inert — <code>get values -a</code> versus
+          <code>get manifest</code> exposes it.</li>
+        <li><strong>A release is a numbered revision history in the cluster.</strong>
+          <code>status</code> is now, <code>history</code> is the timeline, <code>rollback</code>
+          rolls <em>forward</em> to an old revision.</li>
+        <li><strong><code>deployed</code> means "manifest applied," not "workload healthy."</strong>
+          Read past it to the Pods; use <code>--wait</code>/<code>--atomic</code> to grade readiness.</li>
+        <li><strong>Recover Helm-managed workloads through Helm.</strong> A <code>kubectl edit</code>
+          drifts the object from the release record, and the next reconcile undoes your fix.</li>
+      </ul>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const bar = document.getElementById('bar');
+  const cur = document.getElementById('cur');
+  document.getElementById('tot').textContent = slides.length;
+  let i = 0;
+
+  function show(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s,k)=>s.classList.toggle('active', k===i));
+    bar.style.width = ((i+1)/slides.length*100) + '%';
+    cur.textContent = i+1;
+    history.replaceState(null,'','#'+(i+1));
+  }
+  const next=()=>show(i+1), prev=()=>show(i-1);
+
+  document.addEventListener('keydown', e=>{
+    if(['ArrowRight','PageDown',' '].includes(e.key)){ e.preventDefault(); next(); }
+    else if(['ArrowLeft','PageUp'].includes(e.key)){ e.preventDefault(); prev(); }
+    else if(e.key==='Home') show(0);
+    else if(e.key==='End') show(slides.length-1);
+    else if(e.key==='f'||e.key==='F'){
+      if(!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+  document.getElementById('deck').addEventListener('click', e=>{
+    if(e.target.closest('a')) return;
+    (e.clientX > window.innerWidth/2) ? next() : prev();
+  });
+
+  const start = parseInt((location.hash||'').replace('#',''),10);
+  show(Number.isFinite(start) && start>0 ? start-1 : 0);
+</script>
+</body>
+</html>
