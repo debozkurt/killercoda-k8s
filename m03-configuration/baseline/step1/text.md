@@ -43,4 +43,14 @@ That's the whole object: plain key/value, no workload attached. A ConfigMap does
 kubectl get pods -n media -l app=session-broker
 ```{{exec}}
 
-`session-broker` is `Running` `1/1`. It reads `app-config` two ways at once — as environment variables and as mounted files — which the next two steps pull apart. The object and its consumers are separate resources; the wiring between them is what the rest of this module is about.
+`session-broker` is `Running` `1/1`.
+
+## See how it's wired
+
+`describe` on the Pod shows the config wiring in plain sight — no YAML spelunking:
+
+```bash
+kubectl describe pod -n media -l app=session-broker
+```{{exec}}
+
+Two places name `app-config`. Under the container, **`Environment Variables from:`** lists `app-config  ConfigMap` — every key injected as an env var (`envFrom`). Lower down, **`Mounts:`** shows the same object at `/etc/app-config`, and the **`Volumes:`** block resolves that mount back to `ConfigMap  app-config`. One object, consumed two ways at once — env vars *and* mounted files. The next two steps pull those apart. The object and its consumers stay separate resources; the wiring between them is what the rest of this module is about.

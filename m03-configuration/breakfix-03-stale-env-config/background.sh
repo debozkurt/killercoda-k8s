@@ -703,20 +703,17 @@ EOF
 # Wait for the fleet to come up
 # ---------------------------------------------------------------------------
 
-kubectl wait --for=condition=Available deployment --all -A --timeout=180s >/dev/null 2>&1
-# StatefulSets don't have an Available condition; wait for at least one ready pod
-for ns in media signaling app-services edge; do
-  kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=90s >/dev/null 2>&1
-done
-
-# >>> breakfix-03 mutation: with session-broker already running on LOG_LEVEL=info,
-#     edit app-config to LOG_LEVEL=debug — WITHOUT restarting the pod. Env vars
-#     are frozen at container start, so the pod keeps serving 'info' while the
-#     ConfigMap now says 'debug'. Models an ops change ("bump log level to debug")
-#     that silently never took because nothing rolled the consumers.
-#     This is a post-create edit (not a baked-in YAML value), so harden it:
-#     apply, read back, and fail loudly if the new value didn't land.
-kubectl wait --for=condition=Available deployment/session-broker -n media --timeout=90s >/dev/null 2>&1
+# >>> breakfix-03 mutation: establish the stale-config state as EARLY as possible.
+#     As soon as session-broker's pod is Ready — meaning its container has already
+#     baked LOG_LEVEL=info into the environment — edit app-config to LOG_LEVEL=debug
+#     WITHOUT restarting the pod. Env vars are frozen at container start, so the pod
+#     keeps serving 'info' while the ConfigMap now says 'debug': an ops change
+#     ("bump log level to debug") that silently never took because nothing rolled
+#     the consumers. Gating on pod-Ready guarantees the container booted on 'info'
+#     first; doing this BEFORE the slower fleet-wide wait keeps the window where the
+#     ConfigMap still reads 'info' as short as possible. Read back and fail loudly
+#     (before the readiness sentinel) if the new value didn't land.
+kubectl wait --for=condition=Ready pod -l app=session-broker -n media --timeout=180s >/dev/null 2>&1
 kubectl patch configmap app-config -n media --type merge -p '{"data":{"LOG_LEVEL":"debug"}}' >/dev/null
 CMVAL=$(kubectl get configmap app-config -n media -o jsonpath='{.data.LOG_LEVEL}' 2>/dev/null)
 if [ "$CMVAL" != "debug" ]; then
@@ -725,5 +722,11 @@ if [ "$CMVAL" != "debug" ]; then
   exit 1
 fi
 # <<< breakfix-03 mutation ends
+
+kubectl wait --for=condition=Available deployment --all -A --timeout=180s >/dev/null 2>&1
+# StatefulSets don't have an Available condition; wait for at least one ready pod
+for ns in media signaling app-services edge; do
+  kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=90s >/dev/null 2>&1
+done
 
 touch /tmp/.setup-complete

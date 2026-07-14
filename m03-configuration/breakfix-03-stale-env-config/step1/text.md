@@ -5,11 +5,20 @@ Nothing is in a failed state, so there's no event to read. The diagnosis is a co
 ## Read the ConfigMap
 
 ```bash
-kubectl get configmap app-config -n media -o jsonpath='{.data.LOG_LEVEL}'; echo
+kubectl describe configmap app-config -n media
 ```{{exec}}
 
+Read the `Data` section — `LOG_LEVEL` now reads `debug`:
+
 ```text
+Data
+====
+LOG_LEVEL:
+----
 debug
+MAX_SESSIONS:
+----
+500
 ```
 
 The source of truth says `debug`. The edit landed.

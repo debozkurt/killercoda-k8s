@@ -27,11 +27,13 @@ That's the diagnosis: the Pod mounts a Secret named `portal-secrets`, and no suc
 
 ## Confirm both sides
 
-What does the Pod mount, and does the Secret exist? Read the volume off the spec:
+What does the Pod mount, and does the Secret exist? Read the volume off the Deployment YAML:
 
 ```bash
-kubectl get deploy portal-ui -n admin-portal -o yaml | grep -A4 'volumes:'
+kubectl get deploy portal-ui -n admin-portal -o yaml
 ```{{exec}}
+
+At the bottom of the Pod template, the **`volumes:`** block names the Secret the mount depends on:
 
 ```text
       volumes:

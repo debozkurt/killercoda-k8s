@@ -25,11 +25,13 @@ kubectl exec deploy/account-provisioner -n provisioning -- printenv DB_HOST DB_P
 
 ## See the wiring in the spec
 
-The injection is declared in the Pod template. `describe` hides `envFrom`, so read it off the Deployment YAML:
+The injection is declared in the Pod template. Read the whole Deployment YAML — get used to the shape of the object you'd actually edit:
 
 ```bash
-kubectl get deploy session-broker -n media -o yaml | grep -A2 envFrom
+kubectl get deploy session-broker -n media -o yaml
 ```{{exec}}
+
+It's a big object; the config wiring is a few lines under the container spec. Find **`envFrom:`** inside `spec.template.spec.containers`:
 
 ```text
         envFrom:
@@ -37,7 +39,7 @@ kubectl get deploy session-broker -n media -o yaml | grep -A2 envFrom
             name: app-config
 ```
 
-That one block is the whole link from object to environment.
+That one block is the whole link from object to environment. (`describe pod` surfaces the same thing more briefly as *Environment Variables from:*, but the YAML is the source of truth.)
 
 ## The catch: env is frozen
 

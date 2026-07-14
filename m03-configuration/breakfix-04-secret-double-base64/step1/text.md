@@ -32,14 +32,18 @@ echo 'Y2hhbmdlbWU=' | base64 -d; echo
 changeme
 ```
 
-So the *intended* password is `changeme` — but the container is being handed `Y2hhbmdlbWU=`, the base64 *of* `changeme`. The value was encoded one time too many. Look at the Secret to see where:
+So the *intended* password is `changeme` — but the container is being handed `Y2hhbmdlbWU=`, the base64 *of* `changeme`. The value was encoded one time too many. Look at the Secret to see where — `describe` hides Secret values, so read the YAML:
 
 ```bash
-kubectl get secret database-creds -n provisioning -o jsonpath='{.data.DB_PASSWORD}'; echo
+kubectl get secret database-creds -n provisioning -o yaml
 ```{{exec}}
 
+A Secret stores its values base64-encoded under `data:`. Find `DB_PASSWORD`:
+
 ```text
-WTJoaGJtZGxiV1U9
+data:
+  DB_HOST: cG9zdGdyZXMucG9seXBob25lLmV4YW1wbGU=
+  DB_PASSWORD: WTJoaGJtZGxiV1U9
 ```
 
-A Secret's `data` is *already* base64 — the kubelet decodes it once before injecting. Decode this once and you get `Y2hhbmdlbWU=` (still base64); decode twice and you get `changeme`. The value in `data` was base64-encoded twice, so one decode leaves it still encoded. Classic hand-base64 mistake: someone encoded a value that was already encoded. On to the fix.
+That `data` is *already* base64 — the kubelet decodes it once before injecting. Decode `WTJoaGJtZGxiV1U9` once and you get `Y2hhbmdlbWU=` (still base64); decode twice and you get `changeme`. The value was base64-encoded twice, so one decode leaves it still encoded. Classic hand-base64 mistake: someone encoded a value that was already encoded. On to the fix.

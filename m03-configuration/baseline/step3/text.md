@@ -43,7 +43,21 @@ A **projected volume** is the general form: it combines a ConfigMap, a Secret, d
 ## Verify
 
 ```bash
-kubectl get deploy session-broker -n media -o yaml | grep -A3 volumeMounts
+kubectl get deploy session-broker -n media -o yaml
 ```{{exec}}
 
-You'll see the `app-config` mount at `/etc/app-config`. Same object as the env in step 2, consumed twice — that's the choice the next scenarios turn on.
+Two blocks describe the file mount. Under the container spec, **`volumeMounts:`** puts `app-config` at `/etc/app-config`; the **`volumes:`** block lower in the Pod template resolves that name back to the ConfigMap:
+
+```text
+        volumeMounts:
+        - mountPath: /etc/app-config
+          name: app-config
+          readOnly: true
+...
+      volumes:
+      - configMap:
+          name: app-config
+        name: app-config
+```
+
+Same object as the env in step 2, consumed twice — that's the choice the next scenarios turn on.

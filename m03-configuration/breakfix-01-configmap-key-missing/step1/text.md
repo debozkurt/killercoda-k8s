@@ -26,11 +26,13 @@ The kubelet is telling you precisely what's wrong: an `env` reference asked for 
 
 ## Confirm both sides of the reference
 
-Read the env reference in the Deployment, then the ConfigMap's actual keys. `describe` hides container `env`, so read the spec:
+Read the env reference in the Deployment, then the ConfigMap's actual keys. Start with the Deployment YAML:
 
 ```bash
-kubectl get deploy session-broker -n media -o yaml | grep -A6 'env:'
+kubectl get deploy session-broker -n media -o yaml
 ```{{exec}}
+
+Under the container spec, the **`env:`** block declares the reference that's failing:
 
 ```text
         env:
@@ -41,14 +43,21 @@ kubectl get deploy session-broker -n media -o yaml | grep -A6 'env:'
               key: MAX_CONNECTIONS
 ```
 
-Now the other side — what keys does `app-config` actually have?
+Now the other side — what keys does `app-config` actually have? `describe` lists the `Data` section key by key:
 
 ```bash
-kubectl get configmap app-config -n media -o jsonpath='{.data}'; echo
+kubectl describe configmap app-config -n media
 ```{{exec}}
 
 ```text
-{"LOG_LEVEL":"info","MAX_SESSIONS":"500"}
+Data
+====
+LOG_LEVEL:
+----
+info
+MAX_SESSIONS:
+----
+500
 ```
 
 There it is: the ConfigMap has `LOG_LEVEL` and `MAX_SESSIONS`, but the Pod asks for `MAX_CONNECTIONS`. A required `configMapKeyRef` to a key that doesn't exist fails the container, every time. On to the fix.

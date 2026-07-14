@@ -39,12 +39,12 @@ kubectl get pods -n media
 # 2. The event names the exact missing key (Events: at the bottom of describe)
 kubectl describe pod -n media -l app=session-broker
 #    Error: couldn't find key MAX_CONNECTIONS in ConfigMap media/app-config
-# 3. Confirm both sides — the env reference (describe hides env → read the yaml)…
-kubectl get deploy session-broker -n media -o yaml | grep -A6 'env:'
-#    key: MAX_CONNECTIONS
-# 4. …and the ConfigMap's actual keys
-kubectl get configmap app-config -n media -o jsonpath='{.data}'; echo
-#    {"LOG_LEVEL":"info","MAX_SESSIONS":"500"}  — no MAX_CONNECTIONS
+# 3. Confirm both sides — the env reference in the Deployment yaml (find env:)…
+kubectl get deploy session-broker -n media -o yaml
+#    env: … configMapKeyRef → key: MAX_CONNECTIONS
+# 4. …and the ConfigMap's actual keys (describe lists the Data section)
+kubectl describe configmap app-config -n media
+#    Data: LOG_LEVEL=info, MAX_SESSIONS=500 — no MAX_CONNECTIONS
 ```
 
 **Fix:** Make the reference resolve. The intended key here is `MAX_SESSIONS`:
@@ -88,9 +88,9 @@ kubectl get pods -n admin-portal
 # 2. The FailedMount event names the missing object (Events: in describe)
 kubectl describe pod -n admin-portal -l app=portal-ui
 #    Warning  FailedMount  ... secret "portal-secrets" not found
-# 3. Confirm both sides — the volume the pod mounts…
-kubectl get deploy portal-ui -n admin-portal -o yaml | grep -A4 'volumes:'
-#    secretName: portal-secrets
+# 3. Confirm both sides — the volume the pod mounts (find volumes: in the yaml)…
+kubectl get deploy portal-ui -n admin-portal -o yaml
+#    volumes: … secret → secretName: portal-secrets
 # 4. …and whether the Secret exists
 kubectl get secret -n admin-portal
 #    no portal-secrets row
@@ -132,8 +132,8 @@ kubectl get pods -n admin-portal -l app=portal-ui   # both Running 1/1
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. The source of truth — the ConfigMap holds the new value
-kubectl get configmap app-config -n media -o jsonpath='{.data.LOG_LEVEL}'; echo   # debug
+# 1. The source of truth — the ConfigMap holds the new value (Data section)
+kubectl describe configmap app-config -n media                        # LOG_LEVEL: debug
 # 2. The running container — still the old value
 kubectl exec deploy/session-broker -n media -- printenv LOG_LEVEL                  # info
 # 3. The pod is healthy and old — it never restarted to pick up the edit
@@ -182,7 +182,7 @@ kubectl exec deploy/account-provisioner -n provisioning -- printenv DB_PASSWORD
 # 3. Decode it — that's the intended password, encoded one extra time
 echo 'Y2hhbmdlbWU=' | base64 -d; echo        # changeme
 # 4. The Secret's data is double-encoded: one decode leaves it still base64
-kubectl get secret database-creds -n provisioning -o jsonpath='{.data.DB_PASSWORD}'; echo
+kubectl get secret database-creds -n provisioning -o yaml   # data: DB_PASSWORD: WTJoaGJtZGxiV1U9
 #    WTJoaGJtZGxiV1U9   → base64 -d → Y2hhbmdlbWU=  → base64 -d → changeme
 ```
 
