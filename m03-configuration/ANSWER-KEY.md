@@ -20,7 +20,7 @@ No broken state. Expected output per step:
 
 - **Step 1 (objects):** three app-config objects stand out from the platform plumbing — `app-config` (ConfigMap, `media`), `database-creds` (Secret, `provisioning`), `portal-secrets` (Secret, `admin-portal`). `describe configmap app-config` shows `LOG_LEVEL=info`, `MAX_SESSIONS=500`.
 - **Step 2 (env):** `kubectl exec deploy/session-broker -- printenv LOG_LEVEL MAX_SESSIONS` → `info` / `500`, injected by `envFrom`; a Secret consumed as env (`account-provisioner`'s `DB_HOST`/`DB_PASSWORD`) looks identical from inside the container.
-- **Step 3 (files):** `ls /etc/app-config` → `LOG_LEVEL MAX_SESSIONS` (one file per key); `portal-ui` mounts `portal-secrets` at `/etc/portal`. Mounted files track the source on update (~kubelet sync period); env never does; `subPath` is excepted.
+- **Step 3 (files):** `ls /etc/app-config` → `LOG_LEVEL MAX_SESSIONS` (one file per key); `portal-ui` mounts `portal-secrets` at `/etc/portal`. `session-broker` also `subPath`-mounts `broker.conf` into `/etc/nginx` — `ls /etc/nginx` shows it beside the image's `nginx.conf`/`mime.types`/`conf.d/` (a *plain* mount there would shadow them all). Mounted files track the source on update (~kubelet sync period); env never does; a `subPath` mount is frozen, excepted.
 - **Step 4 (base64):** `database-creds` `data` holds base64; `… -o jsonpath='{.data.DB_PASSWORD}' | base64 -d` → `changeme` with no key or special permission. Base64 is encoding, not encryption; the Secret type is `Opaque`.
 
 ---

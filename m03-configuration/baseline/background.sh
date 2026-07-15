@@ -62,6 +62,27 @@ data:
 EOF
 # <<< M03 config enhancement ends
 
+# >>> M03 subPath demo: a single tuning file projected into session-broker's nginx
+#     config dir via subPath. Shows subPath drops ONE file into an existing
+#     directory without shadowing the image's own files (nginx.conf, mime.types,
+#     conf.d/, …). Mounted at /etc/nginx/broker.conf, a path nginx does not read,
+#     so it cannot affect the server. subPath is a bind mount to a fixed file, so
+#     it is frozen — it won't pick up ConfigMap edits until the Pod is recreated.
+cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: broker-tuning
+  namespace: media
+  labels: { app: session-broker, plane: media, tier: lab }
+data:
+  broker.conf: |
+    # session-broker runtime tuning
+    max_sessions_per_shard = 500
+    drain_timeout = 30s
+EOF
+# <<< M03 subPath demo ends
+
 # media-engine — StatefulSet, 2 replicas, PVC each (represents RTP media servers)
 cat <<'EOF' | kubectl apply -f -
 apiVersion: v1
@@ -140,9 +161,12 @@ spec:
             limits:   { cpu: 100m, memory: 64Mi }
           volumeMounts:
             - { name: app-config, mountPath: /etc/app-config, readOnly: true }
+            - { name: broker-tuning, mountPath: /etc/nginx/broker.conf, subPath: broker.conf, readOnly: true }
       volumes:
         - name: app-config
           configMap: { name: app-config }
+        - name: broker-tuning
+          configMap: { name: broker-tuning }
 ---
 apiVersion: v1
 kind: Service
