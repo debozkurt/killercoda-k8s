@@ -52,6 +52,22 @@ broker.conf  conf.d  fastcgi_params  mime.types  modules  nginx.conf  scgi_param
 kubectl exec deploy/session-broker -n media -- cat /etc/nginx/broker.conf
 ```{{exec}}
 
+It shows in the spec too — `describe` spells the mounts out:
+
+```bash
+kubectl describe deploy session-broker -n media
+```{{exec}}
+
+In the container's **`Mounts:`** section, the two mounts read differently:
+
+```text
+Mounts:
+  /etc/app-config from app-config (ro)
+  /etc/nginx/broker.conf from broker-tuning (ro,path="broker.conf")
+```
+
+`app-config` mounts the whole volume; `broker-tuning` carries a `path="broker.conf"` — and that `path=` is exactly how `describe` renders a `subPath`. No `path=`, the whole directory; `path=`, a single file projected in.
+
 One catch, and it's why `subPath` turns up in incidents: it's a bind mount to a fixed file, so it's **frozen** — it does *not* pick up ConfigMap edits the way a normal file mount does. It only refreshes when the Pod is recreated.
 
 ## Why the mode matters: updates
