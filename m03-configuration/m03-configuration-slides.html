@@ -373,10 +373,49 @@ app.yaml  <span class="o">-&gt;</span> ..data/app.yaml
         </div>
         <div class="card warn">
           <h3><code>subPath</code> mounts</h3>
-          <p>Drops <em>one</em> key into an existing directory without hiding its other files. But it resolves to a fixed path at mount time — outside the <code>..data</code> symlink the kubelet swaps — so it's <strong>frozen like env</strong>.</p>
+          <p>A single-file bind mount — <strong>frozen like env</strong>. It opts out of the live updates a normal file mount gets. (What it's for, and the trap: next slide.)</p>
         </div>
       </div>
       <div class="note warn" style="margin-top:1.3rem"><p>No controller watches config objects to roll your Deployments — a config edit reaches a running env-consumer <strong>not at all</strong>. Need a single file that <em>does</em> update? Mount the whole volume at a subdirectory instead of using <code>subPath</code>.</p></div>
+    </div>
+  </section>
+
+  <!-- 7b — SUBPATH: mount one file, not the whole dir -->
+  <section class="slide">
+    <div class="wrap">
+      <h2><code>subPath</code>: mount one file, not the whole directory</h2>
+      <p class="sub" style="margin-bottom:1.4rem">A normal volume mount <em>replaces</em> the target directory with the object's keys. <code>subPath</code> projects a <strong>single</strong> file (or subdirectory) into an existing directory — the rest of that directory stays put.</p>
+      <div class="grid-2 tight">
+        <div>
+          <h3>Plain mount <span class="bad">— shadows the whole dir</span></h3>
+          <div class="terminal compact" style="margin-top:.55rem">
+volumeMounts:
+- name: nginx-conf
+  <span class="g">mountPath: /etc/nginx</span>
+
+<span class="o"># result — the ConfigMap replaces /etc/nginx</span>
+/etc/nginx/
+└── nginx.conf        <span class="o"># only ConfigMap keys</span>
+<span class="r">    mime.types, conf.d/ … hidden</span>
+          </div>
+        </div>
+        <div>
+          <h3><code>subPath</code> mount <span class="good">— one file, rest intact</span></h3>
+          <div class="terminal compact" style="margin-top:.55rem">
+volumeMounts:
+- name: nginx-conf
+  mountPath: /etc/nginx/nginx.conf
+  <span class="g">subPath: nginx.conf</span>
+
+<span class="o"># result — one file in, the rest survives</span>
+/etc/nginx/
+├── nginx.conf        <span class="g"># from ConfigMap</span>
+├── mime.types        <span class="o"># image</span>
+└── conf.d/           <span class="o"># image</span>
+          </div>
+        </div>
+      </div>
+      <div class="note warn" style="margin-top:1.3rem"><p>The trade-off that matters here: a <code>subPath</code> is a one-time <strong>bind mount to a fixed inode</strong>, outside the symlink the kubelet swaps on update — so a ConfigMap/Secret edit <strong>never reaches it</strong> until the Pod is recreated. (The same feature partitions one PVC across workloads — <code>subPath: postgres</code>, <code>subPath: redis</code> — and makes per-Pod dirs via <code>subPathExpr: $(POD_NAME)</code>.)</p></div>
     </div>
   </section>
 
