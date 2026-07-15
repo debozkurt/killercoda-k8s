@@ -1,10 +1,28 @@
 # Step 3 — Config as mounted files
 
-The second consumption mode: project a ConfigMap or Secret into a directory as files — one file per key, the key as the filename and the value as the contents. Same objects, different shape inside the container.
+The second consumption mode: project a ConfigMap or Secret into a directory as files — one file per key, the key as the filename and the value as the contents. Same objects as step 2, but this mode has a *shape* env vars don't: a directory. So look at how it's wired first, then read what actually landed.
 
-## List the mounted config
+## See how it's wired
 
-`session-broker` mounts `app-config` at `/etc/app-config`:
+`describe` spells the mounts out. `session-broker` has two, and they read differently:
+
+```bash
+kubectl describe deploy session-broker -n media
+```{{exec}}
+
+In the container's **`Mounts:`** section:
+
+```text
+Mounts:
+  /etc/app-config from app-config (ro)
+  /etc/nginx/broker.conf from broker-tuning (ro,path="broker.conf")
+```
+
+`app-config` mounts a whole volume at `/etc/app-config`. `broker-tuning` carries a `path="broker.conf"` — and that `path=` is exactly how `describe` renders a `subPath`: no `path=`, the whole directory is mounted; `path=`, a single file is projected in. Two different shapes from the same kind of object.
+
+## Read the actual values
+
+Now exec in and read what the container got. Each key of `app-config` became a file:
 
 ```bash
 kubectl exec deploy/session-broker -n media -- ls /etc/app-config
@@ -15,7 +33,7 @@ LOG_LEVEL
 MAX_SESSIONS
 ```
 
-Each key became a file. Read one:
+Read one:
 
 ```bash
 kubectl exec deploy/session-broker -n media -- cat /etc/app-config/LOG_LEVEL
@@ -34,9 +52,7 @@ SESSION_SECRET
 
 Mounting confidential data as files (instead of env) keeps it off the process environment, where a crash dump or a child process could leak it.
 
-## One file in, the rest intact: `subPath`
-
-The mounts above each replaced a whole directory. `session-broker` also mounts a *single* tuning file into its nginx config directory with `subPath` — without hiding what the image already put there:
+The `subPath` mount `describe` flagged lands one file *without* hiding what the image already put in the directory. `session-broker`'s `broker.conf` sits beside nginx's own files:
 
 ```bash
 kubectl exec deploy/session-broker -n media -- ls /etc/nginx
@@ -46,33 +62,17 @@ kubectl exec deploy/session-broker -n media -- ls /etc/nginx
 broker.conf  conf.d  fastcgi_params  mime.types  modules  nginx.conf  scgi_params  uwsgi_params
 ```
 
-`broker.conf` is ours, from the `broker-tuning` ConfigMap; everything else is the image's own. A *plain* volume mount at `/etc/nginx` would have shadowed all of it — the container would see only `broker.conf`. `subPath` drops in the one file and leaves the rest of the directory untouched:
+`broker.conf` is ours, from the `broker-tuning` ConfigMap; everything else is the image's own. A *plain* volume mount at `/etc/nginx` would have shadowed all of it — the container would see only `broker.conf`. `subPath` drops in the one file and leaves the rest intact:
 
 ```bash
 kubectl exec deploy/session-broker -n media -- cat /etc/nginx/broker.conf
 ```{{exec}}
 
-It shows in the spec too — `describe` spells the mounts out:
-
-```bash
-kubectl describe deploy session-broker -n media
-```{{exec}}
-
-In the container's **`Mounts:`** section, the two mounts read differently:
-
-```text
-Mounts:
-  /etc/app-config from app-config (ro)
-  /etc/nginx/broker.conf from broker-tuning (ro,path="broker.conf")
-```
-
-`app-config` mounts the whole volume; `broker-tuning` carries a `path="broker.conf"` — and that `path=` is exactly how `describe` renders a `subPath`. No `path=`, the whole directory; `path=`, a single file projected in.
-
-One catch, and it's why `subPath` turns up in incidents: it's a bind mount to a fixed file, so it's **frozen** — it does *not* pick up ConfigMap edits the way a normal file mount does. It only refreshes when the Pod is recreated.
-
 ## Why the mode matters: updates
 
-The two modes diverge on updates. A **mounted** ConfigMap/Secret tracks its source — edit the object and the kubelet refreshes the files after roughly its sync period (~1 minute), no restart needed. **Env vars never update** (step 2). The `subPath` mount above is the exception on the file side — frozen like env, *not* live-updated.
+The two modes diverge on updates. A **mounted** ConfigMap/Secret tracks its source — edit the object and the kubelet refreshes the files after roughly its sync period (~1 minute), no restart needed. **Env vars never update** (step 2).
+
+The exception is `subPath`. Because it's a bind mount to a fixed file, it's **frozen** — it does *not* pick up ConfigMap edits the way the whole-directory mount above does. It refreshes only when the Pod is recreated, which is why `subPath` turns up in "I changed the config and nothing happened" incidents.
 
 A **projected volume** is the general form: it combines a ConfigMap, a Secret, downward-API fields, and a ServiceAccount token into one directory. The short-lived ServiceAccount token every Pod carries arrives exactly this way.
 
