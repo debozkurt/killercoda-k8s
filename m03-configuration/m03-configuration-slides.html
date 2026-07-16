@@ -236,11 +236,11 @@
     <div class="wrap">
       <h2>What you'll walk away with</h2>
       <ul>
-        <li><strong>ConfigMaps and Secrets</strong> — what each is, and why a Secret's base64 is encoding, not security</li>
-        <li><strong>The two consumption modes</strong> — environment variables (<code>env</code>/<code>envFrom</code>) vs mounted files (volumes, projected)</li>
-        <li><strong>Update semantics</strong> — env is frozen at start; files drift; a config edit rolls nothing on its own</li>
-        <li><strong>The config-failure differential</strong> — <code>CreateContainerConfigError</code>, <code>FailedMount</code>, and runs-but-wrong</li>
-        <li><strong>The spine</strong> — the consumption mode determines how a bad reference fails</li>
+        <li><strong>ConfigMaps and Secrets</strong> — what each is, and why a Secret's base64 is encoding, not encryption</li>
+        <li><strong>The two consumption modes</strong> — environment variables (<code>env</code>/<code>envFrom</code>) vs mounted files (volumes, projected) — and how the mode decides the way a bad reference fails</li>
+        <li><strong>Update semantics</strong> — env is frozen at start; files drift; a config edit rolls nothing on its own — and how to force one</li>
+        <li><strong>The config-failure differential</strong> — <code>CreateContainerConfigError</code>, <code>FailedMount</code>, stale, and runs-but-wrong</li>
+        <li><strong>Green ≠ correct</strong> — a <code>Running</code>, <code>Ready</code> Pod can still hold the wrong value; read it, don't trust the status</li>
       </ul>
     </div>
   </section>
