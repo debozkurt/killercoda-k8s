@@ -447,15 +447,14 @@ volumeMounts:
           </div>
         </div>
       </div>
-      <div class="flow" style="justify-content:center;margin-top:1.6rem">
+      <div class="flow" style="justify-content:center;margin-top:1.7rem">
         <div class="node"><div class="t">Edit config</div><div class="s">ConfigMap / Secret</div></div>
         <div class="arrow">→</div>
         <div class="node"><div class="t">Generator re-hashes</div><div class="s">Kustomize · Helm</div></div>
-        <div class="arrow"><span class="lbl">template changes</span>→</div>
+        <div class="arrow">→</div>
         <div class="node good"><div class="t">Deployment rolls</div><div class="s">automatically</div></div>
       </div>
-      <p class="sub" style="margin:1.3rem auto 0;text-align:center;max-width:92ch">Kustomize's <code>configMapGenerator</code> hashes the <em>name</em>; Helm's <code>sha256sum</code> a template <em>annotation</em>; <code>immutable</code> makes recreate the only path.</p>
-      <div class="note warn" style="margin-top:1.1rem"><p><strong>This rolls env consumers — it doesn't make env live.</strong> Env stays frozen per container; the hash just automates the restart. A mounted file updates in place; env only ever changes by replacing the Pod.</p></div>
+      <div class="note warn" style="margin-top:1.7rem"><p><strong>This rolls env consumers — it doesn't make env live.</strong> Env stays frozen per container; the hash just automates the restart. A mounted file updates in place; env only ever changes by replacing the Pod.</p></div>
     </div>
   </section>
 
