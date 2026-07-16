@@ -253,10 +253,11 @@
       <div class="cards c2">
         <div class="card">
           <h3>ConfigMap</h3>
-          <p>Non-confidential settings — log levels, hostnames, tuning parameters, whole config files as multi-line values.</p>
+          <p>Non-confidential settings — kept out of the image so one build runs in every environment.</p>
           <div class="sigs">
             <div class="sig"><span class="lbl">holds</span><span class="val">plain key/value</span></div>
             <div class="sig"><span class="lbl">consumed as</span><span class="val">env vars or files</span></div>
+            <div class="sig"><span class="lbl">examples</span><span class="val">log level, feature flags, upstream hostnames, a whole <code>nginx.conf</code></span></div>
           </div>
         </div>
         <div class="card">
@@ -265,6 +266,7 @@
           <div class="sigs">
             <div class="sig"><span class="lbl">default type</span><span class="val"><code>Opaque</code> (also <code>tls</code>, <code>dockerconfigjson</code>, …)</span></div>
             <div class="sig"><span class="lbl">protection</span><span class="val">base64 is <em>not</em> encryption</span></div>
+            <div class="sig"><span class="lbl">examples</span><span class="val">DB password, API tokens, TLS cert + key, registry pull creds</span></div>
           </div>
         </div>
       </div>
@@ -313,13 +315,17 @@
   <section class="slide">
     <div class="wrap">
       <h2><code>envFrom</code> takes every key; <code>env</code> takes one</h2>
-      <div class="terminal">
-<span class="o"># every key of the ConfigMap becomes an env var</span>
+      <div class="terminal compact">
+<span class="o"># envFrom — takes EVERY key of app-config</span>
 envFrom:
   - <span class="g">configMapRef</span>: { name: app-config }
 
-<span class="o"># one named key from a Secret becomes one env var</span>
+<span class="o"># env + valueFrom — takes ONE key of the same app-config</span>
 env:
+  - name: LOG_LEVEL
+    valueFrom:
+      <span class="g">configMapKeyRef</span>: { name: app-config, key: LOG_LEVEL }
+  <span class="o"># identical shape, secretKeyRef → one key from a Secret</span>
   - name: DB_PASSWORD
     valueFrom:
       <span class="g">secretKeyRef</span>: { name: database-creds, key: DB_PASSWORD }
@@ -361,22 +367,22 @@ app.yaml  <span class="o">-&gt;</span> ..data/app.yaml
   <section class="slide">
     <div class="wrap">
       <h2>Env is frozen; files drift; nothing rolls</h2>
-      <p class="sub" style="margin-bottom:1.4rem">A ConfigMap or Secret edit changes the object in etcd and restarts nothing — what happens next depends on the consumption path.</p>
+      <p class="sub" style="margin-bottom:1.4rem">A ConfigMap or Secret edit updates etcd and restarts nothing. What reaches the container depends on the consumption path.</p>
       <div class="cards c3">
         <div class="card bad">
           <h3>Environment variables</h3>
-          <p>Materialized once, at container start. <strong>Never</strong> update — the process keeps the old value until its Pod is replaced.</p>
+          <p>Read once, at container start. Never refreshed — the old value sticks until the Pod is replaced.</p>
         </div>
         <div class="card good">
           <h3>Mounted files</h3>
-          <p>Refreshed by the kubelet on its sync (~1 min). The app still has to <em>re-read</em> the file — "updated" and "picked up" differ.</p>
+          <p>Kubelet refreshes the file on its sync (~1 min). But updated on disk <strong>≠</strong> reloaded by the app — the process must re-read it.</p>
         </div>
         <div class="card warn">
           <h3><code>subPath</code> mounts</h3>
-          <p>A single-file bind mount — <strong>frozen like env</strong>. It opts out of the live updates a normal file mount gets. (What it's for, and the trap: next slide.)</p>
+          <p>A single-file bind mount — frozen like env, not live like a volume. What it's for, and the trap: next slide.</p>
         </div>
       </div>
-      <div class="note warn" style="margin-top:1.3rem"><p>No controller watches config objects to roll your Deployments — a config edit reaches a running env-consumer <strong>not at all</strong>. Need a single file that <em>does</em> update? Mount the whole volume at a subdirectory instead of using <code>subPath</code>.</p></div>
+      <div class="note warn" style="margin-top:1.3rem"><p>No controller rolls your Deployment when a config object changes. Env-consumers never see the edit; file-consumers get it on the next sync. Need one file that still updates? Mount the whole volume in a subdirectory — not <code>subPath</code>.</p></div>
     </div>
   </section>
 
