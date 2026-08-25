@@ -14,10 +14,11 @@ The connection fails — refused, or it hangs to the timeout. Useful to confirm 
 ## Read what's behind the Service — the whole diagnosis
 
 ```bash
-kubectl get endpoints route-engine -n call-routing
+kubectl get endpointslice -n call-routing \
+  -l kubernetes.io/service-name=route-engine
 ```{{exec}}
 
-`ENDPOINTS` is `<none>`. The Service exists, has a ClusterIP, and points at **zero** backends — so kube-proxy has nowhere to send the traffic and rejects it. This is the discriminator: an empty EndpointSlice means the problem is *which Pods the Service selects*, not the Pods themselves.
+The slice lists **no endpoint addresses**. The Service exists, has a ClusterIP, and points at zero backends — so kube-proxy has nowhere to send the traffic and rejects it. This is the discriminator: an empty EndpointSlice means the problem is *which Pods the Service selects*, not the Pods themselves.
 
 ## Find why it's empty: selector vs labels
 

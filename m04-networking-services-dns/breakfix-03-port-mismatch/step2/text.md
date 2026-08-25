@@ -26,7 +26,8 @@ The durable fix for this whole class of bug is a **named port**: declare `ports:
 ## Verify
 
 ```bash
-kubectl get endpoints portal-ui -n admin-portal
+kubectl get endpointslice -n admin-portal \
+  -l kubernetes.io/service-name=portal-ui
 kubectl run net-test --rm -i --restart=Never --image=busybox:1.36 -n admin-portal -- \
   wget -qO- --timeout=3 http://portal-ui/
 ```{{exec}}

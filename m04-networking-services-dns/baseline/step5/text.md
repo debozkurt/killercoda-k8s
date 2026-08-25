@@ -1,46 +1,68 @@
-# Step 5 — Who owns the EndpointSlice
+# Step 5 — Cluster DNS from inside a Pod
 
-Step 2 read the EndpointSlice. This step proves you don't own it.
+A ClusterIP is stable, but nobody hardcodes `10.96.x.y`. Cluster DNS lets you use names. **CoreDNS** runs in `kube-system`, and every Pod is configured to ask it.
 
-## Watch the list follow the Pods
-
-```bash
-kubectl get endpointslice -n media \
-  -l kubernetes.io/service-name=session-broker \
-  -o custom-columns=NAME:.metadata.name,ENDPOINTS:.endpoints[*].addresses
-```{{exec}}
-
-One address — `session-broker` runs a single replica. Add a second:
+## Look at a Pod's resolver config
 
 ```bash
-kubectl scale deploy/session-broker -n media --replicas=2
-kubectl rollout status deploy/session-broker -n media --timeout=60s
-kubectl get endpointslice -n media \
-  -l kubernetes.io/service-name=session-broker \
-  -o custom-columns=NAME:.metadata.name,ENDPOINTS:.endpoints[*].addresses
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  cat /etc/resolv.conf
 ```{{exec}}
 
-Two addresses now. Nobody edited the Service, and nobody edited the slice.
+Three lines matter:
 
-## Delete it and watch it come back
+- `nameserver <ip>` — the `kube-dns` Service ClusterIP (CoreDNS sits behind it).
+- `search media.svc.cluster.local svc.cluster.local cluster.local` — the domains a short name is tried under. **Built from this Pod's namespace (`media`)** — that detail is the whole of breakfix-01.
+- `options ndots:5` — names with fewer than 5 dots are tried with the search domains appended first.
+
+## Resolve a Service by name
+
+Every Service gets a record at `<svc>.<ns>.svc.cluster.local`. From a Pod in `media`, the short name resolves because `media` is in the search list:
 
 ```bash
-SLICE=$(kubectl get endpointslice -n media \
-  -l kubernetes.io/service-name=session-broker -o name | head -1)
-kubectl delete "$SLICE" -n media
-sleep 3
-kubectl get endpointslice -n media \
-  -l kubernetes.io/service-name=session-broker \
-  -o custom-columns=NAME:.metadata.name,ENDPOINTS:.endpoints[*].addresses
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  nslookup session-broker
 ```{{exec}}
 
-It's back, usually under a new name. The **EndpointSlice controller** rebuilt it from the Service's selector and the `Ready` Pods — the same reason hand-editing an address never sticks.
-
-## Put it back
+The fully-qualified name resolves to the same ClusterIP:
 
 ```bash
-kubectl scale deploy/session-broker -n media --replicas=1
-kubectl rollout status deploy/session-broker -n media --timeout=60s
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  nslookup session-broker.media.svc.cluster.local
 ```{{exec}}
 
-The list is **derived state**. To change it, change one of its two inputs: the selector, or Pod readiness. That is exactly why an empty EndpointSlice has only those two causes — the second break/fix scenario is one of them.
+Same `Address` both times — the short name is just the FQDN with the search list filling in `.media.svc.cluster.local`.
+
+## Two lookups you'll actually type
+
+A cross-namespace call has to carry the namespace. This is the lookup `account-provisioner` does to reach the broker:
+
+```bash
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n provisioning -- \
+  nslookup session-broker.media
+```{{exec}}
+
+A **headless** Service answers a different shape. `media-engine` governs a StatefulSet and sets `clusterIP: None`, so DNS hands back the Pods instead of a virtual IP:
+
+```bash
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  nslookup media-engine
+```{{exec}}
+
+Two `Address` lines, one per Ready Pod — no ClusterIP anywhere. That is what `clusterIP: None` buys: the client sees the individual Pods and chooses one. Each Pod also has its own stable name:
+
+```bash
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  nslookup media-engine-0.media-engine.media.svc.cluster.local
+```{{exec}}
+
+That per-Pod name is why stateful systems use headless Services — a replica has to be addressable *as itself*, not as "one of the pool".
+
+## See the resolver itself
+
+```bash
+kubectl get pods -n kube-system -l k8s-app=kube-dns -o wide
+kubectl get svc kube-dns -n kube-system
+```{{exec}}
+
+CoreDNS is a normal Deployment fronted by a normal Service — when *all* DNS fails clusterwide, this is what you check. For now it's healthy. The catch you'll hit next: that short name only worked because the client shared the target's namespace.

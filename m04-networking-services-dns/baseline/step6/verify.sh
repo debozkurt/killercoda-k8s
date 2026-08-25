@@ -1,12 +1,16 @@
 #!/bin/bash
-# Checks: the Service still resolves and has a backend, so all three paths in
-# this step are exercisable. Defensive baseline check.
+# Checks: kube-proxy is running and session-broker still has a ClusterIP, so the
+# rules this step reads are present to be read. Defensive baseline check.
 SVC_IP=$(kubectl get svc session-broker -n media -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
-POD_IP=$(kubectl get pod -n media -l app=session-broker \
-  -o jsonpath='{.items[0].status.podIP}' 2>/dev/null)
-if [ -z "$SVC_IP" ] || [ -z "$POD_IP" ]; then
-  echo "session-broker is missing its ClusterIP or its Pod IP — wait for the Pod to be Ready and retry." >&2
+if [ -z "$SVC_IP" ]; then
+  echo "session-broker has no ClusterIP — re-check the Service and retry." >&2
   exit 1
 fi
-echo "✓ both paths addressable — pod: $POD_IP, service: $SVC_IP"
+READY=$(kubectl get pods -n kube-system -l k8s-app=kube-proxy \
+  --field-selector=status.phase=Running -o name 2>/dev/null | wc -l | tr -d ' ')
+if [ "$READY" -lt 1 ]; then
+  echo "No kube-proxy Pod is Running — without it no node has Service rules." >&2
+  exit 1
+fi
+echo "✓ ClusterIP $SVC_IP present, kube-proxy Running on $READY node(s)"
 exit 0

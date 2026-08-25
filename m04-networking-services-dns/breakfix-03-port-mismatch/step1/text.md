@@ -1,6 +1,6 @@
 # Step 1 — Diagnose: refused, with endpoints
 
-After breakfix-02 your first move is `get endpoints`. The twist here: they're populated, and the connection still fails. That combination is its own diagnosis.
+After breakfix-02 your first move is `get endpointslice`. The twist here: they're populated, and the connection still fails. That combination is its own diagnosis.
 
 ## Confirm the symptom
 
@@ -14,10 +14,11 @@ kubectl run net-test --rm -i --restart=Never --image=busybox:1.36 -n admin-porta
 ## Check endpoints — this is NOT the black hole
 
 ```bash
-kubectl get endpoints portal-ui -n admin-portal
+kubectl get endpointslice -n admin-portal \
+  -l kubernetes.io/service-name=portal-ui
 ```{{exec}}
 
-`ENDPOINTS` lists Pod IPs — but look at the **port** they're listed on: `:8080`. The selector matched, the Pods are Ready, the EndpointSlice is full. So this isn't breakfix-02. Populated endpoints + refused connection = a *port* problem.
+The slice lists Pod addresses — and look at the **port** beside them: `:8080`. The selector matched, the Pods are Ready, the EndpointSlice is full. So this isn't breakfix-02. Populated endpoints + refused connection = a *port* problem.
 
 ## Find the port the Service forwards to
 

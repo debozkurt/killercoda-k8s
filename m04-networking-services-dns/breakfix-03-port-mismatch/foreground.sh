@@ -10,6 +10,7 @@ echo ""
 echo "portal-ui (admin-portal) refuses connections — but its endpoints look fine."
 echo "Start by confirming the endpoints ARE populated, then read the ports:"
 echo ""
-echo "  kubectl get endpoints portal-ui -n admin-portal"
+echo "  kubectl get endpointslice -n admin-portal" \
+  -l kubernetes.io/service-name=portal-ui
 echo "  kubectl get svc portal-ui -n admin-portal -o yaml | grep -A3 ports:"
 echo ""

@@ -1,40 +1,47 @@
-# Step 7 — The rules behind the ClusterIP
+# Step 7 — port, targetPort, and the listener
 
-The ClusterIP answered in step 6, and no process holds it. This is what actually carries the packet.
+Three port fields show up around a Service, and conflating them is a classic source of "the endpoints are right but it still won't connect." Only one of the three actually opens a socket.
 
-## Check which mode kube-proxy runs
-
-```bash
-kubectl -n kube-system get cm kube-proxy \
-  -o jsonpath='{.data.config\.conf}' | grep -E '^mode:'
-```{{exec}}
-
-An empty value means the default, **iptables**. (`ipvs` would send you to `ipvsadm -Ln` instead, and `nftables` to `nft list ruleset` — same job, different kernel subsystem.)
-
-## Find the Service's rule
+## Read the Service's two ports
 
 ```bash
-SVC_IP=$(kubectl get svc session-broker -n media -o jsonpath='{.spec.clusterIP}')
-echo "ClusterIP: $SVC_IP"
-sudo iptables-save -t nat | grep "$SVC_IP"
+kubectl get svc session-broker -n media -o yaml | grep -A3 'ports:'
 ```{{exec}}
 
-A line in `KUBE-SERVICES` matches that destination IP and port, then jumps to a per-Service chain called `KUBE-SVC-…`. That match *is* the ClusterIP. Nothing owns the address; a rule recognises it.
+You'll see `port: 80` and `targetPort: 80`:
 
-## Follow it down to the Pod
+- **`port`** is what clients connect to — `session-broker:80`.
+- **`targetPort`** is the Pod port the Service forwards to. Omit it and it defaults to `port`.
+
+The EndpointSlice records the resolved target port — confirm it lands on the Pod's `:80`:
 
 ```bash
-CHAIN=$(sudo iptables-save -t nat | grep "$SVC_IP" \
-  | grep -oE 'KUBE-SVC-[A-Z0-9]+' | head -1)
-sudo iptables-save -t nat | grep -- "-A $CHAIN"
+kubectl get endpointslice -n media \
+  -l kubernetes.io/service-name=session-broker
 ```{{exec}}
 
-The Service chain jumps to one `KUBE-SEP-…` chain per backend — the EndpointSlice, compiled. With more than one backend you also see a `--probability` match: that is the per-connection pick.
+Each entry reads `PodIP:80`. That's `targetPort` made concrete.
+
+## The third field opens nothing
+
+The Pod spec also declares a `containerPort`:
 
 ```bash
-SEP=$(sudo iptables-save -t nat | grep -- "-A $CHAIN" \
-  | grep -oE 'KUBE-SEP-[A-Z0-9]+' | tail -1)
-sudo iptables-save -t nat | grep -- "-A $SEP"
+kubectl get pods -n media -l app=session-broker \
+  -o jsonpath='{.items[0].spec.containers[0].ports}'; echo
 ```{{exec}}
 
-The last line is a `DNAT --to-destination <PodIP>:<targetPort>` — the rewrite, in the kernel, on this node. Every node holds its own copy, which is exactly why one node can fail while the rest serve the same Service perfectly.
+`containerPort: 80` is **documentation**. It advertises intent; it does not open or close a socket. The process inside listens on whatever it listens on — nginx serves `:80` whether or not `containerPort` says so. The field that decides where traffic is *delivered* is `targetPort`; the field that decides whether anything *answers* there is the process. When those two disagree, you get a refused connection with perfect-looking endpoints (the third break/fix scenario).
+
+## Reach a Service port locally with port-forward
+
+`kubectl port-forward` tunnels a local port to a Service (or Pod) — the standard way to poke an in-cluster Service from your workstation:
+
+```bash
+kubectl port-forward svc/session-broker 8080:80 -n media >/tmp/pf.log 2>&1 &
+PF=$!; sleep 2
+curl -s http://localhost:8080/ | head -1
+kill $PF 2>/dev/null
+```{{exec}}
+
+The `curl` to `localhost:8080` returns nginx's first HTML line — forwarded through the Service to a backend Pod's `:80`. Next, reach the same Service the way every Pod really does: by name, through cluster DNS.

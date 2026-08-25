@@ -555,7 +555,7 @@ kubectl create namespace call-routing --dry-run=client -o yaml | kubectl apply -
 #     app: route-engine. The selector matches nothing, so the endpoints controller
 #     writes an EMPTY EndpointSlice and kube-proxy has no backend — the ClusterIP
 #     rejects traffic (the black hole). Pods are all Running + Ready; `get svc`
-#     looks normal; only `get endpoints` reveals it. Fix = match the selector to
+#     looks normal; only `get endpointslice` reveals it. Fix = match the selector to
 #     the Pods' labels. Models a label rename that drifted from the Service.
 cat <<'EOF' | kubectl apply -f -
 apiVersion: apps/v1

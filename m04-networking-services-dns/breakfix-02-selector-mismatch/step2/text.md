@@ -24,7 +24,8 @@ kubectl edit svc route-engine -n call-routing
 ## Verify
 
 ```bash
-kubectl get endpoints route-engine -n call-routing
+kubectl get endpointslice -n call-routing \
+  -l kubernetes.io/service-name=route-engine
 kubectl run net-test --rm -i --restart=Never --image=busybox:1.36 -n call-routing -- \
   wget -qO- --timeout=3 http://route-engine/
 ```{{exec}}

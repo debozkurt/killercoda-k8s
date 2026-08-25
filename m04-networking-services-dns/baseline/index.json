@@ -9,44 +9,55 @@
     },
     "steps": [
       {
-        "title": "A Service is a stable identity",
+        "title": "Pods reach each other without a Service",
         "text": "step1/text.md",
         "verify": "step1/verify.sh"
       },
       {
-        "title": "Selector to EndpointSlice",
+        "title": "A Service is a stable identity",
         "text": "step2/text.md",
         "verify": "step2/verify.sh"
       },
       {
-        "title": "port, targetPort, containerPort",
+        "title": "Selector to EndpointSlice",
         "text": "step3/text.md",
         "verify": "step3/verify.sh"
       },
       {
-        "title": "Cluster DNS from inside a Pod",
+        "title": "Who owns the EndpointSlice",
         "text": "step4/text.md",
         "verify": "step4/verify.sh"
       },
       {
-        "title": "Who owns the EndpointSlice",
+        "title": "Cluster DNS from inside a Pod",
         "text": "step5/text.md",
         "verify": "step5/verify.sh"
       },
       {
-        "title": "Three ways to the same backend",
+        "title": "Inspect the Service dataplane",
         "text": "step6/text.md",
         "verify": "step6/verify.sh"
       },
       {
-        "title": "The rules behind the ClusterIP",
+        "title": "port, targetPort, and the listener",
         "text": "step7/text.md",
         "verify": "step7/verify.sh"
+      },
+      {
+        "title": "A backend is chosen per connection",
+        "text": "step8/text.md",
+        "verify": "step8/verify.sh"
+      },
+      {
+        "title": "What each path proves",
+        "text": "step9/text.md",
+        "verify": "step9/verify.sh"
       }
     ],
     "finish": {
       "text": "finish.md"
-    }
+    },
+    "description": "Tour the healthy in-cluster request path: Pod-to-Pod first, then the Service, its EndpointSlice, cluster DNS, the node Service dataplane, the port fields, and what each access path proves."
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"

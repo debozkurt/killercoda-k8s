@@ -1,46 +1,38 @@
-# Step 3 — port, targetPort, containerPort
+# Step 3 — Selector to EndpointSlice
 
-Three port fields show up around a Service, and conflating them is a classic source of "the endpoints are right but it still won't connect." Only one of the three actually opens a socket.
+A Service finds its Pods by **label selector**, exactly the way a ReplicaSet does (M01). The result — the actual backend addresses — lives in a separate object: the **EndpointSlice**. The distinction between "the Service exists" and "the Service has backends" is the single most important diagnostic fact in this module.
 
-## Read the Service's two ports
-
-```bash
-kubectl get svc session-broker -n media -o yaml | grep -A3 'ports:'
-```{{exec}}
-
-You'll see `port: 80` and `targetPort: 80`:
-
-- **`port`** is what clients connect to — `session-broker:80`.
-- **`targetPort`** is the Pod port the Service forwards to. Omit it and it defaults to `port`.
-
-The EndpointSlice records the resolved target port — confirm it lands on the Pod's `:80`:
+## Read the backends behind the Service
 
 ```bash
-kubectl get endpoints session-broker -n media
+kubectl get endpointslice -n media \
+  -l kubernetes.io/service-name=session-broker
 ```{{exec}}
 
-Each entry reads `PodIP:80`. That's `targetPort` made concrete.
-
-## The third field opens nothing
-
-The Pod spec also declares a `containerPort`:
+The `ENDPOINTS` column lists an address per endpoint, on the resolved target port. Add `-o yaml` to see each endpoint's `conditions` as well as its address:
 
 ```bash
-kubectl get pods -n media -l app=session-broker \
-  -o jsonpath='{.items[0].spec.containers[0].ports}'; echo
+kubectl get endpointslice -n media \
+  -l kubernetes.io/service-name=session-broker \
+  -o jsonpath='{.items[0].endpoints[*].conditions}'; echo
 ```{{exec}}
 
-`containerPort: 80` is **documentation**. It advertises intent; it does not open or close a socket. The process inside listens on whatever it listens on — nginx serves `:80` whether or not `containerPort` says so. The field that decides where traffic is *delivered* is `targetPort`; the field that decides whether anything *answers* there is the process. When those two disagree, you get a refused connection with perfect-looking endpoints (the third break/fix scenario).
+This is the list the Service dataplane forwards across. If it holds no addresses, the Service routes nowhere — no matter how healthy `get svc` looks.
 
-## Reach a Service port locally with port-forward
-
-`kubectl port-forward` tunnels a local port to a Service (or Pod) — the standard way to poke an in-cluster Service from your workstation:
+## See where that list comes from: selector meets labels
 
 ```bash
-kubectl port-forward svc/session-broker 8080:80 -n media >/tmp/pf.log 2>&1 &
-PF=$!; sleep 2
-curl -s http://localhost:8080/ | head -1
-kill $PF 2>/dev/null
+kubectl get svc session-broker -n media -o yaml | grep -A1 selector
 ```{{exec}}
 
-The `curl` to `localhost:8080` returns nginx's first HTML line — forwarded through the Service to a backend Pod's `:80`. Next, reach the same Service the way every Pod really does: by name, through cluster DNS.
+The selector reads `app: session-broker`. Now look at the Pods' labels:
+
+```bash
+kubectl get pods -n media -l app=session-broker --show-labels
+```{{exec}}
+
+The Pods carry `app=session-broker`, matching the selector — so the endpoints controller writes them into the EndpointSlice. **Only `Ready` Pods are included**: the same readiness gate from M01 doubles as load-balancer membership, so a Pod that fails its readiness probe is pulled from traffic without being killed.
+
+## The instinct to build
+
+`kubectl get svc` proves a Service *exists*. `kubectl get endpointslice` proves it has somewhere to send traffic. When connectivity is broken but the Pods look healthy, the endpoints listing is the first place to look — it's the discriminator the next scenarios turn on.

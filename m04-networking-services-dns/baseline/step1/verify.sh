@@ -1,10 +1,11 @@
 #!/bin/bash
-# Checks: session-broker Service exists in `media` with an allocated ClusterIP,
-# so the learner can reach it by name. Defensive baseline check.
-CIP=$(kubectl get svc session-broker -n media -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
-if [ -z "$CIP" ] || [ "$CIP" = "None" ]; then
-  echo "session-broker has no ClusterIP (got '$CIP'). The fleet may still be coming up — wait and retry." >&2
+# Checks: the session-broker Pod is back and holds an IP, so the delete in this
+# step healed before the next one runs. Defensive baseline check.
+IP=$(kubectl get pod -n media -l app=session-broker \
+  -o jsonpath='{.items[0].status.podIP}' 2>/dev/null)
+if [ -z "$IP" ]; then
+  echo "No session-broker Pod IP yet. The Deployment is replacing the Pod — wait and retry." >&2
   exit 1
 fi
-echo "✓ session-broker Service has a stable ClusterIP: $CIP"
+echo "✓ session-broker reachable at $IP"
 exit 0

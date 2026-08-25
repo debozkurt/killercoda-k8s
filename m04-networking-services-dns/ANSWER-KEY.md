@@ -17,10 +17,15 @@ The single through-line: **`connection refused` is a category, not a diagnosis. 
 
 No broken state. Expected output per step:
 
-- **Step 1 (Service identity & ClusterIP):** `kubectl get svc -n media session-broker` shows a `ClusterIP` and `PORT(S) 80/TCP`. A `busybox` client `wget`'ing `http://session-broker.media` gets the nginx welcome HTML — the Service answers, fronting a Pod whose own IP the client never sees.
-- **Step 2 (selector → EndpointSlice):** `kubectl get endpoints session-broker -n media` lists the Pod IP(s) on port 80. `kubectl get endpointslices -n media` shows the same backing the Service. Scaling the Deployment changes the endpoint set; the ClusterIP doesn't move. Teaching point: `get svc` proves existence, `get endpoints` proves reachability.
-- **Step 3 (`port` vs `targetPort`):** `session-broker`'s Service is `port: 80 → targetPort: 80`; the endpoint shows `PodIP:80`. `containerPort` in the Pod spec is documentation — the listener is what matters. `kubectl port-forward svc/session-broker 8080:80 -n media` then a local `curl localhost:8080` also answers.
-- **Step 4 (cluster DNS):** from a `busybox` Pod, `cat /etc/resolv.conf` shows `nameserver <kube-dns ClusterIP>`, a `search` list, and `options ndots:5`. `nslookup session-broker.media` resolves; `nslookup session-broker.media.svc.cluster.local` resolves to the same IP; CoreDNS runs as `kube-system` Pods labeled `k8s-app=kube-dns`.
+- **Step 1 (Pods without a Service):** `kubectl get pods -n media -o wide` shows one IP per Pod. A `busybox` client `wget`'ing `http://<PodIP>/` gets the nginx welcome HTML with no Service, no DNS name, and no ClusterIP involved. Deleting the Pod produces a replacement with a **different** IP — the reason a stable identity is needed at all.
+- **Step 2 (Service identity & ClusterIP):** `kubectl get svc -n media session-broker` shows a `ClusterIP` and `PORT(S) 80/TCP`. A client `wget`'ing `http://session-broker.media` gets the same HTML — the Service answers, fronting a Pod whose own IP the client never sees.
+- **Step 3 (selector → EndpointSlice):** `kubectl get endpointslice -n media -l kubernetes.io/service-name=session-broker` lists the Pod address(es) on port 80. Teaching point: `get svc` proves existence, `get endpointslice` proves reachability.
+- **Step 4 (who owns the EndpointSlice):** scaling to two replicas adds an address with no edit to the Service. Deleting the slice gets it rebuilt, usually under a new name — the controller owns it, not you. Scaling back leaves one address.
+- **Step 5 (cluster DNS):** from a `busybox` Pod, `cat /etc/resolv.conf` shows `nameserver <kube-dns ClusterIP>`, a `search` list, and `options ndots:5`. `nslookup session-broker.media` resolves; the FQDN resolves to the same IP. A cross-namespace lookup needs the namespace, and `nslookup media-engine` on the headless Service returns the **Pod** addresses rather than one virtual IP.
+- **Step 6 (Service dataplane):** the kube-proxy ConfigMap's `mode` is empty, meaning the upstream iptables default. `iptables-save -t nat | grep <ClusterIP>` matches the ClusterIP and jumps to a `KUBE-SVC-…` chain, which jumps to a `KUBE-SEP-…` chain per endpoint, ending in `DNAT --to-destination <PodIP>:<targetPort>`. On an nftables-mode or eBPF cluster the tool differs; the state it programs is the point.
+- **Step 7 (`port` vs `targetPort`):** `session-broker` is `port: 80 → targetPort: 80`, and the endpoint shows the address on `:80`. `containerPort` is documentation — the listener is what matters. `kubectl port-forward svc/session-broker 8080:80 -n media` then a local `curl localhost:8080` also answers, without using the ClusterIP.
+- **Step 8 (per-connection selection):** with two replicas, ten separate `wget` calls land on both Pods — each connection was selected independently. One long-lived connection would stay on the backend chosen when it opened.
+- **Step 9 (what each path proves):** the Pod IP, the ClusterIP, and the DNS name all return the same page, each crossing one more layer than the last. A path that works proves only the layers it used.
 
 ---
 
@@ -91,7 +96,8 @@ kubectl run dns-test --rm -i --restart=Never --image=busybox:1.36 -n provisionin
 kubectl get svc route-engine -n call-routing            # ClusterIP, 80/TCP — normal
 
 # 2. The diagnosis: NO endpoints behind it
-kubectl get endpoints route-engine -n call-routing      # ENDPOINTS: <none>
+kubectl get endpointslice -n call-routing \
+  -l kubernetes.io/service-name=route-engine   # no endpoint addresses
 
 # 3. Why empty? Compare the selector to the Pods' labels
 kubectl get svc route-engine -n call-routing -o yaml | grep -A2 selector
@@ -113,14 +119,15 @@ kubectl patch svc route-engine -n call-routing \
 **Verify:**
 
 ```bash
-kubectl get endpoints route-engine -n call-routing      # now lists Pod IPs:80
+kubectl get endpointslice -n call-routing \
+  -l kubernetes.io/service-name=route-engine   # now lists Pod addresses on :80
 kubectl run net-test --rm -i --restart=Never --image=busybox:1.36 -n call-routing -- \
   wget -qO- --timeout=3 http://route-engine/             # nginx HTML
 ```
 
-**What this scenario tests:** The single most important Service-debugging reflex — checking `get endpoints` before anything else. Self-grading questions:
+**What this scenario tests:** The single most important Service-debugging reflex — checking `get endpointslice` before anything else. Self-grading questions:
 
-- Was `kubectl get endpoints` (or `get endpointslices`) one of your first three commands?
+- Was `kubectl get endpointslice`  one of your first three commands?
 - Did you compare the Service's `selector` to the Pods' actual labels, rather than restarting or scaling the Pods (which were never unhealthy)?
 - Did you recognize that `get svc` looking normal proves nothing about reachability?
 
@@ -132,7 +139,7 @@ kubectl run net-test --rm -i --restart=Never --image=busybox:1.36 -n call-routin
 
 ## Break/fix 03 — Port mismatch: refused, with endpoints
 
-**Symptom:** Calls to `portal-ui` in `admin-portal` come back `connection refused` immediately. Unlike breakfix-02, `kubectl get endpoints portal-ui` is **populated** — the Pods are there, Ready, and in the EndpointSlice. The connection is reaching a Pod and getting rejected.
+**Symptom:** Calls to `portal-ui` in `admin-portal` come back `connection refused` immediately. Unlike breakfix-02, the EndpointSlice for `portal-ui` is **populated** — the Pods are there, Ready, and in the EndpointSlice. The connection is reaching a Pod and getting rejected.
 
 **Root cause:** The `portal-ui` Service forwards `port: 80` to `targetPort: 8080`, but the container (nginx) listens on **80**, not 8080. Nothing is bound to 8080, so the Pod's kernel answers the forwarded connection with a RST → `connection refused`. The selector and endpoints are correct; the *port* the traffic is delivered to is wrong. `containerPort` declaring 8080 changes nothing — it never opened a listener<sup><a href="https://kubernetes.io/docs/concepts/services-networking/service/#defining-a-service">[1]</a></sup>.
 
@@ -140,7 +147,8 @@ kubectl run net-test --rm -i --restart=Never --image=busybox:1.36 -n call-routin
 
 ```bash
 # 1. Endpoints ARE present — this is NOT the black-hole case
-kubectl get endpoints portal-ui -n admin-portal         # lists Pod IPs (on :8080!)
+kubectl get endpointslice -n admin-portal \
+  -l kubernetes.io/service-name=portal-ui   # lists Pod addresses on :8080
 
 # 2. The connection is refused, not hung — something is rejecting it
 kubectl run net-test --rm -i --restart=Never --image=busybox:1.36 -n admin-portal -- \
@@ -168,7 +176,8 @@ kubectl patch svc portal-ui -n admin-portal \
 **Verify:**
 
 ```bash
-kubectl get endpoints portal-ui -n admin-portal         # now shows PodIP:80
+kubectl get endpointslice -n admin-portal \
+  -l kubernetes.io/service-name=portal-ui   # now shows the address on :80
 kubectl run net-test --rm -i --restart=Never --image=busybox:1.36 -n admin-portal -- \
   wget -qO- --timeout=3 http://portal-ui/                # nginx HTML
 ```

@@ -10,5 +10,6 @@ echo ""
 echo "route-engine (call-routing) is unreachable — but its Pods look healthy."
 echo "Don't trust 'get svc'. Check what's actually behind the Service:"
 echo ""
-echo "  kubectl get endpoints route-engine -n call-routing"
+echo "  kubectl get endpointslice -n call-routing" \
+  -l kubernetes.io/service-name=route-engine
 echo ""

@@ -1,33 +1,50 @@
-# Step 6 — Three ways to the same backend
+# Step 6 — Inspect the Service dataplane
 
-The same Pod answers on three different paths. Each one crosses a different set of layers, which is what makes a failed call locatable.
+Step 2 reached the ClusterIP, and no process holds it. The node's Service dataplane is what recognises that address and forwards the traffic. Read the mode before you reach for a tool.
 
-## Collect the two addresses
+## Which dataplane is this cluster running?
 
 ```bash
-POD_IP=$(kubectl get pod -n media -l app=session-broker \
-  -o jsonpath='{.items[0].status.podIP}')
+kubectl -n kube-system get cm kube-proxy \
+  -o jsonpath='{.data.config\.conf}' | grep -E '^mode:'
+kubectl -n kube-system get pods -l k8s-app=kube-proxy -o wide
+```{{exec}}
+
+An empty `mode` means the upstream default, **iptables**. `nftables` is the newer upstream mode. Some clusters run no kube-proxy at all and use another dataplane, for example an eBPF implementation — then neither tool below applies and you inspect that implementation instead.
+
+## Find the Service in the kernel state
+
+For **iptables** mode:
+
+```bash
 SVC_IP=$(kubectl get svc session-broker -n media -o jsonpath='{.spec.clusterIP}')
-echo "pod=$POD_IP  service=$SVC_IP"
+echo "ClusterIP: $SVC_IP"
+sudo iptables-save -t nat | grep "$SVC_IP"
 ```{{exec}}
 
-## Call all three from one client
+For **nftables** mode the same lookup is:
 
 ```bash
-kubectl run probe --rm -i --restart=Never --image=busybox:1.36 -n media -- sh -c "
-  echo -n 'pod IP    : '; wget -qO- -T3 http://$POD_IP/       | grep -o '<title>.*</title>'
-  echo -n 'ClusterIP : '; wget -qO- -T3 http://$SVC_IP/       | grep -o '<title>.*</title>'
-  echo -n 'DNS name  : '; wget -qO- -T3 http://session-broker/ | grep -o '<title>.*</title>'"
+sudo nft list ruleset 2>/dev/null | grep -A2 "$SVC_IP" || \
+  echo "no nftables ruleset — this node is not in nftables mode"
 ```{{exec}}
 
-Three identical answers, three different amounts of machinery:
+A rule matches the ClusterIP and jumps to a per-Service chain. That match *is* the ClusterIP. Nothing owns the address.
 
-| Path | What it crossed | What it proves when it works |
-|------|-----------------|------------------------------|
-| Pod IP | the pod network only | the process is listening; the network is up |
-| ClusterIP | + kube-proxy's rules and the EndpointSlice | the Service has backends and the ports line up |
-| DNS name | + cluster DNS | the name resolves in this namespace |
+## Follow it to an endpoint
 
-Read it as a ladder. The first one that fails names the layer at fault: Pod IP works but ClusterIP doesn't, and the fault is the Service; ClusterIP works but the name doesn't, and the fault is DNS.
+```bash
+CHAIN=$(sudo iptables-save -t nat | grep "$SVC_IP" \
+  | grep -oE 'KUBE-SVC-[A-Z0-9]+' | head -1)
+sudo iptables-save -t nat | grep -- "-A $CHAIN"
+```{{exec}}
 
-`kubectl port-forward` (step 3) sits below all three — it reaches the Pod through the apiserver, so it proves the process is listening without proving anything about the Service.
+The Service chain jumps to one `KUBE-SEP-…` chain per endpoint — the EndpointSlice, compiled into kernel state. With more than one endpoint you also see a `--probability` match: the per-connection selection from step 8.
+
+```bash
+SEP=$(sudo iptables-save -t nat | grep -- "-A $CHAIN" \
+  | grep -oE 'KUBE-SEP-[A-Z0-9]+' | tail -1)
+sudo iptables-save -t nat | grep -- "-A $SEP"
+```{{exec}}
+
+The last line is a `DNAT --to-destination <PodIP>:<targetPort>`. Each node holds its own copy of this state, so one node can fail while the rest serve the same Service.

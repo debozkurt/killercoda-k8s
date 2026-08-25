@@ -1,6 +1,6 @@
 # Done
 
-You walked the in-cluster request path end to end: a Service's stable ClusterIP reached without ever touching a Pod IP, the EndpointSlice that a selector populates (and the `get endpoints` check that proves a Service has somewhere to send traffic), the `port`/`targetPort`/`containerPort` distinction where only the listener matters, and DNS resolution from inside a Pod — short name, `<svc>.<ns>`, and FQDN. You also saw the EndpointSlice rebuild itself after a delete — it is derived state, with exactly two inputs — and reached one backend three ways, each crossing one more layer than the last. Finally you read the kernel rules themselves — `KUBE-SERVICES` to `KUBE-SVC-…` to the `DNAT` — so the ClusterIP stops being a black box. That's the shape of "healthy" — internalize it so each broken link stands out.
+You walked the in-cluster request path in the order a request takes it: Pod-to-Pod with no Service involved, then the Service's stable ClusterIP, the EndpointSlice a selector produces and a controller rebuilds, DNS resolution from inside a Pod, the node Service dataplane and the kernel state it programs, the `port`/`targetPort`/listener distinction, per-connection backend selection, and what each access path actually proves. That is the shape of "healthy" — internalize it so each broken link stands out.
 
 **Next:**
 

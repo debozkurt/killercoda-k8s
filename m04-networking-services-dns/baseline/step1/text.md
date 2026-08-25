@@ -1,36 +1,39 @@
-# Step 1 — A Service is a stable identity
+# Step 1 — Pods reach each other without a Service
 
-A Service is a stable name and virtual IP in front of a set of Pods whose own IPs change constantly. Learn to reach one — and to see that you never touched a Pod IP — and the rest of the module follows.
+Every Pod has its own IP. Pod-to-Pod traffic needs no Service, no DNS name, and no ClusterIP.
 
-## See the Services the fleet runs
-
-```bash
-kubectl get svc -A
-```{{exec}}
-
-Every plane has them: `session-broker` in `media`, `route-engine` in `call-routing`, `portal-ui` in `admin-portal`, and the headless ones (`CLUSTER-IP: None`) fronting the StatefulSets. Pick one with a normal ClusterIP:
+## Read the Pod addresses
 
 ```bash
-kubectl get svc session-broker -n media
+kubectl get pods -n media -o wide \
+  -o custom-columns=NAME:.metadata.name,IP:.status.podIP,NODE:.spec.nodeName
 ```{{exec}}
 
-The `CLUSTER-IP` column is a virtual IP (something like `10.96.x.y`), and `PORT(S)` shows `80/TCP`. That IP is stable for the Service's life — no single Pod holds it.
+Each Pod carries one IP. Every container inside a Pod shares it.
 
-## Reach the Service without knowing a Pod IP
-
-The fleet's nginx Pods don't make calls, so spin up a throwaway client and have it `wget` the Service. `kubectl run --rm` creates a Pod, runs one command, and deletes it:
+## Call one Pod directly from another
 
 ```bash
-kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n media -- \
-  wget -qO- --timeout=3 http://session-broker.media/
+POD_IP=$(kubectl get pod -n media -l app=session-broker \
+  -o jsonpath='{.items[0].status.podIP}')
+kubectl run probe --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  wget -qO- -T3 "http://$POD_IP/" | grep -o '<title>.*</title>'
 ```{{exec}}
 
-You get nginx's welcome HTML back. The client named the Service — not a Pod — and the request still landed on a running container.
+nginx answers. The CNI carried that packet. No Service took part.
 
-## Confirm the Pods behind it have different IPs
+## Then why does a Service exist?
+
+Because the address does not last. Delete the Pod and read the new one:
 
 ```bash
-kubectl get pods -n media -l app=session-broker -o wide
+echo "was: $POD_IP"
+kubectl delete pod -n media -l app=session-broker
+kubectl wait --for=condition=Ready pod -n media -l app=session-broker --timeout=90s
+kubectl get pod -n media -l app=session-broker \
+  -o jsonpath='{.items[0].status.podIP}'; echo " <- now"
 ```{{exec}}
 
-The `IP` column shows the Pod's own cluster IP — a different address from the Service's ClusterIP, and one that would change the moment the Pod is replaced. That gap is the entire point of a Service: clients hold the name, the platform churns the Pods. Next, see how the Service knows which Pods to send to.
+A different address, for the same workload. Nothing outside the Pod can hold a Pod IP as configuration.
+
+**Pod IP** is a current network location. A **Service** is a stable identity plus a backend set. The rest of this tour builds the second on top of the first.
