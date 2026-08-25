@@ -30,4 +30,3 @@ kubectl run net-test --rm -i --restart=Never --image=busybox:1.36 -n call-routin
 ```{{exec}}
 
 `ENDPOINTS` now lists the Pod IPs on `:80`, and the `wget` returns nginx's HTML — the Service has backends again. The Pods never changed; only the selector did. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
-</content>

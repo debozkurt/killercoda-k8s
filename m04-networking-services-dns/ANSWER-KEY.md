@@ -189,5 +189,3 @@ kubectl run net-test --rm -i --restart=Never --image=busybox:1.36 -n admin-porta
 2. Kubernetes — EndpointSlices: https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/
 3. Kubernetes — Virtual IPs and Service Proxies (kube-proxy): https://kubernetes.io/docs/reference/networking/virtual-ips/
 4. Kubernetes — DNS for Services and Pods: https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/
-</content>
-</invoke>

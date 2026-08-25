@@ -247,4 +247,3 @@ Two traps beyond sizing:
 2. Kubernetes — Pod Lifecycle: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/
 3. Kubernetes — Service: https://kubernetes.io/docs/concepts/services-networking/service/
 4. Kubernetes — Container Lifecycle Hooks: https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/
-</content>

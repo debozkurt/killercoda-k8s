@@ -33,6 +33,31 @@ kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
 
 Same `Address` both times — the short name is just the FQDN with the search list filling in `.media.svc.cluster.local`.
 
+## Two lookups you'll actually type
+
+A cross-namespace call has to carry the namespace. This is the lookup `account-provisioner` does to reach the broker:
+
+```bash
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n provisioning -- \
+  nslookup session-broker.media
+```{{exec}}
+
+A **headless** Service answers a different shape. `media-engine` governs a StatefulSet and sets `clusterIP: None`, so DNS hands back the Pods instead of a virtual IP:
+
+```bash
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  nslookup media-engine
+```{{exec}}
+
+Two `Address` lines, one per Ready Pod — no ClusterIP anywhere. That is what `clusterIP: None` buys: the client sees the individual Pods and chooses one. Each Pod also has its own stable name:
+
+```bash
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  nslookup media-engine-0.media-engine.media.svc.cluster.local
+```{{exec}}
+
+That per-Pod name is why stateful systems use headless Services — a replica has to be addressable *as itself*, not as "one of the pool".
+
 ## See the resolver itself
 
 ```bash
@@ -41,4 +66,3 @@ kubectl get svc kube-dns -n kube-system
 ```{{exec}}
 
 CoreDNS is a normal Deployment fronted by a normal Service — when *all* DNS fails clusterwide, this is what you check. For now it's healthy. The catch you'll hit next: that short name only worked because the client shared the target's namespace.
-</content>

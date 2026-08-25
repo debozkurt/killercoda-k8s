@@ -1,6 +1,6 @@
 # Done
 
-You walked the in-cluster request path end to end: a Service's stable ClusterIP reached without ever touching a Pod IP, the EndpointSlice that a selector populates (and the `get endpoints` check that proves a Service has somewhere to send traffic), the `port`/`targetPort`/`containerPort` distinction where only the listener matters, and DNS resolution from inside a Pod — short name, `<svc>.<ns>`, and FQDN. That's the shape of "healthy" — internalize it so each broken link stands out.
+You walked the in-cluster request path end to end: a Service's stable ClusterIP reached without ever touching a Pod IP, the EndpointSlice that a selector populates (and the `get endpoints` check that proves a Service has somewhere to send traffic), the `port`/`targetPort`/`containerPort` distinction where only the listener matters, and DNS resolution from inside a Pod — short name, `<svc>.<ns>`, and FQDN. You also saw the EndpointSlice rebuild itself after a delete — it is derived state, with exactly two inputs — and reached one backend three ways, each crossing one more layer than the last. Finally you read the kernel rules themselves — `KUBE-SERVICES` to `KUBE-SVC-…` to the `DNAT` — so the ClusterIP stops being a black box. That's the shape of "healthy" — internalize it so each broken link stands out.
 
 **Next:**
 
@@ -10,4 +10,3 @@ You walked the in-cluster request path end to end: a Service's stable ClusterIP 
   - **`breakfix-02-selector-mismatch`** — empty EndpointSlice: the Service has no backends.
   - **`breakfix-03-port-mismatch`** — `connection refused`, endpoints populated: the port is wrong.
 - Check your diagnostic path against [`ANSWER-KEY.md`](../ANSWER-KEY.md) after each.
-</content>

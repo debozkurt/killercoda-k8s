@@ -9,4 +9,3 @@ That completes the connectivity differential: **the name didn't resolve (DNS), t
 - Check your path against [`ANSWER-KEY.md`](../ANSWER-KEY.md).
 - For the *why*, see [`LESSON.md`](../LESSON.md) § Ports, and the Recap.
 - You've finished M04's break/fix set. Next module: **M05 — Storage** (PV/PVC, StorageClass, RWO vs RWX).
-</content>

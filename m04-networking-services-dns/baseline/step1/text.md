@@ -34,4 +34,3 @@ kubectl get pods -n media -l app=session-broker -o wide
 ```{{exec}}
 
 The `IP` column shows the Pod's own cluster IP — a different address from the Service's ClusterIP, and one that would change the moment the Pod is replaced. That gap is the entire point of a Service: clients hold the name, the platform churns the Pods. Next, see how the Service knows which Pods to send to.
-</content>

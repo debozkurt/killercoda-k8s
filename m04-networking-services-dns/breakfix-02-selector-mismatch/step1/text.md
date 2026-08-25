@@ -35,4 +35,3 @@ kubectl get pods -n call-routing --show-labels
 ```{{exec}}
 
 The Service selects `app: route-enginev2`; the Pods are labeled `app=route-engine`. The selector matches nothing, so the EndpointSlice is empty. Someone renamed a label on one side and not the other. On to the fix.
-</content>

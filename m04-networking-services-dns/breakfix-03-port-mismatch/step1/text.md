@@ -34,4 +34,3 @@ kubectl run net-test --rm -i --restart=Never --image=busybox:1.36 -n admin-porta
 ```{{exec}}
 
 The Pod answers on `:80` — so the listener is on 80, but the Service forwards to 8080, where nothing is bound. (The Pod's `containerPort: 80` is just documentation; it never opened 8080.) The Service is delivering traffic to a dead port. On to the fix.
-</content>

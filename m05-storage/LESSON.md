@@ -166,5 +166,3 @@ The three scenarios walk the storage diagram top to bottom — claim-absent → 
 6. Kubernetes — Reclaiming (reclaim policy, PV lifecycle): https://kubernetes.io/docs/concepts/storage/persistent-volumes/#reclaiming
 7. Kubernetes — Access Modes: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes
 8. Kubernetes — Configure a Pod to Use a PersistentVolume: https://kubernetes.io/docs/tasks/configure-pod-container/configure-persistent-volume-storage/
-</content>
-</invoke>

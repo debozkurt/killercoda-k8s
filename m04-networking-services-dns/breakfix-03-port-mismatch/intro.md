@@ -7,4 +7,3 @@ The admin portal is down — `portal-ui` in `admin-portal` refuses every connect
 That rules out the black hole and points somewhere new. A connection that's *refused* (not dropped) means it got to a Pod, and the Pod's kernel sent it back — because nothing is listening on the port the Service delivered it to. This is the `port` / `targetPort` / `containerPort` distinction made painful.
 
 Your job: read the populated EndpointSlice as the clue it is, find the port the Service forwards to versus the port the process actually listens on, and reconcile them. The cluster takes 60–120 seconds to come up. Click **Start** when ready.
-</content>

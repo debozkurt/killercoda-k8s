@@ -44,4 +44,3 @@ kill $PF 2>/dev/null
 ```{{exec}}
 
 The `curl` to `localhost:8080` returns nginx's first HTML line — forwarded through the Service to a backend Pod's `:80`. Next, reach the same Service the way every Pod really does: by name, through cluster DNS.
-</content>

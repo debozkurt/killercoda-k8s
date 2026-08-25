@@ -209,4 +209,3 @@ kubectl run obs-curl --rm -i --restart=Never --image=curlimages/curl:8.11.1 -n a
 4. Kubernetes — `kubectl logs` reference: https://kubernetes.io/docs/reference/kubectl/generated/kubectl_logs/
 5. Kubernetes — Resource Metrics Pipeline: https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/
 6. Prometheus — Data model and metric types: https://prometheus.io/docs/concepts/data_model/
-</content>

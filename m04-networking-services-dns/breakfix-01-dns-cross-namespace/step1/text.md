@@ -35,4 +35,3 @@ kubectl run dns-test --rm -i --restart=Never --image=busybox:1.36 -n provisionin
 ```{{exec}}
 
 Now it resolves — `session-broker.media` lets the search list complete it to `session-broker.media.svc.cluster.local`. The problem was never the Service; it was an unqualified name. On to the fix.
-</content>

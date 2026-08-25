@@ -213,5 +213,3 @@ Check yourself against `ANSWER-KEY.md` after each.
 6. Prometheus — Data model and metric types: https://prometheus.io/docs/concepts/data_model/
 7. Prometheus Operator — Design (ServiceMonitor/PodMonitor): https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/design.md
 8. OpenTelemetry — Traces (spans, context, the Collector): https://opentelemetry.io/docs/concepts/signals/traces/
-</content>
-</invoke>

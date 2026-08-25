@@ -33,4 +33,3 @@ kubectl run dns-test --rm -i --restart=Never --image=busybox:1.36 -n provisionin
 ```{{exec}}
 
 `BROKER_ENDPOINT` now carries the qualified name, and the `wget` from `provisioning` returns nginx's HTML — the broker is reachable from the caller's namespace. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
-</content>

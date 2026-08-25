@@ -33,4 +33,3 @@ The Pods carry `app=session-broker`, matching the selector — so the endpoints 
 ## The instinct to build
 
 `kubectl get svc` proves a Service *exists*. `kubectl get endpoints <svc>` proves it has somewhere to send traffic. When connectivity is broken but the Pods look healthy, the endpoints listing is the first place to look — it's the discriminator the next scenarios turn on.
-</content>

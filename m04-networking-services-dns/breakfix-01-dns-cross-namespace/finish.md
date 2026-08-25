@@ -9,4 +9,3 @@ That instinct — **resolve the name from the namespace that's actually asking, 
 - Check your path against [`ANSWER-KEY.md`](../ANSWER-KEY.md).
 - For the *why*, see [`LESSON.md`](../LESSON.md) § Cluster DNS.
 - Next scenario: **`breakfix-02-selector-mismatch`** — the name resolves fine, but the Service has no backends at all.
-</content>
