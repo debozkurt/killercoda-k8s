@@ -9,7 +9,12 @@ kubectl run probe --rm -i --restart=Never --image=busybox:1.36 -n media -- \
   sh -c 'ip addr show eth0; ip route'
 ```{{exec}}
 
-One interface, `eth0`, carrying the Pod IP `kubectl get -o wide` reported — and a default route pointing at the node. That is the whole of a Pod's network view: its own interface, its own routing table, nothing of the node's or any other Pod's.
+One interface, one routing table, nothing of the node's or any other Pod's — that is the whole of a Pod's network view. Four details on that output are worth reading closely:
+
+- **`eth0@if76`** — the number after the `@` is the **peer index of the veth pair**. The Pod's `eth0` is one end; that index is the other end, sitting in the node's namespace. The pair is visible from inside the Pod, without touching the node.
+- **`inet …/32`** — a single-address mask. The Pod has no on-link subnet, so it cannot reach a neighbour directly; every packet goes to the gateway. Not every plugin does it this way, and the ones that don't put a bridge here instead.
+- **`default via …`** — that gateway address sits inside the Pod range, so it belongs to the CNI plugin on this node, not to the node's own NIC.
+- **`mtu 1400`**, below the usual 1500 — the plugin is reserving headroom for encapsulation. An MTU mismatch is a classic cause of "small requests work, large ones hang."
 
 ## Two containers, one namespace
 
