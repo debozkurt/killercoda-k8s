@@ -1,37 +1,34 @@
-# Step 3 — Selector to EndpointSlice
+# Step 3 — A Service is a stable identity
 
-A Service finds its Pods by **label selector**, exactly the way a ReplicaSet does (M01). The result — the actual backend addresses — lives in a separate object: the **EndpointSlice**. The distinction between "the Service exists" and "the Service has backends" is the single most important diagnostic fact in this module.
+A Service is a stable name and virtual IP in front of a set of Pods whose own IPs change constantly. Learn to reach one — and to see that you never touched a Pod IP — and the rest of the module follows.
 
-## Read the backends behind the Service
-
-```bash
-kubectl get endpointslice -n media -l kubernetes.io/service-name=session-broker
-```{{exec}}
-
-The `ENDPOINTS` column lists an address per endpoint, and `PORTS` the port they were resolved to. This is the list the Service dataplane forwards across. If it holds no addresses, the Service routes nowhere — no matter how healthy `get svc` looks.
-
-`describe` gives the same slice with each endpoint's readiness spelled out:
+## See the Services the fleet runs
 
 ```bash
-kubectl describe endpointslice -n media -l kubernetes.io/service-name=session-broker
+kubectl get svc -A
 ```{{exec}}
 
-Under `Endpoints:`, each entry has a `Conditions:` block reading `Ready: true`. That flag is what the dataplane filters on.
-
-## See where that list comes from: selector meets labels
+Every plane has them: `session-broker` in `media`, `route-engine` in `call-routing`, `portal-ui` in `admin-portal`, and the headless ones fronting the StatefulSets, which read `None` in the `CLUSTER-IP` column. Pick one with a normal ClusterIP:
 
 ```bash
-kubectl describe svc session-broker -n media
+kubectl get svc session-broker -n media
 ```{{exec}}
 
-Two lines to read. `Selector: app=session-broker` is the query. `Endpoints:` is its answer, the same addresses you just listed — one command showing both sides. Now look at the Pods the selector is querying:
+Two columns carry the lesson. `CLUSTER-IP` holds a virtual address out of the Service range, 10.96.0.0/12 on this cluster — stable for the Service's life, and held by no single Pod. `PORT(S)` reads 80/TCP: the port clients connect to.
+
+## Reach the Service without knowing a Pod IP
 
 ```bash
-kubectl get pods -n media --show-labels
+kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  wget -qO- -T3 http://session-broker/ | head -4
 ```{{exec}}
 
-The `session-broker` Pods carry `app=session-broker`, matching the selector — so the endpoints controller writes them into the EndpointSlice. **Only `Ready` Pods are included**: the same readiness gate from M01 doubles as load-balancer membership, so a Pod that fails its readiness probe is pulled from traffic without being killed.
+You get nginx's welcome HTML back. The client named the Service — not a Pod — and the request still landed on a running container.
 
-## The instinct to build
+## Confirm the Pods behind it have different IPs
 
-`kubectl get svc` proves a Service *exists*. `kubectl describe svc` — or `get endpointslice` — proves it has somewhere to send traffic. When connectivity is broken but the Pods look healthy, that is the first place to look.
+```bash
+kubectl get pods -n media -l app=session-broker -o wide
+```{{exec}}
+
+The `IP` column shows the Pod's own address, different from the Service's ClusterIP and gone the moment the Pod is replaced. That gap is the entire point of a Service: clients hold the name, the platform churns the Pods. Next, see how the Service knows which Pods to send to.

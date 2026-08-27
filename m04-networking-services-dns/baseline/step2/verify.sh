@@ -1,10 +1,13 @@
 #!/bin/bash
-# Checks: session-broker Service exists in `media` with an allocated ClusterIP,
-# so the learner can reach it by name. Defensive baseline check.
-CIP=$(kubectl get svc session-broker -n media -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
-if [ -z "$CIP" ] || [ "$CIP" = "None" ]; then
-  echo "session-broker has no ClusterIP (got '$CIP'). The fleet may still be coming up — wait and retry." >&2
-  exit 1
-fi
-echo "✓ session-broker Service has a stable ClusterIP: $CIP"
+# Checks: the multi-container call-recorder Pod is Ready, so both containers are
+# execable and the shared-namespace demo in this step works. Defensive baseline check.
+READY=$(kubectl get pod -n media -l app=call-recorder \
+  -o jsonpath='{.items[0].status.containerStatuses[*].ready}' 2>/dev/null)
+case "$READY" in
+  *true*true*) ;;
+  *) echo "call-recorder is not showing two Ready containers (got '$READY'). It may still be starting — wait and retry." >&2
+     exit 1 ;;
+esac
+IP=$(kubectl get pod -n media -l app=call-recorder -o jsonpath='{.items[0].status.podIP}' 2>/dev/null)
+echo "✓ call-recorder has two Ready containers sharing one namespace at $IP"
 exit 0

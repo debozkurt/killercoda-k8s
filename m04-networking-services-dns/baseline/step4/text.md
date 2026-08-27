@@ -1,40 +1,37 @@
-# Step 4 — Who owns the EndpointSlice
+# Step 4 — Selector to EndpointSlice
 
-Step 3 read the EndpointSlice. This step proves you do not own it.
+A Service finds its Pods by **label selector**, exactly the way a ReplicaSet does (M01). The result — the actual backend addresses — lives in a separate object: the **EndpointSlice**. The distinction between "the Service exists" and "the Service has backends" is the single most important diagnostic fact in this module.
 
-## Watch the list follow the Pods
+## Read the backends behind the Service
 
 ```bash
 kubectl get endpointslice -n media -l kubernetes.io/service-name=session-broker
 ```{{exec}}
 
-One address — `session-broker` runs a single replica. Add a second:
+The `ENDPOINTS` column lists an address per endpoint, and `PORTS` the port they were resolved to. This is the list the Service dataplane forwards across. If it holds no addresses, the Service routes nowhere — no matter how healthy `get svc` looks.
+
+`describe` gives the same slice with each endpoint's readiness spelled out:
 
 ```bash
-kubectl scale deploy/session-broker -n media --replicas=2
-kubectl rollout status deploy/session-broker -n media --timeout=60s
-kubectl get endpointslice -n media -l kubernetes.io/service-name=session-broker
+kubectl describe endpointslice -n media -l kubernetes.io/service-name=session-broker
 ```{{exec}}
 
-Two addresses in `ENDPOINTS` now. Nobody edited the Service, and nobody edited the slice.
+Under `Endpoints:`, each entry has a `Conditions:` block reading `Ready: true`. That flag is what the dataplane filters on.
 
-## Delete it and watch it come back
+## See where that list comes from: selector meets labels
 
 ```bash
-kubectl delete endpointslice -n media -l kubernetes.io/service-name=session-broker
-sleep 5
-kubectl get endpointslice -n media -l kubernetes.io/service-name=session-broker
+kubectl describe svc session-broker -n media
 ```{{exec}}
 
-It's back, under a new name, with the same addresses. The **EndpointSlice controller** rebuilt it from the Service's selector and the `Ready` Pods — the same reason hand-editing an address never sticks.
-
-The `sleep` is the point, not a workaround: reconciliation is a loop, not a transaction. Read a controller's output too fast and you see the gap rather than the result. If the listing is still empty, run the `get` again — or watch it happen with `kubectl get endpointslice -n media -w` and Ctrl-C when the new slice appears.
-
-## Put it back
+Two lines to read. `Selector: app=session-broker` is the query. `Endpoints:` is its answer, the same addresses you just listed — one command showing both sides. Now look at the Pods the selector is querying:
 
 ```bash
-kubectl scale deploy/session-broker -n media --replicas=1
-kubectl rollout status deploy/session-broker -n media --timeout=60s
+kubectl get pods -n media --show-labels
 ```{{exec}}
 
-The list is **derived state**. To change it, change one of its two inputs: the selector, or Pod readiness. That is exactly why an empty EndpointSlice has only those two causes.
+The `session-broker` Pods carry `app=session-broker`, matching the selector — so the endpoints controller writes them into the EndpointSlice. **Only `Ready` Pods are included**: the same readiness gate from M01 doubles as load-balancer membership, so a Pod that fails its readiness probe is pulled from traffic without being killed.
+
+## The instinct to build
+
+`kubectl get svc` proves a Service *exists*. `kubectl describe svc` — or `get endpointslice` — proves it has somewhere to send traffic. When connectivity is broken but the Pods look healthy, that is the first place to look.

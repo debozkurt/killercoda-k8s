@@ -1,6 +1,6 @@
 {
   "title": "M04 — Networking I: Services & DNS — Baseline",
-  "description": "Tour the healthy in-cluster request path: a Service's ClusterIP, the EndpointSlice behind a selector, port vs targetPort, and DNS resolution from inside a Pod.",
+  "description": "Tour the healthy in-cluster request path: the Pod network underneath, a Service's ClusterIP, the EndpointSlice behind a selector, port vs targetPort, and DNS resolution from inside a Pod.",
   "details": {
     "intro": {
       "text": "intro.md",
@@ -14,35 +14,40 @@
         "verify": "step1/verify.sh"
       },
       {
-        "title": "A Service is a stable identity",
+        "title": "The Pod's own view of the network",
         "text": "step2/text.md",
         "verify": "step2/verify.sh"
       },
       {
-        "title": "Selector to EndpointSlice",
+        "title": "A Service is a stable identity",
         "text": "step3/text.md",
         "verify": "step3/verify.sh"
       },
       {
-        "title": "Who owns the EndpointSlice",
+        "title": "Selector to EndpointSlice",
         "text": "step4/text.md",
         "verify": "step4/verify.sh"
       },
       {
-        "title": "port, targetPort, and the listener",
+        "title": "Who owns the EndpointSlice",
         "text": "step5/text.md",
         "verify": "step5/verify.sh"
       },
       {
-        "title": "Cluster DNS from inside a Pod",
+        "title": "port, targetPort, and the listener",
         "text": "step6/text.md",
         "verify": "step6/verify.sh"
+      },
+      {
+        "title": "Cluster DNS from inside a Pod",
+        "text": "step7/text.md",
+        "verify": "step7/verify.sh"
       }
     ],
     "finish": {
       "text": "finish.md"
     },
-    "description": "Tour the healthy in-cluster request path: Pod-to-Pod first, then the Service, its EndpointSlice, the port fields, and cluster DNS."
+    "description": "Tour the healthy in-cluster request path: Pod IPs and the namespace they live in, then the Service, its EndpointSlice, the port fields, and cluster DNS."
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"

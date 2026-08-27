@@ -1,6 +1,6 @@
 # Done
 
-You walked the in-cluster request path in the order a request takes it: Pod-to-Pod with no Service involved, then the Service's stable ClusterIP, the EndpointSlice a selector produces and a controller rebuilds, the `port`/`targetPort`/listener distinction, and DNS resolution from inside a Pod. That is the shape of "healthy" — internalize it so each broken link stands out.
+You walked the in-cluster request path in the order a request takes it: Pod-to-Pod with no Service involved, the network namespace a Pod's interface and route live in (and two containers share), then the Service's stable ClusterIP, the EndpointSlice a selector produces and a controller rebuilds, the `port`/`targetPort`/listener distinction, and DNS resolution from inside a Pod. That is the shape of "healthy" — internalize it so each broken link stands out.
 
 **Next:**
 

@@ -1,10 +1,10 @@
 #!/bin/bash
-# Checks: session-broker's EndpointSlice is populated (the selector matches Ready
-# Pods), so the Service has backends. Defensive baseline check.
-EP=$(kubectl get endpointslice -n media -l kubernetes.io/service-name=session-broker -o jsonpath='{.items[0].endpoints[0].addresses[0]}' 2>/dev/null)
-if [ -z "$EP" ]; then
-  echo "session-broker has no endpoints yet. The Pods may still be becoming Ready — wait and retry." >&2
+# Checks: session-broker Service exists in `media` with an allocated ClusterIP,
+# so the learner can reach it by name. Defensive baseline check.
+CIP=$(kubectl get svc session-broker -n media -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
+if [ -z "$CIP" ] || [ "$CIP" = "None" ]; then
+  echo "session-broker has no ClusterIP (got '$CIP'). The fleet may still be coming up — wait and retry." >&2
   exit 1
 fi
-echo "✓ session-broker has a populated EndpointSlice (first backend: $EP)"
+echo "✓ session-broker Service has a stable ClusterIP: $CIP"
 exit 0

@@ -684,6 +684,43 @@ spec:
             limits:   { cpu: 100m, memory: 64Mi }
 EOF
 
+# >>> M04 pod-networking enhancement: call-recorder is the fleet's only
+#     multi-container Pod. Both containers run busybox (the fleet's nginx has no
+#     `ip`), so the baseline can PROVE the shared network namespace: `ip addr` in
+#     either container reports the same eth0/IP, and `uploader` reaches
+#     `recorder` on localhost:8080. Models a real sidecar pair — a recorder and
+#     the agent that ships its output.
+cat <<'EOF' | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: call-recorder
+  namespace: media
+  labels: { app: call-recorder, plane: media, tier: lab }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: call-recorder } }
+  template:
+    metadata:
+      labels: { app: call-recorder, plane: media, tier: lab }
+    spec:
+      containers:
+        - name: recorder
+          image: busybox:1.36
+          command: ["sh", "-c", "echo recorder-ok > /tmp/index.html; httpd -f -p 8080 -h /tmp"]
+          ports: [{ containerPort: 8080 }]
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits:   { cpu: 50m, memory: 32Mi }
+        - name: uploader
+          image: busybox:1.36
+          command: ["sh", "-c", "sleep infinity"]
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits:   { cpu: 50m, memory: 32Mi }
+EOF
+# <<< M04 pod-networking enhancement ends
+
 # ---------------------------------------------------------------------------
 # Wait for the fleet to come up
 # ---------------------------------------------------------------------------
