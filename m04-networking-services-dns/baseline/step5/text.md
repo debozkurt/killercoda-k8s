@@ -1,68 +1,42 @@
-# Step 5 — Cluster DNS from inside a Pod
+# Step 5 — port, targetPort, and the listener
 
-A ClusterIP is stable, but nobody hardcodes `10.96.x.y`. Cluster DNS lets you use names. **CoreDNS** runs in `kube-system`, and every Pod is configured to ask it.
+Three port fields show up around a Service, and conflating them is a classic source of "the endpoints are right but it still won't connect." Only one of the three actually opens a socket.
 
-## Look at a Pod's resolver config
-
-```bash
-kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
-  cat /etc/resolv.conf
-```{{exec}}
-
-Three lines matter:
-
-- `nameserver <ip>` — the `kube-dns` Service ClusterIP (CoreDNS sits behind it).
-- `search media.svc.cluster.local svc.cluster.local cluster.local` — the domains a short name is tried under. **Built from this Pod's namespace (`media`)** — that detail is the whole of breakfix-01.
-- `options ndots:5` — names with fewer than 5 dots are tried with the search domains appended first.
-
-## Resolve a Service by name
-
-Every Service gets a record at `<svc>.<ns>.svc.cluster.local`. From a Pod in `media`, the short name resolves because `media` is in the search list:
+## Read the Service's two ports
 
 ```bash
-kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
-  nslookup session-broker
+kubectl describe svc session-broker -n media
 ```{{exec}}
 
-The fully-qualified name resolves to the same ClusterIP:
+`Port: 80/TCP` and `TargetPort: 80/TCP`, two lines apart:
+
+- **`port`** is what clients connect to — `session-broker:80`.
+- **`targetPort`** is the Pod port the Service forwards to. Omit it and it defaults to `port`.
+
+The `Endpoints:` line right below shows the same thing made concrete: each backend is listed as PodIP:80. That is `targetPort` resolved.
+
+## The third field opens nothing
+
+The Pod spec also declares a `containerPort`:
 
 ```bash
-kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
-  nslookup session-broker.media.svc.cluster.local
+kubectl describe pod -n media -l app=session-broker
 ```{{exec}}
 
-Same `Address` both times — the short name is just the FQDN with the search list filling in `.media.svc.cluster.local`.
+In the container block, `Port: 80/TCP` is that declaration. It is **documentation**. It advertises intent; it does not open or close a socket. The process inside listens on whatever it listens on — nginx serves :80 whether or not `containerPort` says so.
 
-## Two lookups you'll actually type
+The field that decides where traffic is *delivered* is `targetPort`. The field that decides whether anything *answers* there is the process. When those two disagree you get a refused connection with perfect-looking endpoints.
 
-A cross-namespace call has to carry the namespace. This is the lookup `account-provisioner` does to reach the broker:
+## Reach a Service port locally with port-forward
+
+`kubectl port-forward` tunnels a local port to a Service or Pod — the standard way to poke an in-cluster Service from your own machine:
 
 ```bash
-kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n provisioning -- \
-  nslookup session-broker.media
+kubectl port-forward svc/session-broker 8080:80 -n media &
+PF=$!
+sleep 2
+curl -s http://localhost:8080/ | head -4
+kill $PF
 ```{{exec}}
 
-A **headless** Service answers a different shape. `media-engine` governs a StatefulSet and sets `clusterIP: None`, so DNS hands back the Pods instead of a virtual IP:
-
-```bash
-kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
-  nslookup media-engine
-```{{exec}}
-
-Two `Address` lines, one per Ready Pod — no ClusterIP anywhere. That is what `clusterIP: None` buys: the client sees the individual Pods and chooses one. Each Pod also has its own stable name:
-
-```bash
-kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
-  nslookup media-engine-0.media-engine.media.svc.cluster.local
-```{{exec}}
-
-That per-Pod name is why stateful systems use headless Services — a replica has to be addressable *as itself*, not as "one of the pool".
-
-## See the resolver itself
-
-```bash
-kubectl get pods -n kube-system -l k8s-app=kube-dns -o wide
-kubectl get svc kube-dns -n kube-system
-```{{exec}}
-
-CoreDNS is a normal Deployment fronted by a normal Service — when *all* DNS fails clusterwide, this is what you check. For now it's healthy. The catch you'll hit next: that short name only worked because the client shared the target's namespace.
+The `curl` to `localhost:8080` returns nginx's HTML, forwarded to a backend Pod's :80. Note what it did *not* use: no ClusterIP, no cluster DNS. It reaches the Pod through the apiserver, which is what makes it a precise probe — it proves the process is listening without proving anything about the Service.

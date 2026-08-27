@@ -7,7 +7,7 @@
 - Describe what already works before any Service exists: every Pod holds a routable IP, and Pods reach each other across nodes with no address translation
 - Explain what a Service is and why it exists: a stable virtual IP and DNS name in front of a set of Pods whose own IPs change constantly
 - Trace a request from a client all the way to a container: name → ClusterIP → node rules → Pod IP → listening socket, and name the component that owns each hop
-- Read a Service's real backend set with `kubectl get endpointslice` / `kubectl get endpointslices`, and recognize the empty-endpoints black hole
+- Read a Service's real backend set with `kubectl describe svc` or `kubectl get endpointslice`, and recognize the empty-endpoints black hole
 - Distinguish `port`, `targetPort`, and `containerPort`, and diagnose the connection-refused you get when `targetPort` points at nothing
 - Resolve a Service by DNS the way a Pod does — short name, `<svc>.<ns>`, and the FQDN — and explain why a bare name fails across namespaces
 - Reach a Service five ways — Pod to Pod, ClusterIP, NodePort, LoadBalancer, and `kubectl port-forward` — and say which layers each one skips
@@ -21,11 +21,11 @@ The trap is that the failure is quiet and the top-line objects look healthy. `ku
 
 ## Scope
 
-**Covers:** the flat Pod-network model a Service sits on top of, the Service object and its types (ClusterIP, NodePort, LoadBalancer, ExternalName, and headless), how a selector becomes an EndpointSlice, what kube-proxy does with that EndpointSlice, the `port`/`targetPort`/`containerPort` distinction, the node datapath a request crosses (veth pair, kube-proxy rewrite, node hop, connection tracking), cluster DNS via CoreDNS (the `<svc>.<ns>.svc.cluster.local` scheme, search domains, and `ndots`), the five access paths including `kubectl port-forward`, and the name-resolves / has-endpoints / port-answers connectivity differential.
+**Covers:** the flat Pod-network model a Service sits on top of, the Service object and its types (ClusterIP, NodePort, LoadBalancer, ExternalName, and headless), how a selector becomes an EndpointSlice, the `port`/`targetPort`/`containerPort` distinction, the node datapath a request crosses (veth pair, kube-proxy rewrite, node hop, connection tracking), cluster DNS via CoreDNS (the `<svc>.<ns>.svc.cluster.local` scheme, search domains, and `ndots`), the five access paths including `kubectl port-forward`, and the name-resolves / has-endpoints / port-answers connectivity differential.
 
 **Doesn't cover:** NetworkPolicy (default-allow today; locking traffic down is M14), Ingress and HTTP routing from outside the cluster → M14, service mesh / sidecar proxies and mesh mTLS → M15, CNI internals and the host-networking escape hatches — `hostNetwork`, `hostPort`, secondary Pod interfaces → M22, and external load balancer provisioning specifics (cloud-dependent). This module is the in-cluster L4 path: name to Pod.
 
-**Assumes:** M00 (`get → describe → events → logs`; spec vs status), M01 (Pods, Deployments, labels, readiness — a Pod can be `Running` but not `Ready`). Labels and selectors from M01 are load-bearing here: a Service finds its Pods the same way a ReplicaSet does.
+**Assumes:** M00 (`get → describe → events → logs`; spec vs status), M01 (Pods, Deployments, labels, readiness — a Pod can be `Running` but not `Ready`).
 
 ## Vocabulary
 
@@ -140,6 +140,8 @@ So `session-broker` in `media` is fully `session-broker.media.svc.cluster.local`
 
 The same `resolv.conf` carries `options ndots:5`. It means: if a name has fewer than 5 dots, try it with each search domain appended *first*, and as a literal name only if all of those fail<sup><a href="https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-s-dns-config">[5]</a></sup>. It is why short in-cluster names work — and why an *external* name like `api.stripe.com` (3 dots) costs several failing cluster lookups first, which adds up at scale. A trailing dot marks a name fully-qualified and skips the search list.
 
+One caveat costs real debugging time: `ndots` is a glibc resolver feature, and busybox does not implement it. busybox queries any name containing a dot literally, so `nslookup <svc>.<ns>` from a busybox debug Pod returns NXDOMAIN for a Service the application resolves fine. Use the full FQDN in throwaway debug containers, or you will diagnose a working name as broken.
+
 <details>
 <summary>📖 Going deeper: headless Services, and DNS for the cases ClusterIP can't serve<sup><a href="https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/">[4]</a></sup></summary>
 
@@ -163,13 +165,13 @@ Where a request starts decides which parts of the path can break — and a test 
 | LoadBalancer | outside the cluster | an external LB, then a NodePort | cluster DNS |
 | `kubectl port-forward` | your workstation | the apiserver, the kubelet, one Pod | DNS, ClusterIP, kube-proxy |
 
-`kubectl port-forward svc/session-broker 8080:80 -n media` looks like a test of the Service, and it is not. It uses the Service only to select **one** Pod, then opens a stream to that Pod through the apiserver and the kubelet<sup><a href="https://kubernetes.io/docs/tasks/access-application-cluster/port-forward-access-application-cluster/">[9]</a></sup>. Nothing on that path touches cluster DNS, the ClusterIP, or kube-proxy's rules. That makes it a precise probe. If port-forward reaches the application and a ClusterIP call to the same Service does not, the fault is in the Service layer — the selector, the EndpointSlice, or `targetPort`. Reverse the result and the fault is inside the container.
+`kubectl port-forward svc/session-broker 8080:80 -n media` looks like a test of the Service, and it is not. It uses the Service only to select **one** Pod, then streams to that Pod through the apiserver and the kubelet<sup><a href="https://kubernetes.io/docs/tasks/access-application-cluster/port-forward-access-application-cluster/">[9]</a></sup> — touching neither cluster DNS, the ClusterIP, nor kube-proxy's rules. That makes it a precise probe. If port-forward reaches the application and a ClusterIP call to the same Service does not, the fault is in the Service layer: the selector, the EndpointSlice, or `targetPort`. Reverse the result and the fault is inside the container.
 
 ## Hands-on
 
-Nine steps in the baseline, three break/fix scenarios — all on the full Polyphone fleet, exercising the Services it already runs. Traffic comes from a throwaway in-cluster client, since the fleet's own Pods don't originate calls.
+Six steps in the baseline, three break/fix scenarios — all on the full Polyphone fleet, exercising the Services it already runs. Traffic comes from a throwaway in-cluster client, since the fleet's own Pods don't originate calls.
 
-- **`baseline/`** — the request path working end to end: a Service's ClusterIP and how it's reached, the EndpointSlice behind a selector, `port`/`targetPort` resolved to a Pod, and DNS resolution from inside a Pod (short name, `<svc>.<ns>`, FQDN). What healthy looks like before the differential breaks it.
+- **`baseline/`** — the request path working end to end: a Service's ClusterIP and how it's reached, the EndpointSlice behind a selector and who rebuilds it, `port`/`targetPort` resolved to a Pod, and DNS resolution from inside a Pod (short name, FQDN, headless). What healthy looks like before the differential breaks it.
 - **`breakfix-01-dns-cross-namespace/`** — a name that won't resolve. Tests the DNS naming scheme: a bare Service name used across namespaces returns NXDOMAIN; the fix is the qualified name.
 - **`breakfix-02-selector-mismatch/`** — a Service with an empty EndpointSlice. Tests reading `get endpointslice`: the Service exists and the Pods are Ready, but the selector matches none of them, so traffic goes nowhere.
 - **`breakfix-03-port-mismatch/`** — endpoints populated, connection still refused. Tests the `targetPort` vs listener distinction: the Service forwards to a port nothing is bound to.
@@ -191,11 +193,9 @@ The three scenarios walk the request-path diagram top to bottom — NXDOMAIN →
 ## Recap
 
 - **Pod-to-Pod already works.** Every Pod holds a routable IP and reaches every other Pod without translation. A Service exists because those IPs move, not because Pods cannot reach each other.
-- A Service is a **stable name and virtual IP in front of a changing set of Pods**. The set is defined by a label selector and materialized — for `Ready` Pods only — in an **EndpointSlice**. `get svc` proves it exists; `get endpointslice` proves it has somewhere to send traffic.
-- **A healthy-looking Service can route to nothing.** An empty EndpointSlice is a black hole, from a selector that matches no Pods or from Pods that aren't `Ready`. Same "the headline status lies" instinct as `Running` ≠ `Ready` — check the endpoints, not just `get svc`.
+- A Service is a **stable name and virtual IP in front of a changing set of Pods**, defined by a label selector and materialized — for `Ready` Pods only — in an **EndpointSlice**. So a healthy-looking Service can route to nothing: an empty EndpointSlice is a black hole, from a selector that matches no Pods or from Pods that aren't `Ready`. Same "the headline status lies" instinct as `Running` ≠ `Ready` — `get svc` proves the Service exists, the endpoints prove it has somewhere to send traffic.
 - **`port` is what clients hit; `targetPort` is the Pod port forwarded to; `containerPort` is documentation that opens nothing.** Endpoints can be perfect while `targetPort` points at a dead port — the connection is refused with a fully-populated EndpointSlice.
 - **Cluster DNS names Services as `<svc>.<ns>.svc.cluster.local`.** Short names resolve only inside the client's own namespace, because search domains are built from the client's namespace — qualify cross-namespace calls with `<svc>.<ns>`.
-- **`kubectl port-forward` skips DNS, the ClusterIP, and kube-proxy.** It streams to one Pod through the apiserver, so it can succeed while the Service is broken — which is exactly what makes it a useful probe.
 - **The connectivity differential:** NXDOMAIN = name didn't resolve (DNS); connection fails + empty endpoints = no backends (selector/readiness); connection refused + populated endpoints = wrong port (`targetPort`). The client error says it broke; the EndpointSlice and DNS answer say where.
 
 ## Production thinking

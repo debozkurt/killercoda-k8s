@@ -9,7 +9,7 @@ kubectl set env deployment/account-provisioner -n provisioning \
   BROKER_ENDPOINT=http://session-broker.media.svc.cluster.local/
 ```{{exec}}
 
-The fully-qualified name resolves from any namespace. `session-broker.media` would work too — the search list completes it — but the FQDN is the unambiguous choice for config that crosses namespaces.
+The fully-qualified name resolves from any namespace. `session-broker.media` works too for a glibc-based application image — the search list completes it — but the FQDN is the unambiguous choice for config that crosses namespaces, and it's the only form a busybox client resolves.
 
 Or by hand:
 
@@ -26,10 +26,9 @@ The fix here is a name, but the lesson is a convention: **cross-namespace calls 
 ## Verify
 
 ```bash
-kubectl get deploy account-provisioner -n provisioning \
-  -o jsonpath='{.spec.template.spec.containers[0].env}'; echo
+kubectl describe deploy account-provisioner -n provisioning
 kubectl run dns-test --rm -i --restart=Never --image=busybox:1.36 -n provisioning -- \
-  wget -qO- --timeout=3 http://session-broker.media.svc.cluster.local/
+  wget -qO- -T3 http://session-broker.media.svc.cluster.local/ | head -4
 ```{{exec}}
 
-`BROKER_ENDPOINT` now carries the qualified name, and the `wget` from `provisioning` returns nginx's HTML — the broker is reachable from the caller's namespace. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+The `Environment:` block now shows `BROKER_ENDPOINT` carrying the qualified name, and the `wget` from `provisioning` returns nginx's HTML — the broker is reachable from the caller's namespace. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.

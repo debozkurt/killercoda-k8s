@@ -23,10 +23,10 @@ The slice lists Pod addresses — and look at the **port** beside them: `:8080`.
 ## Find the port the Service forwards to
 
 ```bash
-kubectl get svc portal-ui -n admin-portal -o yaml | grep -A3 'ports:'
+kubectl describe svc portal-ui -n admin-portal
 ```{{exec}}
 
-`port: 80`, `targetPort: 8080`. The Service accepts traffic on 80 and forwards it to the Pod's `8080`. Now check what the container actually listens on — nginx serves `:80`. Prove it by hitting a Pod directly on 80:
+`Port: 80/TCP` and `TargetPort: 8080/TCP`. The Service accepts traffic on 80 and forwards it to the Pod's 8080. Now check what the container actually listens on — nginx serves `:80`. Prove it by hitting a Pod directly on 80:
 
 ```bash
 POD_IP=$(kubectl get pod -n admin-portal -l app=portal-ui -o jsonpath='{.items[0].status.podIP}')

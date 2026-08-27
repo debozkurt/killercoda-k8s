@@ -31,8 +31,10 @@ kubectl get pods -n call-routing -l app=route-engine
 They're `Running` and `1/1 READY` — so it's not readiness. That leaves the selector. Compare it to the Pods' actual labels:
 
 ```bash
-kubectl get svc route-engine -n call-routing -o yaml | grep -A1 selector
+kubectl describe svc route-engine -n call-routing
 kubectl get pods -n call-routing --show-labels
 ```{{exec}}
+
+`describe` puts both halves on one screen: the `Selector:` line is the query, and `Endpoints:` right below it is the answer — `<none>`.
 
 The Service selects `app: route-enginev2`; the Pods are labeled `app=route-engine`. The selector matches nothing, so the EndpointSlice is empty. Someone renamed a label on one side and not the other. On to the fix.

@@ -1,5 +1,5 @@
 {
-  "title": "M04 \u2014 Networking I: Services & DNS \u2014 Baseline",
+  "title": "M04 — Networking I: Services & DNS — Baseline",
   "description": "Tour the healthy in-cluster request path: a Service's ClusterIP, the EndpointSlice behind a selector, port vs targetPort, and DNS resolution from inside a Pod.",
   "details": {
     "intro": {
@@ -29,35 +29,20 @@
         "verify": "step4/verify.sh"
       },
       {
-        "title": "Cluster DNS from inside a Pod",
+        "title": "port, targetPort, and the listener",
         "text": "step5/text.md",
         "verify": "step5/verify.sh"
       },
       {
-        "title": "Inspect the Service dataplane",
+        "title": "Cluster DNS from inside a Pod",
         "text": "step6/text.md",
         "verify": "step6/verify.sh"
-      },
-      {
-        "title": "port, targetPort, and the listener",
-        "text": "step7/text.md",
-        "verify": "step7/verify.sh"
-      },
-      {
-        "title": "A backend is chosen per connection",
-        "text": "step8/text.md",
-        "verify": "step8/verify.sh"
-      },
-      {
-        "title": "What each path proves",
-        "text": "step9/text.md",
-        "verify": "step9/verify.sh"
       }
     ],
     "finish": {
       "text": "finish.md"
     },
-    "description": "Tour the healthy in-cluster request path: Pod-to-Pod first, then the Service, its EndpointSlice, cluster DNS, the node Service dataplane, the port fields, and what each access path proves."
+    "description": "Tour the healthy in-cluster request path: Pod-to-Pod first, then the Service, its EndpointSlice, the port fields, and cluster DNS."
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"

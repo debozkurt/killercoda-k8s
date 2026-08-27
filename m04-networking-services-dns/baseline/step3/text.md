@@ -5,34 +5,33 @@ A Service finds its Pods by **label selector**, exactly the way a ReplicaSet doe
 ## Read the backends behind the Service
 
 ```bash
-kubectl get endpointslice -n media \
-  -l kubernetes.io/service-name=session-broker
+kubectl get endpointslice -n media -l kubernetes.io/service-name=session-broker
 ```{{exec}}
 
-The `ENDPOINTS` column lists an address per endpoint, on the resolved target port. Add `-o yaml` to see each endpoint's `conditions` as well as its address:
+The `ENDPOINTS` column lists an address per endpoint, and `PORTS` the port they were resolved to. This is the list the Service dataplane forwards across. If it holds no addresses, the Service routes nowhere — no matter how healthy `get svc` looks.
+
+`describe` gives the same slice with each endpoint's readiness spelled out:
 
 ```bash
-kubectl get endpointslice -n media \
-  -l kubernetes.io/service-name=session-broker \
-  -o jsonpath='{.items[0].endpoints[*].conditions}'; echo
+kubectl describe endpointslice -n media -l kubernetes.io/service-name=session-broker
 ```{{exec}}
 
-This is the list the Service dataplane forwards across. If it holds no addresses, the Service routes nowhere — no matter how healthy `get svc` looks.
+Under `Endpoints:`, each entry has a `Conditions:` block reading `Ready: true`. That flag is what the dataplane filters on.
 
 ## See where that list comes from: selector meets labels
 
 ```bash
-kubectl get svc session-broker -n media -o yaml | grep -A1 selector
+kubectl describe svc session-broker -n media
 ```{{exec}}
 
-The selector reads `app: session-broker`. Now look at the Pods' labels:
+Two lines to read. `Selector: app=session-broker` is the query. `Endpoints:` is its answer, the same addresses you just listed — one command showing both sides. Now look at the Pods the selector is querying:
 
 ```bash
-kubectl get pods -n media -l app=session-broker --show-labels
+kubectl get pods -n media --show-labels
 ```{{exec}}
 
-The Pods carry `app=session-broker`, matching the selector — so the endpoints controller writes them into the EndpointSlice. **Only `Ready` Pods are included**: the same readiness gate from M01 doubles as load-balancer membership, so a Pod that fails its readiness probe is pulled from traffic without being killed.
+The `session-broker` Pods carry `app=session-broker`, matching the selector — so the endpoints controller writes them into the EndpointSlice. **Only `Ready` Pods are included**: the same readiness gate from M01 doubles as load-balancer membership, so a Pod that fails its readiness probe is pulled from traffic without being killed.
 
 ## The instinct to build
 
-`kubectl get svc` proves a Service *exists*. `kubectl get endpointslice` proves it has somewhere to send traffic. When connectivity is broken but the Pods look healthy, the endpoints listing is the first place to look — it's the discriminator the next scenarios turn on.
+`kubectl get svc` proves a Service *exists*. `kubectl describe svc` — or `get endpointslice` — proves it has somewhere to send traffic. When connectivity is broken but the Pods look healthy, that is the first place to look.

@@ -1,50 +1,65 @@
-# Step 6 — Inspect the Service dataplane
+# Step 6 — Cluster DNS from inside a Pod
 
-Step 2 reached the ClusterIP, and no process holds it. The node's Service dataplane is what recognises that address and forwards the traffic. Read the mode before you reach for a tool.
+A ClusterIP is stable, but nobody hardcodes 10.96.x.y. Cluster DNS lets you use names. **CoreDNS** runs in `kube-system`, and every Pod is configured to ask it.
 
-## Which dataplane is this cluster running?
-
-```bash
-kubectl -n kube-system get cm kube-proxy \
-  -o jsonpath='{.data.config\.conf}' | grep -E '^mode:'
-kubectl -n kube-system get pods -l k8s-app=kube-proxy -o wide
-```{{exec}}
-
-An empty `mode` means the upstream default, **iptables**. `nftables` is the newer upstream mode. Some clusters run no kube-proxy at all and use another dataplane, for example an eBPF implementation — then neither tool below applies and you inspect that implementation instead.
-
-## Find the Service in the kernel state
-
-For **iptables** mode:
+## Look at a Pod's resolver config
 
 ```bash
-SVC_IP=$(kubectl get svc session-broker -n media -o jsonpath='{.spec.clusterIP}')
-echo "ClusterIP: $SVC_IP"
-sudo iptables-save -t nat | grep "$SVC_IP"
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  cat /etc/resolv.conf
 ```{{exec}}
 
-For **nftables** mode the same lookup is:
+Three lines matter:
+
+- `nameserver` — the `kube-dns` Service ClusterIP, with CoreDNS behind it.
+- `search media.svc.cluster.local svc.cluster.local cluster.local` — the domains a short name is tried under. **Built from this Pod's namespace**, `media`.
+- `options ndots:5` — names with fewer than 5 dots are tried with the search domains appended first.
+
+## Resolve a Service by name
+
+Every Service gets a record at `<svc>.<ns>.svc.cluster.local`. From a Pod in `media`, the short name resolves because `media` is in the search list:
 
 ```bash
-sudo nft list ruleset 2>/dev/null | grep -A2 "$SVC_IP" || \
-  echo "no nftables ruleset — this node is not in nftables mode"
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  nslookup session-broker
 ```{{exec}}
 
-A rule matches the ClusterIP and jumps to a per-Service chain. That match *is* the ClusterIP. Nothing owns the address.
+The `Name:` line in the answer shows what the resolver actually asked for: `session-broker.media.svc.cluster.local`. The short name is just the FQDN with the search list filling in the rest, and `Address:` is the same ClusterIP `get svc` showed you.
 
-## Follow it to an endpoint
+## A cross-namespace lookup
+
+A caller outside `media` has to carry the namespace. This is the lookup `account-provisioner` does to reach the broker:
 
 ```bash
-CHAIN=$(sudo iptables-save -t nat | grep "$SVC_IP" \
-  | grep -oE 'KUBE-SVC-[A-Z0-9]+' | head -1)
-sudo iptables-save -t nat | grep -- "-A $CHAIN"
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n provisioning -- \
+  nslookup session-broker.media.svc.cluster.local
 ```{{exec}}
 
-The Service chain jumps to one `KUBE-SEP-…` chain per endpoint — the EndpointSlice, compiled into kernel state. With more than one endpoint you also see a `--probability` match: the per-connection selection from step 8.
+It resolves from `provisioning` because the name is complete. Application config often writes the shorter `session-broker.media` and lets the search list finish it — that works in glibc-based images, but busybox's resolver skips the search list for any name that already contains a dot, so probe Pods like this one need the full FQDN.
+
+## A headless Service answers a different shape
+
+`media-engine` governs a StatefulSet and sets `clusterIP: None`, so DNS hands back the Pods instead of a virtual IP:
 
 ```bash
-SEP=$(sudo iptables-save -t nat | grep -- "-A $CHAIN" \
-  | grep -oE 'KUBE-SEP-[A-Z0-9]+' | tail -1)
-sudo iptables-save -t nat | grep -- "-A $SEP"
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  nslookup media-engine
 ```{{exec}}
 
-The last line is a `DNAT --to-destination <PodIP>:<targetPort>`. Each node holds its own copy of this state, so one node can fail while the rest serve the same Service.
+Two `Address` lines, one per Ready Pod, and no ClusterIP anywhere. That is what `clusterIP: None` buys: the client sees the individual Pods and chooses one. Each Pod also has its own stable name:
+
+```bash
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  nslookup media-engine-0.media-engine.media.svc.cluster.local
+```{{exec}}
+
+That per-Pod name is why stateful systems use headless Services — a replica has to be addressable *as itself*, not as "one of the pool".
+
+## See the resolver itself
+
+```bash
+kubectl get pods -n kube-system -l k8s-app=kube-dns -o wide
+kubectl get svc kube-dns -n kube-system
+```{{exec}}
+
+CoreDNS is a normal Deployment fronted by a normal Service — when *all* DNS fails clusterwide, this is what you check. For now it's healthy. The catch you'll hit next: that short name only worked because the client shared the target's namespace.

@@ -18,14 +18,11 @@ The single through-line: **`connection refused` is a category, not a diagnosis. 
 No broken state. Expected output per step:
 
 - **Step 1 (Pods without a Service):** `kubectl get pods -n media -o wide` shows one IP per Pod. A `busybox` client `wget`'ing `http://<PodIP>/` gets the nginx welcome HTML with no Service, no DNS name, and no ClusterIP involved. Deleting the Pod produces a replacement with a **different** IP — the reason a stable identity is needed at all.
-- **Step 2 (Service identity & ClusterIP):** `kubectl get svc -n media session-broker` shows a `ClusterIP` and `PORT(S) 80/TCP`. A client `wget`'ing `http://session-broker.media` gets the same HTML — the Service answers, fronting a Pod whose own IP the client never sees.
-- **Step 3 (selector → EndpointSlice):** `kubectl get endpointslice -n media -l kubernetes.io/service-name=session-broker` lists the Pod address(es) on port 80. Teaching point: `get svc` proves existence, `get endpointslice` proves reachability.
-- **Step 4 (who owns the EndpointSlice):** scaling to two replicas adds an address with no edit to the Service. Deleting the slice gets it rebuilt, usually under a new name — the controller owns it, not you. Scaling back leaves one address.
-- **Step 5 (cluster DNS):** from a `busybox` Pod, `cat /etc/resolv.conf` shows `nameserver <kube-dns ClusterIP>`, a `search` list, and `options ndots:5`. `nslookup session-broker.media` resolves; the FQDN resolves to the same IP. A cross-namespace lookup needs the namespace, and `nslookup media-engine` on the headless Service returns the **Pod** addresses rather than one virtual IP.
-- **Step 6 (Service dataplane):** the kube-proxy ConfigMap's `mode` is empty, meaning the upstream iptables default. `iptables-save -t nat | grep <ClusterIP>` matches the ClusterIP and jumps to a `KUBE-SVC-…` chain, which jumps to a `KUBE-SEP-…` chain per endpoint, ending in `DNAT --to-destination <PodIP>:<targetPort>`. On an nftables-mode or eBPF cluster the tool differs; the state it programs is the point.
-- **Step 7 (`port` vs `targetPort`):** `session-broker` is `port: 80 → targetPort: 80`, and the endpoint shows the address on `:80`. `containerPort` is documentation — the listener is what matters. `kubectl port-forward svc/session-broker 8080:80 -n media` then a local `curl localhost:8080` also answers, without using the ClusterIP.
-- **Step 8 (per-connection selection):** with two replicas, ten separate `wget` calls land on both Pods — each connection was selected independently. One long-lived connection would stay on the backend chosen when it opened.
-- **Step 9 (what each path proves):** the Pod IP, the ClusterIP, and the DNS name all return the same page, each crossing one more layer than the last. A path that works proves only the layers it used.
+- **Step 2 (Service identity & ClusterIP):** `kubectl get svc session-broker -n media` shows a ClusterIP out of the Service range and PORT(S) 80/TCP. A client `wget`'ing `http://session-broker/` from a Pod in `media` gets the same HTML — the Service answers, fronting a Pod whose own IP the client never sees.
+- **Step 3 (selector → EndpointSlice):** `kubectl get endpointslice -n media -l kubernetes.io/service-name=session-broker` lists the Pod address(es) on port 80; `describe` on the slice adds each endpoint's `Ready: true`. `kubectl describe svc session-broker -n media` shows `Selector:` and `Endpoints:` together — the query and its answer. Teaching point: `get svc` proves existence, the endpoints prove reachability.
+- **Step 4 (who owns the EndpointSlice):** scaling to two replicas adds an address with no edit to the Service. Deleting the slice gets it rebuilt within a second or two, usually under a new name — the controller owns it, not you. Scaling back leaves one address.
+- **Step 5 (`port` vs `targetPort`):** `kubectl describe svc session-broker -n media` reads `Port: 80/TCP`, `TargetPort: 80/TCP`, and the endpoint on :80. `kubectl describe pod` shows the container's `Port: 80/TCP` — the `containerPort` declaration, which is documentation only; the listener is what matters. `kubectl port-forward svc/session-broker 8080:80 -n media` then a local `curl localhost:8080` also answers, using neither the ClusterIP nor cluster DNS.
+- **Step 6 (cluster DNS):** from a `busybox` Pod, `cat /etc/resolv.conf` shows `nameserver <kube-dns ClusterIP>`, a `search` list built from the Pod's own namespace, and `options ndots:5`. `nslookup session-broker` from `media` resolves, and the answer's `Name:` line shows the FQDN the search list produced. A cross-namespace lookup needs the namespace — from a busybox probe, the full FQDN (see the busybox caveat under break/fix 01). `nslookup media-engine` on the headless Service returns the **Pod** addresses rather than one virtual IP, and `media-engine-0.media-engine.media.svc.cluster.local` resolves a single replica by name.
 
 ---
 
@@ -39,36 +36,39 @@ No broken state. Expected output per step:
 
 ```bash
 # 1. The configured endpoint — the bare name is the clue
-kubectl get deploy account-provisioner -n provisioning -o yaml | grep -A2 BROKER_ENDPOINT
-#    value: http://session-broker/
+kubectl describe deploy account-provisioner -n provisioning
+#    Environment: BROKER_ENDPOINT: http://session-broker/
 
 # 2. Reproduce resolution from the CALLER's namespace — NXDOMAIN
 kubectl run dns-test --rm -i --restart=Never --image=busybox:1.36 -n provisioning -- \
   nslookup session-broker
-#    *** Can't find session-broker: No answer  /  NXDOMAIN
+#    ** server can't find session-broker...: NXDOMAIN
 
 # 3. Prove the Service exists — just in another namespace
 kubectl get svc session-broker -n media          # it's there, with a ClusterIP
 
-# 4. Resolve it qualified — works (search list completes <svc>.<ns>)
+# 4. Resolve it qualified — works
 kubectl run dns-test --rm -i --restart=Never --image=busybox:1.36 -n provisioning -- \
-  nslookup session-broker.media
-#    resolves to session-broker.media.svc.cluster.local → ClusterIP
+  nslookup session-broker.media.svc.cluster.local
+#    → the session-broker ClusterIP
 ```
+
+**busybox caveat, worth knowing:** `session-broker.media` is the form application config normally carries, and a glibc-based image resolves it — `ndots:5` means a 1-dot name gets the search domains appended first, which completes it to `session-broker.media.svc.cluster.local`. busybox does not do that: it queries any name containing a dot literally, so `nslookup session-broker.media` returns NXDOMAIN from a busybox probe even though the Service is reachable. Use the FQDN in throwaway busybox clients, or you'll misdiagnose a healthy name as broken.
 
 **Fix:** Qualify the name with the target namespace (or the full FQDN):
 
 ```bash
 kubectl set env deployment/account-provisioner -n provisioning \
   BROKER_ENDPOINT=http://session-broker.media.svc.cluster.local/
-# (session-broker.media also works — the search list completes it)
+# (session-broker.media also works for a glibc-based app image — the search list completes it)
 ```
 
 **Verify:**
 
 ```bash
+kubectl describe deploy account-provisioner -n provisioning     # Environment: the qualified name
 kubectl run dns-test --rm -i --restart=Never --image=busybox:1.36 -n provisioning -- \
-  wget -qO- --timeout=3 http://session-broker.media.svc.cluster.local/   # nginx HTML
+  wget -qO- -T3 http://session-broker.media.svc.cluster.local/ | head -4   # nginx HTML
 ```
 
 **What this scenario tests:** Understanding the Service DNS scheme and that short names are namespace-scoped. Self-grading questions:
@@ -100,8 +100,9 @@ kubectl get endpointslice -n call-routing \
   -l kubernetes.io/service-name=route-engine   # no endpoint addresses
 
 # 3. Why empty? Compare the selector to the Pods' labels
-kubectl get svc route-engine -n call-routing -o yaml | grep -A2 selector
-#    selector: { app: route-enginev2 }
+kubectl describe svc route-engine -n call-routing
+#    Selector:   app=route-enginev2
+#    Endpoints:  <none>          ← the query and its answer, one screen
 kubectl get pods -n call-routing --show-labels
 #    app=route-engine   (and the Pods are Running + Ready)
 ```
@@ -156,8 +157,8 @@ kubectl run net-test --rm -i --restart=Never --image=busybox:1.36 -n admin-porta
 #    wget: can't connect ... Connection refused
 
 # 3. Read the Service's targetPort and compare to the real listener
-kubectl get svc portal-ui -n admin-portal -o yaml | grep -A3 ports
-#    port: 80   targetPort: 8080
+kubectl describe svc portal-ui -n admin-portal
+#    Port: 80/TCP   TargetPort: 8080/TCP   Endpoints: <PodIP>:8080
 # nginx serves on 80 — prove it directly against the Pod:
 kubectl run net-test --rm -i --restart=Never --image=busybox:1.36 -n admin-portal -- \
   sh -c 'wget -qO- --timeout=3 http://<a-portal-ui-pod-ip>:80 && echo OK-on-80'

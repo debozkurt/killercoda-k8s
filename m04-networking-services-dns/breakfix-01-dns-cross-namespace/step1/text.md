@@ -5,10 +5,10 @@ The Pod is `Running`, so don't look for a crash. The failure is in name resoluti
 ## Read the endpoint it's configured to call
 
 ```bash
-kubectl get deploy account-provisioner -n provisioning -o yaml | grep -A2 BROKER_ENDPOINT
+kubectl describe deploy account-provisioner -n provisioning
 ```{{exec}}
 
-The value is `http://session-broker/` — a **bare** Service name, no namespace. Hold that thought.
+Read the `Environment:` block in the container section. `BROKER_ENDPOINT` is set to `http://session-broker/` — a **bare** Service name, no namespace. Hold that thought.
 
 ## Reproduce the lookup from the caller's namespace
 
@@ -31,7 +31,9 @@ There it is, with a normal ClusterIP. The Service isn't down; the *name* the cal
 
 ```bash
 kubectl run dns-test --rm -i --restart=Never --image=busybox:1.36 -n provisioning -- \
-  nslookup session-broker.media
+  nslookup session-broker.media.svc.cluster.local
 ```{{exec}}
 
-Now it resolves — `session-broker.media` lets the search list complete it to `session-broker.media.svc.cluster.local`. The problem was never the Service; it was an unqualified name. On to the fix.
+Now it resolves, from the same namespace that just returned NXDOMAIN. The problem was never the Service; it was an unqualified name.
+
+(`session-broker.media` is the shorter form application config normally uses, and glibc-based images resolve it — the search list completes it. Don't use it from a busybox probe: busybox skips the search list for any name that already contains a dot, so it would return NXDOMAIN here and tell you nothing.) On to the fix.
