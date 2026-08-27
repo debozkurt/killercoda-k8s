@@ -22,7 +22,11 @@ kubectl patch deployment metrics-server -n kube-system --type=json \
   -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]' 2>/dev/null
 
 # Pre-label a worker node so nodeAffinity workloads (transcoder) schedule cleanly.
-WORKER=$(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels.node-role\.kubernetes\.io/control-plane}{"\n"}{end}' | awk '$2=="" {print $1; exit}')
+# Never the control-plane node: its control-plane label carries an EMPTY value,
+# so a "field is blank" test matches it. Select by label negation instead.
+WORKER=$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+[ -z "$WORKER" ] && WORKER=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
 kubectl label node "$WORKER" disktype=ssd --overwrite 2>/dev/null
 
 # ============================================================

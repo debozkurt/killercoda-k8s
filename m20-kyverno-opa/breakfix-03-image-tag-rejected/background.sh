@@ -34,7 +34,11 @@ curl -sL https://github.com/derailed/k9s/releases/download/v0.32.7/k9s_Linux_amd
   | tar xz -C /usr/local/bin k9s 2>/dev/null
 
 # Label the worker node disktype=ssd so node-affinity workloads schedule cleanly
-WORKER=$(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels.node-role\.kubernetes\.io/control-plane}{"\n"}{end}' | awk '$2=="" {print $1; exit}')
+# Never the control-plane node: its control-plane label carries an EMPTY value,
+# so a "field is blank" test matches it. Select by label negation instead.
+WORKER=$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+[ -z "$WORKER" ] && WORKER=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
 kubectl label node "$WORKER" disktype=ssd --overwrite >/dev/null 2>&1
 
 # >>> M20 setup: install the Kyverno policy engine (the admission-control front door).
