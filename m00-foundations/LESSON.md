@@ -15,13 +15,13 @@
 
 The most common reason SREs flounder with Kubernetes is reaching for commands before having a mental model. Memorizing `kubectl get pods` without knowing why `-A` matters. Running `describe` without knowing where Events come from. Editing a Deployment and being surprised when a controller they didn't know existed creates a new ReplicaSet.
 
-You operate dozens of clusters at Polyphone — across regions and environment tiers — built and changed by people who aren't always still on the team. The skill that compounds is not memorization. It's the instinct to orient yourself fast, ask the cluster what it knows, and read what it tells you. This module is short on commands and long on concepts; every later module assumes you finished it.
+You operate dozens of Polyphone clusters, built and changed by people who aren't always still on the team. The skill that compounds is not memorization. It's the instinct to orient yourself fast, ask the cluster what it knows, and read what it tells you. This module is short on commands and long on concepts; every later module assumes you finished it.
 
 ## Scope
 
 **Covers:** cluster anatomy (control plane vs nodes, the API server's role), the `spec` / `status` resource model, the canonical diagnostic loop (`get → describe → events → logs`), `kubectl` fluency for the everyday verbs and flags, reading the API with jsonpath / custom-columns / jq, and the most common pitfalls around context and namespace state.
 
-**Doesn't cover:** writing Deployments or other workload objects (M01), Service/networking depth (M04), configuration via ConfigMaps/Secrets (M03), security/RBAC (M10), CRDs and operators (M08). The breakfix scenarios touch a few of these primitives lightly so you can diagnose; the full mechanics come in later modules.
+**Doesn't cover:** writing Deployments or other workload objects (M01), Service/networking depth (M04), configuration via ConfigMaps/Secrets (M03), security/RBAC (M10), CRDs and operators (M08). The breakfix scenarios touch these lightly so you can diagnose; the mechanics come later.
 
 **Assumes:** a container is a process-level isolation primitive; you're comfortable with basic Unix shell (`cd`, `ls`, `grep`, pipes, backgrounding with `&`); you've at least heard of Kubernetes as a container orchestrator. If you've never run `docker run`, start with a containers primer first.
 
@@ -36,10 +36,11 @@ You operate dozens of clusters at Polyphone — across regions and environment t
 | **API server** (`kube-apiserver`) | The single entry point to the cluster. Reads and writes etcd. Authenticates and authorizes every request. |
 | **etcd** | The cluster's database. A distributed key-value store holding desired and observed state of every object. |
 | **kubelet** | The agent on each node that talks to the API server and instructs the container runtime. |
+| **CNI plugin** | The node component that puts each Pod on the network and gives it its IP. The kubelet calls it when a Pod starts. |
 | **Controller** | A program that watches the API for objects of a certain kind and acts to make their `status` match their `spec`. |
 | **Object** (a.k.a. **resource**) | An addressable thing in the cluster: Pod, Deployment, Service, Node, etc. |
 | **Kind** | The type of an object — `Pod`, `Deployment`, `Service`. |
-| **Label / Selector** | A `key=value` tag attached to any object (label), and the filter syntax that finds objects by those tags (selector). Services, Deployments, and NetworkPolicies all use selectors to find the Pods they care about. |
+| **Label / Selector** | A `key=value` tag on an object (label), and the filter that finds objects by those tags (selector). Services, Deployments, and NetworkPolicies all use selectors to find their Pods. |
 | **Namespace** | A logical grouping inside a cluster. Most objects are namespaced; a few (Nodes, PersistentVolumes, ClusterRoles) are cluster-scoped. |
 | **Spec** | The desired state declared on an object — what you want. |
 | **Status** | The observed state reported by controllers — what is. |

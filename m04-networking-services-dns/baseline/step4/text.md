@@ -22,10 +22,13 @@ Two addresses in `ENDPOINTS` now. Nobody edited the Service, and nobody edited t
 
 ```bash
 kubectl delete endpointslice -n media -l kubernetes.io/service-name=session-broker
+sleep 5
 kubectl get endpointslice -n media -l kubernetes.io/service-name=session-broker
 ```{{exec}}
 
-It's back within a second or two, usually under a new name. The **EndpointSlice controller** rebuilt it from the Service's selector and the `Ready` Pods — the same reason hand-editing an address never sticks. (If the listing came back empty, run it once more; you caught the gap before the controller wrote the replacement.)
+It's back, under a new name, with the same addresses. The **EndpointSlice controller** rebuilt it from the Service's selector and the `Ready` Pods — the same reason hand-editing an address never sticks.
+
+The `sleep` is the point, not a workaround: reconciliation is a loop, not a transaction. Read a controller's output too fast and you see the gap rather than the result. If the listing is still empty, run the `get` again — or watch it happen with `kubectl get endpointslice -n media -w` and Ctrl-C when the new slice appears.
 
 ## Put it back
 

@@ -24,6 +24,8 @@ kubectl get pods -n admin-portal -o wide
 
 Now you see which node each pod is on, and its pod IP.
 
+That IP comes from the **CNI plugin** — the node component that attaches a Pod to the network. The kubelet calls it when the Pod starts, and it hands back one IP the Pod's containers share; every Pod reaches every other Pod at that address, on any node, with nothing translating it. The IP lasts exactly as long as the Pod, which is why M04 puts a Service in front of it.
+
 ## 2. describe — what does the API server know?
 
 ```bash
