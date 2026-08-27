@@ -10,20 +10,19 @@
 - Read a Service's real backend set with `kubectl describe svc` or `kubectl get endpointslice`, and recognize the empty-endpoints black hole
 - Distinguish `port`, `targetPort`, and `containerPort`, and diagnose the connection-refused you get when `targetPort` points at nothing
 - Resolve a Service by DNS the way a Pod does — short name, `<svc>.<ns>`, and the FQDN — and explain why a bare name fails across namespaces
-- Reach a Service five ways — Pod to Pod, ClusterIP, NodePort, LoadBalancer, and `kubectl port-forward` — and say which layers each one skips
 - Work the connectivity differential: split a failed request into *name didn't resolve* vs *no endpoints* vs *wrong port*
 
 ## Why it matters
 
-Pods are disposable. A Deployment rolls, a node drains, an HPA scales, and the Pod IPs you had a minute ago are gone. No application could function while tracking those IPs. The Service is the abstraction that makes the platform usable: a name and an IP that don't move in front of a backend set that changes continuously. Every call between Polyphone components goes through a Service and a DNS lookup. When that plumbing breaks, the failure is rarely where you first look.
+Pods are disposable. A Deployment rolls, a node drains, an HPA scales, and the Pod IPs you had a minute ago are gone — no application could function while tracking them. Every call between Polyphone components therefore goes through a Service and a DNS lookup. When that plumbing breaks, the failure is rarely where you first look.
 
 The trap is that the failure is quiet and the top-line objects look healthy. `kubectl get svc` shows a ClusterIP. `kubectl get pods` shows everything `Running` and `Ready`. The request still hangs or comes back refused, because the one thing that carries traffic — the EndpointSlice — is empty, or points at a port nothing listens on, or the client asked for a name that never resolved. An SRE who knows the request path checks the endpoints and the DNS answer first. One who doesn't restarts Pods that were never the problem.
 
 ## Scope
 
-**Covers:** the flat Pod-network model a Service sits on top of, the Service object and its types (ClusterIP, NodePort, LoadBalancer, ExternalName, and headless), how a selector becomes an EndpointSlice, the `port`/`targetPort`/`containerPort` distinction, the node datapath a request crosses (veth pair, kube-proxy rewrite, node hop, connection tracking), cluster DNS via CoreDNS (the `<svc>.<ns>.svc.cluster.local` scheme, search domains, and `ndots`), the five access paths including `kubectl port-forward`, and the name-resolves / has-endpoints / port-answers connectivity differential.
+**Covers:** the flat Pod-network model a Service sits on, the Service object and its types (ClusterIP, NodePort, LoadBalancer, ExternalName, headless), how a selector becomes an EndpointSlice, the `port`/`targetPort`/`containerPort` distinction, the node datapath (network namespace, veth pair, kube-proxy rewrite, connection tracking), cluster DNS via CoreDNS, the five access paths, and the name-resolves / has-endpoints / port-answers differential.
 
-**Doesn't cover:** NetworkPolicy (default-allow today; locking traffic down is M14), Ingress and HTTP routing from outside the cluster → M14, service mesh / sidecar proxies and mesh mTLS → M15, CNI internals and the host-networking escape hatches — `hostNetwork`, `hostPort`, secondary Pod interfaces → M22, and external load balancer provisioning specifics (cloud-dependent). This module is the in-cluster L4 path: name to Pod.
+**Doesn't cover:** NetworkPolicy and Ingress → M14 (traffic is default-allow here), service mesh and mesh mTLS → M15, CNI internals and the host-networking escape hatches (`hostNetwork`, `hostPort`, secondary interfaces) → M22, and cloud-specific load balancer provisioning. This module is the in-cluster L4 path: name to Pod.
 
 **Assumes:** M00 (`get → describe → events → logs`; spec vs status), M01 (Pods, Deployments, labels, readiness — a Pod can be `Running` but not `Ready`).
 
@@ -34,14 +33,15 @@ The trap is that the failure is quiet and the top-line objects look healthy. `ku
 | **Service** | A namespaced API object giving a stable identity (a virtual IP and a DNS name) to a logical set of Pods. The set is defined by a label selector. |
 | **ClusterIP** | The default Service type: a virtual IP reachable only inside the cluster. The IP is stable for the Service's life and backed by no single Pod. |
 | **selector** | The set of labels on a Service that defines which Pods are its backends. Matching is identical to a ReplicaSet's selector (M01). |
-| **Endpoints / EndpointSlice** | The derived object listing a Service's real backend addresses (Pod IP + port). EndpointSlice is the modern form; `kubectl get endpointslice` still shows the older one. **Only `Ready` Pods appear.** |
+| **Endpoints / EndpointSlice** | The derived object listing a Service's real backend addresses (Pod IP + port). `Endpoints` is the original form — one object holding every backend. **EndpointSlice** is the modern one, which shards a large backend set across several objects so a single Pod change doesn't rewrite the whole list. `kubectl get endpoints` reads the old API, `kubectl get endpointslice` the new. **Only `Ready` Pods appear.** |
 | **kube-proxy** | The node agent that watches Services and EndpointSlices and programs the node's forwarding state, so ClusterIP traffic reaches a backend. Some clusters use another dataplane. |
 | **`port`** | The port the Service listens on — what clients connect to (`<svc>:<port>`). |
 | **`targetPort`** | The Pod port the Service forwards to. Defaults to `port` if omitted. Can be a number or a named port. |
 | **`containerPort`** | A port the container declares in its Pod spec. Informational — it does **not** open or close anything; the process listens (or doesn't) regardless. |
 | **headless Service** | A Service with `clusterIP: None`. No virtual IP and no kube-proxy load-balancing; DNS returns the Pod IPs directly. Used for StatefulSets and client-side discovery. |
-| **NodePort / LoadBalancer / ExternalName** | Types that expose a Service on eligible node addresses, request an external load balancer, or alias to an external DNS name. |
+| **NodePort / LoadBalancer / ExternalName** | Exposure types layered outward from ClusterIP. **NodePort** keeps the ClusterIP and also opens the Service on one port on every node, so traffic from outside can reach it. **LoadBalancer** keeps both of those and asks the cloud provider for an external load balancer in front of the node ports. **ExternalName** proxies nothing at all — it is a CNAME to a DNS name outside the cluster. |
 | **CNI plugin** | The component that attaches each Pod to the node network and carries Pod traffic between nodes. The kubelet calls it when a Pod starts. |
+| **network namespace** | The kernel isolation giving a Pod its own interfaces, routing table, and port space. Every container in the Pod shares one, so they reach each other on `localhost` and cannot both bind the same port. |
 | **veth pair** | A virtual cable with one end in the Pod's network namespace and the other in the node's. Every packet a Pod sends crosses it. |
 | **connection tracking** | The kernel's record of an open connection, including the rewrite kube-proxy applied to it. It reverses that rewrite on the reply. |
 | **`kubectl port-forward`** | A stream from your workstation to one Pod, carried by the apiserver and the kubelet. It uses no ClusterIP and no kube-proxy rule. |
@@ -50,9 +50,7 @@ The trap is that the failure is quiet and the top-line objects look healthy. `ku
 
 ## Mental model
 
-A request to a Service travels a fixed path, and each hop is owned by a different component. **CoreDNS** resolves the name into a ClusterIP. **kube-proxy** translates that ClusterIP into a backend address drawn from the Service's **EndpointSlice**, which the **EndpointSlice controller** populates from the Pods that match the **selector** and are **Ready**. The request lands on that Pod's **`targetPort`**, where a process is — or isn't — listening.
-
-You write one field of that chain; named components write the rest.
+A request to a Service travels a fixed path, and each hop is owned by a different component. You write one field of that chain; named components write the rest.
 
 | On the path | Written by | Written from |
 |-------------|------------|--------------|
@@ -90,6 +88,8 @@ The three red leaves are the three ways the path breaks, in the order a request 
 
 Start one layer below the Service, because that layer already works. Kubernetes gives every Pod one IP address, shared by its containers, reachable from every other Pod in the cluster — including Pods on other nodes<sup><a href="https://kubernetes.io/docs/concepts/cluster-administration/networking/">[8]</a></sup>. Neither side's address is translated on the way, so a server sees the client's real Pod IP. The **CNI plugin** provides this: the kubelet calls it when a Pod starts, and the plugin attaches the Pod to the node and carries packets between nodes.
 
+That no-translation guarantee stops at the cluster edge. Traffic leaving for an external endpoint is **source-NATed to the node's IP**, so the far side sees a node, not a Pod. It's why a partner's IP allowlist has to name your nodes, why external audit logs show node addresses, and why a Pod-level identity can't be inferred from an outbound connection.
+
 So Pod-to-Pod calls need no Service at all. What Pod IPs cannot do is hold still. A rollout replaces a Pod and its IP is gone; an autoscaler adds three addresses nobody configured. No client can keep a Pod IP as configuration. **A Service is not a connectivity layer. It is a naming and load-balancing layer on top of one that already connects.** Keep that separation when a call fails: ask whether the name, the backend list, or the port broke — not whether the network is up.
 
 ### A Service is a stable identity for a moving target
@@ -113,9 +113,9 @@ spec:
 
 ### Ports: `port` vs `targetPort` vs `containerPort`, and what kube-proxy does
 
-Three port fields show up around a Service, and conflating them explains most of "the endpoints are right but it still won't connect." **`port`** is what the Service listens on — the number clients use. **`targetPort`** is the Pod port the Service forwards to; omit it and it defaults to `port`. **`containerPort`** in the Pod spec is documentation: it states intent and opens nothing, because the process listens on whatever it listens on<sup><a href="https://kubernetes.io/docs/concepts/services-networking/service/#defining-a-service">[1]</a></sup>. The failure mode: a Service whose `targetPort` points at a port no process is listening on. The EndpointSlice is fully populated (the selector matched, the Pods are Ready), the name resolves, the connection is delivered to the Pod — and the Pod's kernel sends a RST because nothing is bound there. The client sees `connection refused`, and the endpoints look perfect, which is exactly why this one sends people in circles.
+Three port fields show up around a Service, and conflating them explains most of "the endpoints are right but it still won't connect." Vocabulary above defines each. What matters here is the division of labour: only **`targetPort`** decides *where* traffic is delivered, and only the **process** decides whether anything answers there. `containerPort` states intent and opens nothing<sup><a href="https://kubernetes.io/docs/concepts/services-networking/service/#defining-a-service">[1]</a></sup>. The failure mode: a Service whose `targetPort` points at a port no process is listening on. The EndpointSlice is fully populated (the selector matched, the Pods are Ready), the name resolves, the connection is delivered to the Pod — and the Pod's kernel sends a RST because nothing is bound there. The client sees `connection refused`, and the endpoints look perfect, which is exactly why this one sends people in circles.
 
-Once a Service has endpoints, the **Service dataplane** on each node is what makes the ClusterIP work. On a normal cluster that is **kube-proxy**: it watches Services and EndpointSlices and *programs* the node's kernel — upstream, with nftables or iptables — so a packet sent to `ClusterIP:port` is redirected to one of the backend Pod addresses at its `targetPort`, selected per connection. kube-proxy is not a userspace proxy handling each packet; the kernel carries the traffic<sup><a href="https://kubernetes.io/docs/reference/networking/virtual-ips/">[3]</a></sup>. The ClusterIP itself is virtual: nothing holds it, no interface answers ARP for it; it exists only as forwarding state on the nodes running the dataplane. With **zero** usable endpoints there is nothing to forward to, and the client sees a refusal, a drop, or a timeout depending on the mode. The diagnosis does not depend on which: the EndpointSlice, not the client error, tells you why.
+Once a Service has endpoints, the **Service dataplane** on each node is what makes the ClusterIP work. On a normal cluster that is **kube-proxy**: it watches Services and EndpointSlices and *programs* the node's kernel — upstream, with nftables or iptables — so a packet sent to `ClusterIP:port` is redirected to one of the backend Pod addresses at its `targetPort`, selected per connection. kube-proxy is not a userspace proxy handling each packet; the kernel carries the traffic<sup><a href="https://kubernetes.io/docs/reference/networking/virtual-ips/">[3]</a></sup>. The ClusterIP itself is virtual: nothing holds it, no interface answers ARP for it; it exists only as forwarding state on the nodes running the dataplane. With **zero** usable endpoints there is nothing to forward to, and the client sees a refusal, a drop, or a timeout depending on the mode — which is why the EndpointSlice, not the client error, is what tells you why.
 
 Zooming into one node makes that rewrite concrete. A packet leaves the client Pod through a **veth pair** — a virtual cable with one end in the Pod's network namespace and the other in the node's<sup><a href="https://kubernetes.io/docs/concepts/cluster-administration/networking/">[8]</a></sup>. In the node's network stack it meets kube-proxy's rules, which choose one backend from the EndpointSlice and rewrite the destination from `ClusterIP:port` to `PodIP:targetPort`. When that Pod sits on another node, the CNI routes or encapsulates the packet across. The reply needs no rule of its own: the kernel's **connection tracking** remembers the rewrite and reverses it, so the client sees an answer from the ClusterIP it dialed<sup><a href="https://kubernetes.io/docs/reference/networking/virtual-ips/">[3]</a></sup>. Two consequences follow. A backend is chosen once per connection, not per packet, so a backend dying mid-connection breaks that connection and not the next. And the state is per node, which is why one node can fail while the others serve the same Service.
 
@@ -124,7 +124,7 @@ Zooming into one node makes that rewrite concrete. A packet leaves the client Po
 
 Upstream kube-proxy has two modes worth knowing<sup><a href="https://kubernetes.io/docs/reference/networking/virtual-ips/">[3]</a></sup>. **iptables**, the long-time default, writes one chain per Service and matches linearly, so its rule-update cost grows with Service count. **nftables** is its successor, addressing the same limits inside the nft framework. An **IPVS** mode also exists; it is legacy and deprecated, so do not build the mental model around it. Some networking implementations replace kube-proxy with their own dataplane, for example an eBPF one; the objects stay identical and only the tooling changes.
 
-There is no "Service process" to restart and no host that owns the ClusterIP. On a node that cannot reach a Service, check the mode first, then read that mode's state — `iptables-save | grep <clusterip>`, or `nft list ruleset`.
+There is no "Service process" to restart and no host that owns the ClusterIP. On a node that can't reach a Service, read the mode first, then that mode's state — `iptables-save | grep <clusterip>`, or `nft list ruleset`. On a kube-proxy-free cluster, neither applies; you inspect the plugin's own state instead.
 
 </details>
 
@@ -147,9 +147,9 @@ One caveat costs real debugging time: `ndots` is a glibc resolver feature, and b
 
 A normal Service's DNS name returns one ClusterIP and the dataplane balances behind it, so the client never knows which Pod it got. Two cases need something else, and both bend DNS instead.
 
-A **headless Service** (`clusterIP: None`) has no virtual IP and no kube-proxy involvement. Its DNS name resolves directly to the set of backing Pod IPs (all of them, as multiple A records), and — when it backs a StatefulSet — each Pod also gets a *stable per-Pod* name, `<pod>.<svc>.<ns>.svc.cluster.local`<sup><a href="https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/">[4]</a></sup>. That per-Pod identity is what stateful systems need for leader election and replication. M07 builds on it; here it is enough to read `clusterIP: None` as "DNS returns Pods, not a VIP."
+A **headless Service** (`clusterIP: None`) has no virtual IP and no dataplane involvement. Its name resolves straight to every backing Pod IP, as multiple A records, and — when it backs a StatefulSet — each Pod also gets a *stable per-Pod* name, `<pod>.<svc>.<ns>.svc.cluster.local`<sup><a href="https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/">[4]</a></sup>. That per-Pod identity is what stateful systems need for leader election and replication (M07). Read `clusterIP: None` as "DNS returns Pods, not a VIP."
 
-An **ExternalName** Service is the other bend: no selector, no endpoints, no proxying — just a CNAME from a cluster name to an external one (`spec.externalName: postgres.prod.example.com`). It gives in-cluster clients a stable internal name for something outside the cluster. It confuses people because `kubectl get endpointslice` on it is empty *by design* — resolution happens in DNS, not in a backend set.
+An **ExternalName** Service is the other bend — a CNAME to an external name (`spec.externalName: postgres.prod.example.com`), giving in-cluster clients a stable internal name for something outside. It confuses people because `kubectl get endpointslice` on it is empty *by design*: resolution happens in DNS, not in a backend set.
 
 </details>
 
@@ -165,7 +165,7 @@ Where a request starts decides which parts of the path can break — and a test 
 | LoadBalancer | outside the cluster | an external LB, then a NodePort | cluster DNS |
 | `kubectl port-forward` | your workstation | the apiserver, the kubelet, one Pod | DNS, ClusterIP, kube-proxy |
 
-`kubectl port-forward svc/session-broker 8080:80 -n media` looks like a test of the Service, and it is not. It uses the Service only to select **one** Pod, then streams to that Pod through the apiserver and the kubelet<sup><a href="https://kubernetes.io/docs/tasks/access-application-cluster/port-forward-access-application-cluster/">[9]</a></sup> — touching neither cluster DNS, the ClusterIP, nor kube-proxy's rules. That makes it a precise probe. If port-forward reaches the application and a ClusterIP call to the same Service does not, the fault is in the Service layer: the selector, the EndpointSlice, or `targetPort`. Reverse the result and the fault is inside the container.
+`kubectl port-forward svc/session-broker 8080:80 -n media` looks like a test of the Service, and it is not. It uses the Service only to select **one** Pod, then streams to that Pod through the apiserver and the kubelet<sup><a href="https://kubernetes.io/docs/tasks/access-application-cluster/port-forward-access-application-cluster/">[9]</a></sup> — touching neither cluster DNS, the ClusterIP, nor kube-proxy's rules. That makes it a precise probe: if port-forward reaches the application and a ClusterIP call to the same Service does not, the fault is in the Service layer. Reverse the result and it's inside the container.
 
 ## Hands-on
 
