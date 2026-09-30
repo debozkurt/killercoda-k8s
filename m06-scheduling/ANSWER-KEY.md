@@ -54,15 +54,19 @@ kubectl describe nodes | grep -A6 Allocatable
 
 ```bash
 kubectl set resources deployment/stream-analyzer -n analytics \
-  --requests=memory=256Mi --limits=memory=512Mi
+  --requests=cpu=10m,memory=256Mi \
+  --limits=cpu=200m,memory=512Mi
 # or: kubectl edit deployment stream-analyzer -n analytics
 ```
+
+Set the full resource contract rather than memory alone. The baseline intentionally packs one worker, and older lab sessions gave `stream-analyzer` a `100m` CPU request. In those sessions, fixing only memory reveals a second `FailedScheduling` reason: `Insufficient cpu`. A rollout restart does not repair that request.
 
 **Verify:**
 
 ```bash
+kubectl rollout status deployment/stream-analyzer -n analytics --timeout=120s
 kubectl get deploy stream-analyzer -n analytics            # 1/1 available
-kubectl describe pod -n analytics -l app=stream-analyzer   # last event: Scheduled
+kubectl describe pod -n analytics -l app=stream-analyzer   # running Pod includes a Scheduled event
 ```
 
 **What this scenario tests:** The reflex that a `Pending` Pod means "read the event," not "read the logs." Self-grading questions:

@@ -704,7 +704,8 @@ done
 #     FailedScheduling event ("Insufficient memory"). The image, the app, and the
 #     nodes are all fine — the request simply doesn't fit anywhere. Deployed after the
 #     fleet wait so it doesn't stall the healthy-fleet readiness check.
-#     Fix = correct the request (and the matching limit) back to Mi.
+#     Fix = restore the intended resource contract. Keep the CPU request small
+#     because the single worker is intentionally packed by the baseline fleet.
 cat <<'EOF' | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -724,7 +725,7 @@ spec:
           image: nginx:1.25
           ports: [{ containerPort: 80 }]
           resources:
-            requests: { cpu: 100m, memory: 256Gi }   # MUTATED (baseline: 256Mi) — 256Gi exceeds every node's Allocatable -> Pending
+            requests: { cpu: 10m, memory: 256Gi }    # MUTATED memory (baseline: 256Mi) — 256Gi exceeds every node's Allocatable -> Pending
             limits:   { cpu: 200m, memory: 256Gi }    # MUTATED (baseline: 512Mi) — raised so requests<=limits stays valid
 EOF
 # <<< breakfix-01 mutation ends

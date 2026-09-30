@@ -280,37 +280,16 @@
   <!-- 4 — FILTER CASCADE -->
   <section class="slide">
     <div class="wrap">
-      <h2>How the scheduler filters nodes</h2>
-      <p class="sub">Each node goes through the same checks in order. If the Pod does not specify a constraint, that check passes.</p>
-      <div class="cascade">
-        <div class="col">
-          <div class="node"><div class="step-n">FILTER 1</div><div class="t">Taints</div><div class="s">Can the Pod tolerate this node's taints?</div></div>
-          <div class="down">no &#8595;</div>
-          <div class="node bad"><div class="s">had untolerated taint</div></div>
-        </div>
-        <div class="arrow"><span class="lbl">yes</span>&#8594;</div>
-        <div class="col">
-          <div class="node"><div class="step-n">FILTER 2</div><div class="t">Node selection</div><div class="s">Does the node satisfy the Pod's placement requirements?</div></div>
-          <div class="down">no &#8595;</div>
-          <div class="node bad"><div class="s">didn't match Pod's node affinity/selector</div></div>
-        </div>
-        <div class="arrow"><span class="lbl">yes</span>&#8594;</div>
-        <div class="col">
-          <div class="node"><div class="step-n">FILTER 3</div><div class="t">Resources</div><div class="s">Does the node have enough CPU and memory?</div></div>
-          <div class="down">no &#8595;</div>
-          <div class="node bad"><div class="s">Insufficient cpu / memory</div></div>
-        </div>
-        <div class="arrow"><span class="lbl">yes</span>&#8594;</div>
-        <div class="col">
-          <div class="node"><div class="step-n">FILTER 4</div><div class="t">Spread</div><div class="s">Does placing the Pod here satisfy its spread rules?</div></div>
-          <div class="down">no &#8595;</div>
-          <div class="node bad"><div class="s">didn't match pod anti-affinity rules</div></div>
-        </div>
-        <div class="arrow"><span class="lbl">yes</span>&#8594;</div>
-        <div class="col">
-          <div class="node good"><div class="step-n">FEASIBLE</div><div class="t">Scored, then bound</div><div class="s">the highest-scoring node wins</div></div>
-        </div>
-      </div>
+      <h2>Common node filtering checks</h2>
+      <p class="sub" style="margin-bottom:1.3rem">These are common reasons a node becomes infeasible. The table groups them by purpose, not execution order.</p>
+      <table>
+        <tr><th>Check</th><th>What the node must satisfy</th><th>When it matters</th></tr>
+        <tr><td>Taints</td><td class="muted">The Pod tolerates the node's blocking taints.</td><td class="muted">The node has <code>NoSchedule</code> or <code>NoExecute</code> taints.</td></tr>
+        <tr><td>Node selection</td><td class="muted">The node matches required selectors and node affinity.</td><td class="muted">The Pod or scheduler profile adds placement requirements.</td></tr>
+        <tr><td>Resources</td><td class="muted">The node has enough available CPU and memory for the Pod's requests.</td><td class="muted">The Pod requests resources.</td></tr>
+        <tr><td>Pod placement</td><td class="muted">The placement satisfies required anti-affinity and hard spread constraints.</td><td class="muted">The Pod defines required rules.</td></tr>
+      </table>
+      <div class="note" style="margin-top:1.2rem"><p>For each node, filter plugins run in the configured order and stop after the first rejection. Nodes may be checked concurrently.</p></div>
     </div>
   </section>
 
@@ -329,8 +308,8 @@
   <span class="o">preemption: 0/2 nodes are available: ...</span>
       </div>
       <ul style="margin-top:1.4rem">
-        <li><code>0/2</code>: no node survived the filters.</li>
-        <li>Each entry counts the nodes that stopped at one filter. The scheduler sorts the entries as text, not by node.</li>
+        <li><code>0/2</code>: no evaluated node passed every required filter.</li>
+        <li>Each entry groups nodes rejected for the same reason. The text order does not show plugin order.</li>
         <li>The <code>preemption:</code> clause says whether evicting a lower-priority Pod would help. Stop reading before it.</li>
       </ul>
       <div class="note warn" style="margin-top:1rem"><p>A kubeadm control-plane node carries a <code>NoSchedule</code> taint, so on a small cluster every message has an entry for it. Read the entry for the nodes you expected the Pod to use.</p></div>
@@ -432,34 +411,7 @@ spec:
     </div>
   </section>
 
-  <!-- 10 — EVICTION RANKING -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>QoS estimates the eviction order;<br/>requests decide it</h2>
-      <p class="sub" style="margin-bottom:1.3rem">"The kubelet does not use the pod's QoS class to determine the eviction order." It ranks by three factors, in this order:</p>
-      <div class="grid-2 tight">
-        <div class="terminal">
-<span class="o"># kubelet eviction ranking</span>
-1  usage exceeds requests?
-2  Pod priority
-3  usage relative to requests
-        </div>
-        <div class="terminal">
-<span class="o"># kernel OOM killer: oom_score_adj</span>
-Guaranteed   -997
-Burstable     2 .. 999
-BestEffort   <span class="r">1000</span>
-        </div>
-      </div>
-      <ul style="margin-top:1.4rem">
-        <li>A <code>BestEffort</code> Pod always exceeds its zero request, so it always passes the first test.</li>
-        <li>A Pod that requests far less than it uses is an early candidate in any class.</li>
-        <li>QoS acts directly only in the kernel's OOM score, when the node runs out before the kubelet can act.</li>
-      </ul>
-    </div>
-  </section>
-
-  <!-- 11 — THREE KILLERS -->
+  <!-- 10 — THREE KILLERS -->
   <section class="slide">
     <div class="wrap">
       <h2>OOMKill, eviction, preemption:<br/>three killers, three owners</h2>
@@ -484,7 +436,7 @@ BestEffort   <span class="r">1000</span>
     </div>
   </section>
 
-  <!-- 12 — TAINTS -->
+  <!-- 11 — TAINTS -->
   <section class="slide">
     <div class="wrap">
       <h2>A taint repels;<br/>a toleration is the exception</h2>
@@ -502,7 +454,7 @@ BestEffort   <span class="r">1000</span>
     </div>
   </section>
 
-  <!-- 13 — BUILT-IN TAINTS AND TOLERATIONS -->
+  <!-- 12 — BUILT-IN TAINTS AND TOLERATIONS -->
   <section class="slide">
     <div class="wrap">
       <h2>Kubernetes adds its own<br/>taints and tolerations</h2>
@@ -526,7 +478,7 @@ Tolerations: node.kubernetes.io/not-ready:NoExecute
     </div>
   </section>
 
-  <!-- 14 — NODE AFFINITY -->
+  <!-- 13 — NODE AFFINITY -->
   <section class="slide">
     <div class="wrap">
       <h2><code>nodeSelector</code> and node affinity<br/>steer a Pod onto labeled nodes</h2>
@@ -551,7 +503,7 @@ spec:
     </div>
   </section>
 
-  <!-- 15 — SPREAD -->
+  <!-- 14 — SPREAD -->
   <section class="slide">
     <div class="wrap">
       <h2>Anti-affinity and topology spread<br/>keep replicas apart</h2>
@@ -575,31 +527,11 @@ spec:
     </div>
   </section>
 
-  <!-- 16 — SYMMETRY -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Required anti-affinity works both ways,<br/>and it can stall a rollout</h2>
-      <p class="sub" style="margin-bottom:1.6rem">The scheduler also checks the rules of the Pods already on a node. An old Pod's hard rule repels its own replacement.</p>
-      <div class="flow" style="margin:.4rem 0 1.4rem;justify-content:center;gap:1rem">
-        <div class="node"><div class="t">Old Pod</div><div class="s">required anti-affinity, app=X</div></div>
-        <div class="arrow"><span class="lbl">repels</span>&#8594;</div>
-        <div class="node bad"><div class="t">New Pod</div><div class="s">labeled app=X; softening its own rule does not help</div></div>
-        <div class="arrow"><span class="lbl">stalls</span>&#8594;</div>
-        <div class="node"><div class="t">Deployment controller</div><div class="s">keeps the old Pod: maxUnavailable rounds to 0</div></div>
-      </div>
-      <ul>
-        <li>New Pod's event: <code>didn't satisfy existing pods anti-affinity rules</code>.</li>
-        <li>With a spare node, the new Pods land there and the rollout completes. Without one, remove the old Pods: scale to 0, then back.</li>
-        <li><code>matchLabelKeys: [pod-template-hash]</code> scopes the rule to one revision.</li>
-      </ul>
-    </div>
-  </section>
-
-  <!-- 17 — THE PENDING DIFFERENTIAL -->
+  <!-- 15 — THE PENDING DIFFERENTIAL -->
   <section class="slide">
     <div class="wrap">
       <h2>The <code>Pending</code> differential</h2>
-      <p class="sub" style="margin-bottom:1.3rem">One message entry per filter. The rows follow the order in which the scheduler runs the filters. The last row is the runtime counterpart.</p>
+      <p class="sub" style="margin-bottom:1.3rem">The event groups why candidate nodes failed. Treat each entry as a clue, not a guaranteed execution trace. The last row is the runtime counterpart.</p>
       <table>
         <tr><th>Filter</th><th>Entry in the event</th><th>Fix</th></tr>
         <tr><td>taints</td><td><code>had untolerated taint {k: v}</code></td><td class="muted">add a matching toleration</td></tr>
@@ -611,7 +543,7 @@ spec:
     </div>
   </section>
 
-  <!-- 18 — BEYOND THE FILTERS -->
+  <!-- 16 — BEYOND THE FILTERS -->
   <section class="slide">
     <div class="wrap">
       <h2>Three signatures<br/>outside the filter table</h2>
@@ -624,7 +556,7 @@ spec:
     </div>
   </section>
 
-  <!-- 19 — RECAP -->
+  <!-- 17 — RECAP -->
   <section class="slide">
     <div class="wrap">
       <h2>What to carry forward</h2>
