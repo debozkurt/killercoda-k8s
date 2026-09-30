@@ -1,8 +1,8 @@
 # Step 2 — Fix it and verify
 
-The rule is right; the cluster can't honor it *hard*. On a cluster with only one schedulable node, soften the anti-affinity from `required` to `preferred` — the scheduler still spreads replicas when it can, but packs them in rather than leaving them `Pending`.
+This cluster has one schedulable node, so a hard one-per-node rule can never hold 3 replicas. Soften it: `preferred` keeps the spread as a weighted preference, and the scheduler still places the Pods when it cannot spread them.
 
-## Soften the anti-affinity to best-effort
+## Soften the anti-affinity
 
 ```bash
 kubectl patch deployment sip-director -n signaling --type=json -p '[
@@ -11,7 +11,36 @@ kubectl patch deployment sip-director -n signaling --type=json -p '[
 ]'
 ```{{exec}}
 
-`preferred` keeps the spread as a weighted preference: give it more nodes and it distributes; give it one, it still schedules. The new Pods roll out and land on the worker.
+## Watch the rollout stall
+
+Give the rollout 20 seconds:
+
+```bash
+kubectl rollout status deployment/sip-director -n signaling --timeout=20s
+kubectl get pods -n signaling -l app=sip-director -o wide
+```{{exec}}
+
+The rollout times out. A new Pod from the new ReplicaSet is `Pending` too. Read its event:
+
+```bash
+kubectl describe pod -n signaling -l app=sip-director | grep 'anti-affinity'
+```{{exec}}
+
+A new reason appears: `didn't satisfy existing pods anti-affinity rules`. Required anti-affinity works in both directions. The old running Pod still carries the hard rule, and its rule repels every Pod labeled `app: sip-director`, including its own replacement.
+
+The Deployment controller will not remove that old Pod either. With 3 replicas, the default `maxUnavailable` of 25% rounds down to 0 Pods. So neither side moves.
+
+## Clear the old Pods
+
+Stop every replica, then start 3 from the new template:
+
+```bash
+kubectl scale deployment sip-director -n signaling --replicas=0
+kubectl wait --for=delete pod -n signaling -l app=sip-director --timeout=60s
+kubectl scale deployment sip-director -n signaling --replicas=3
+```{{exec}}
+
+This is a short, full outage of the service. On a cluster with a spare node, the new Pods land beside the old ones, and no stall occurs.
 
 ## Verify
 
@@ -20,14 +49,14 @@ kubectl get pods -n signaling -l app=sip-director -o wide
 kubectl get deploy sip-director -n signaling
 ```{{exec}}
 
-All three Pods are `Running` (all on the worker for now); the Deployment reports `3/3`.
+All three Pods are `Running` on the worker, and the Deployment reports `3/3`.
 
-## The trade-off to understand
+## The trade-off
 
-Softening trades a *guarantee* for a *preference*: on this one-node cluster all three replicas now share a node, so a node failure would take out all three — the very thing the rule was meant to prevent. That's the honest cost, and it's the right call only because the alternative (two replicas permanently `Pending`) is worse. The durable fix depends on intent:
+All three replicas now share one node, so one node failure takes out all three. That is the risk the hard rule existed to prevent. It is the right call here only because the alternative is two replicas `Pending` forever. The durable choice depends on intent:
 
-- **Truly need one-per-node HA?** Add schedulable nodes (or tolerate more of them) so a `required` rule can be satisfied.
-- **Best-effort spread is fine?** `preferred` (or a `ScheduleAnyway` topology spread) is correct.
-- **Fewer replicas acceptable?** `kubectl scale deploy sip-director -n signaling --replicas=1` also clears the `Pending`, at the cost of redundancy.
+- **One-per-node is a real requirement?** Add schedulable nodes, so the `required` rule can hold.
+- **Best-effort spread is enough?** `preferred`, or a topology spread with `ScheduleAnyway`, is correct.
+- **Fewer replicas are acceptable?** Scaling to 1 also clears the `Pending` Pods, at the cost of redundancy.
 
-For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). Then see `finish.md`.

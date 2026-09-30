@@ -12,7 +12,7 @@ Look back at what every module actually drilled. Each taught the same move in a 
 
 - `ImagePullBackOff` is a category; the kubelet event message separates never-pull from no-such-host from `401` from digest-mismatch (M02).
 - `connection refused` is a category; the EndpointSlice and the DNS answer say *where* it broke (M04).
-- A `Pending` Pod is a category; the scheduler event separates insufficient-resources from an untolerated taint from pod anti-affinity (M06).
+- A `Pending` Pod is a category; the scheduler event separates an untolerated taint from a node-affinity mismatch, insufficient resources, and pod anti-affinity (M06).
 - A `Forbidden` is a four-field sentence — verb, resource, scope, identity (M10).
 - `Running` ≠ `Ready` ≠ correct — the headline status lies; the readiness probe, the `.status` subresource, and the container logs carry the truth (M01, M07, M08).
 

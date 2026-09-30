@@ -1,6 +1,6 @@
 {
   "title": "M06 — Break/fix 03: Anti-affinity Unschedulable",
-  "description": "sip-director wants 3 replicas but only one is Running; two are Pending. A required one-per-node anti-affinity has nowhere to spread on this cluster. Soften it or add nodes.",
+  "description": "sip-director wants 3 replicas, and only 1 runs. A required one-per-node anti-affinity has nowhere to spread. Soften it, then clear the rollout the old Pods' own rule blocks.",
   "details": {
     "intro": {
       "text": "intro.md",
@@ -8,10 +8,19 @@
       "foreground": "foreground.sh"
     },
     "steps": [
-      { "title": "Diagnose the stuck replicas", "text": "step1/text.md" },
-      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+      {
+        "title": "Diagnose the stuck replicas",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
     ],
-    "finish": { "text": "finish.md" }
+    "finish": {
+      "text": "finish.md"
+    }
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"

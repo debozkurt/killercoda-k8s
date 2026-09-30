@@ -1,37 +1,45 @@
 # Step 2 — Requests, limits, and QoS
 
-Every fleet container declares two numbers per resource. The **request** is what the scheduler fits; the **limit** is the runtime ceiling. From those two, Kubernetes derives a **QoS class**.
+Each container can declare two numbers per resource, and a different component reads each one. The docs put it this way: "When you specify the resource *request* for containers in a Pod, the kube-scheduler uses this information to decide which node to place the Pod on. When you specify a resource *limit* for a container, the kubelet enforces those limits."
 
 ## Read a Pod's requests and limits
 
 ```bash
-kubectl get pod -n media -l app=session-broker \
-  -o jsonpath='{range .items[0].spec.containers[0]}{.name}{": requests="}{.resources.requests}{" limits="}{.resources.limits}{"\n"}{end}'
+kubectl describe pod -n media -l app=session-broker
 ```{{exec}}
 
-`requests={cpu:25m, memory:32Mi}  limits={cpu:100m, memory:64Mi}`. The scheduler only ever sums the **requests** and checks them against a node's free space — limits don't affect placement at all.
+In the container block, find `Limits:` and `Requests:`. They read cpu 100m and memory 64Mi for the limits, and cpu 25m and memory 32Mi for the requests. Near the bottom, the `QoS Class:` line reads `Burstable`.
 
-## The QoS class falls out of those numbers
+## The QoS class follows from those numbers
+
+Kubernetes derives a **QoS class** from requests and limits when it creates the Pod:
+
+- **Guaranteed** — every container sets CPU and memory requests and limits, and each limit equals its request
+- **Burstable** — not Guaranteed, and at least one request or limit is set
+- **BestEffort** — no container sets any request or limit
+
+Survey the whole fleet in one listing. This is one of the few places where `custom-columns` earns its keep, because the field sits in every Pod's `status`:
 
 ```bash
-kubectl get pods -A -o custom-columns=\
-'NS:.metadata.namespace,NAME:.metadata.name,QOS:.status.qosClass' | grep -v kube-system | head -20
+kubectl get pods -A -o custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name,QOS:.status.qosClass
 ```{{exec}}
 
-The fleet is **Burstable** — every Pod sets requests *and* limits, but the requests are below the limits (not equal). The three classes: **Guaranteed** (request == limit on every container), **Burstable** (something set, not equal), **BestEffort** (nothing set). Under memory pressure the kubelet evicts BestEffort first, then Burstable, then Guaranteed — so QoS is the kill order.
+Every fleet Pod reads `Burstable`: each sets requests below its limits. QoS estimates which Pods suffer first under node pressure. The kubelet's real ranking starts with Pods that use more than they request, so `BestEffort` Pods, which request nothing, always qualify.
 
-## Requests are a reservation, not live usage
+## A request is a reservation, not live usage
 
-`describe node` shows what's *reserved* on the worker — the sum of requests, not what's actually being used:
+The node keeps a ledger of the requests it has accepted. The `describe node` output is several screens long, so filter to the ledger:
 
 ```bash
-kubectl describe node -l '!node-role.kubernetes.io/control-plane' | grep -A6 'Allocated resources'
+kubectl describe node -l '!node-role.kubernetes.io/control-plane' | grep -A8 'Allocated resources'
 ```{{exec}}
 
-Compare that to real-time usage (metrics-server is installed; give it a few seconds after boot):
+The table lists the total CPU and memory requests as a percentage of the node's Allocatable. Now read what the node actually uses (metrics-server needs about a minute after boot):
 
 ```bash
 kubectl top nodes
 ```{{exec}}
 
-The worker's *requested* CPU/memory (from `describe`) is what the scheduler treats as "taken"; `top` shows the fleet barely uses it. A Pod fits based on the reservation, not the live number — which is exactly why a Pod that requests far more than it needs can wedge a node that has plenty of free memory. Next: how the fleet steers *which* node it lands on.
+Live usage sits well below the reserved total. The scheduler reads only the reserved total. A node can refuse a new Pod while its CPU is nearly idle, because its requests are already booked.
+
+Next: how the fleet steers which node a Pod lands on.

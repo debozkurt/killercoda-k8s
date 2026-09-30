@@ -1,11 +1,11 @@
 # Done
 
-A Pod stuck `Pending` had one event that told you everything: `FailedScheduling … Insufficient memory`. No node had enough free memory to cover a request that had been fat-fingered from `256Mi` to `256Gi`, so the scheduler — which fits Pods by their *requests*, not their live usage — couldn't place it anywhere. The fix touched only the request; the image, the app, and the nodes were never the problem.
+A `Pending` Pod had one event that held the diagnosis: `FailedScheduling` with `Insufficient memory`. The memory request had slipped from 256Mi to 256Gi. The scheduler fits Pods by their requests, not by live usage, so it placed the Pod nowhere. The fix changed only the request and its limit.
 
-That reflex — **a `Pending` Pod means read `describe` / the `FailedScheduling` event first, not the logs** — is the spine of the whole module. Requests are what the scheduler fits; when they don't fit, this is the signature.
+Carry this reflex through the module: **for a `Pending` Pod, read the `FailedScheduling` event first, not the logs.** When requests do not fit, this is the signature.
 
 **Next:**
 
 - Check your path against [`ANSWER-KEY.md`](../ANSWER-KEY.md).
 - For the *why*, see [`LESSON.md`](../LESSON.md) § The resource contract.
-- Next scenario: **`breakfix-02-untolerated-taint`** — still `Pending`, but this time nothing is short on resources; a node is actively pushing the Pod away.
+- Next scenario: **`breakfix-02-untolerated-taint`**. The Pod is `Pending` again, but no node is short of resources. A node repels the Pod.

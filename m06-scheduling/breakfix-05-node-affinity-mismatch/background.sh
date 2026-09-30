@@ -689,60 +689,48 @@ EOF
 # ---------------------------------------------------------------------------
 
 # Keep timeouts short — Killercoda caps background-script runtime. The mutated
-# workload is applied AFTER this wait (below), so its Pending replicas never stall
-# the healthy-fleet readiness check.
+# workload is applied AFTER this wait (below), so the broken Pod never stalls the
+# healthy-fleet readiness check.
 kubectl wait --for=condition=Available deployment --all -A --timeout=120s >/dev/null 2>&1
 # StatefulSets don't have an Available condition; wait for at least one ready pod
 for ns in media signaling app-services edge; do
   kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=60s >/dev/null 2>&1
 done
 
-# >>> breakfix-03 mutation: layer a new signaling workload, sip-director, that asks for
-#     3 replicas with a *required* pod anti-affinity on the hostname topology key —
-#     "never place two of my replicas on the same node." On this cluster only one node
-#     is schedulable for ordinary Pods (the control-plane is tainted), so the first
-#     replica lands on the worker and the other two find no second node without a
-#     matching Pod already on it: they stay Pending with a FailedScheduling event
-#     ("didn't match pod anti-affinity rules"). Required anti-affinity needs at least as
-#     many schedulable failure domains as replicas; here it wedges. Applied after the
-#     fleet wait so the two Pending replicas don't stall the readiness check.
-#     Fix = soften to preferredDuringScheduling (best-effort spread). Required
-#     anti-affinity is symmetric: the old running replica's rule also repels the new
-#     ReplicaSet's Pods from the only schedulable node, and 3 x 25% maxUnavailable
-#     rounds down to 0, so the rollout stalls ("didn't satisfy existing pods
-#     anti-affinity rules") until the old Pods go: scale to 0, then back to 3.
-#     Reducing replicas to 1 is the accepted alternative.
+# >>> breakfix-05 mutation: layer a new media workload, conference-mixer, whose
+#     nodeSelector asks for disktype=nvme. The manifest came from a region whose
+#     media pool carries that label; here the worker is labeled disktype=ssd and the
+#     control-plane carries no disktype label at all. nodeSelector is a hard filter,
+#     so every node fails: the control-plane at the earlier taint filter, the worker
+#     at the node-affinity filter. The Pod stays Pending with a FailedScheduling event
+#     ("didn't match Pod's node affinity/selector"). Applied after the fleet wait so
+#     the Pending Pod does not stall the readiness check.
+#     Fix = correct the Pod's selector to the label the hardware really carries
+#     (disktype: ssd). Relabeling the node to nvme would make the label lie.
 cat <<'EOF' | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: sip-director
-  namespace: signaling
-  labels: { app: sip-director, plane: signaling, tier: lab }
+  name: conference-mixer
+  namespace: media
+  labels: { app: conference-mixer, plane: media, tier: lab }
 spec:
-  replicas: 3
-  selector: { matchLabels: { app: sip-director } }
+  replicas: 1
+  selector: { matchLabels: { app: conference-mixer } }
   template:
     metadata:
-      labels: { app: sip-director, plane: signaling, tier: lab }
+      labels: { app: conference-mixer, plane: media, tier: lab }
     spec:
-      affinity:
-        podAntiAffinity:
-          # MUTATED (baseline: preferredDuringSchedulingIgnoredDuringExecution, a soft
-          # spread) — a *required* hostname anti-affinity forces one replica per node,
-          # but only one node is schedulable, so 2 of 3 replicas stay Pending.
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels: { app: sip-director }
-              topologyKey: kubernetes.io/hostname
+      nodeSelector:
+        disktype: nvme   # MUTATED (baseline: ssd) — no node carries disktype=nvme -> Pending
       containers:
         - name: app
           image: nginx:1.25
-          ports: [{ containerPort: 5060, name: sip }]
+          ports: [{ containerPort: 5004, name: rtp }]
           resources:
             requests: { cpu: 25m, memory: 32Mi }
             limits:   { cpu: 100m, memory: 64Mi }
 EOF
-# <<< breakfix-03 mutation ends
+# <<< breakfix-05 mutation ends
 
 touch /tmp/.setup-complete

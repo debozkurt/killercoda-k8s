@@ -1,20 +1,22 @@
 # Step 1 — Diagnose the OOMKill
 
-This Pod isn't `Pending` — it scheduled. So the scheduler did its job, and the problem is at runtime. That means logs and *last state*, not the `FailedScheduling` event.
+This Pod is not `Pending`. The scheduler did its job, so the problem is at runtime, and the `FailedScheduling` event does not exist. Read the container's last state instead.
 
-## It scheduled, then it didn't stay up
+## It scheduled, then it did not stay up
 
 ```bash
 kubectl get pods -n media -l app=media-buffer -o wide
 ```{{exec}}
 
-It has a `NODE` and a restart count that's climbing — `CrashLoopBackOff`. Scheduling is done; something is killing the container after it starts.
+The Pod has a `NODE`, the `STATUS` reads `CrashLoopBackOff` or `OOMKilled`, and `RESTARTS` climbs. Placement is done. Something kills the container after it starts.
 
 ## Read the last terminated state
 
 ```bash
-kubectl describe pod -n media -l app=media-buffer | grep -A5 'Last State'
+kubectl describe pod -n media -l app=media-buffer
 ```{{exec}}
+
+In the container block, find `Last State:`:
 
 ```text
 Last State:     Terminated
@@ -22,14 +24,17 @@ Last State:     Terminated
   Exit Code:    137
 ```
 
-`OOMKilled`, exit code **137** (128 + signal 9, SIGKILL). The kernel's out-of-memory killer terminated the container for exceeding its **memory limit** — not its request. A too-small limit doesn't stop a Pod scheduling; it stops it *running*.
+`OOMKilled`, exit code 137 (128 + signal 9, SIGKILL). The kernel's out-of-memory killer ended the container for going over its **memory limit**. The docs describe the mechanism: "`memory` limits are enforced by the kernel with out of memory (OOM) kills."
 
-## Confirm the limit, and the QoS
+## Read the limit, and the QoS class
 
-```bash
-kubectl get deploy media-buffer -n media \
-  -o jsonpath='{.spec.template.spec.containers[0].resources}'; echo
-kubectl get pod -n media -l app=media-buffer -o jsonpath='{.items[0].status.qosClass}'; echo
-```{{exec}}
+The same output holds both. In the container block:
 
-The memory `limit` is `48Mi`, and the QoS class is `Burstable` (request below limit). The workload pre-allocates a ~60Mi buffer at startup — more than 48Mi — so it trips the limit and gets killed every time it launches. The request (`32Mi`) was small enough to schedule; the limit (`48Mi`) is smaller than the container actually needs. On to the fix.
+- `Limits:` reads memory 48Mi.
+- `Requests:` reads memory 32Mi.
+
+Near the bottom, `QoS Class:` reads `Burstable`, because the request sits below the limit.
+
+The container writes about 60Mi into a memory-backed volume at startup. The kernel charges that memory to the container. 60Mi is more than 48Mi, so the container dies on every start. The 32Mi request was small enough to schedule. The 48Mi limit is smaller than the container needs.
+
+Next: raise the limit.

@@ -7,8 +7,8 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "pstn-probe (edge) is stuck Pending — but no node is short on resources."
-echo "Something is repelling it. Read the scheduler's reason, then the node:"
+echo "pstn-probe (edge) is stuck Pending, and no node is short of resources."
+echo "Something repels it. Read the scheduler's reason:"
 echo ""
-echo "  kubectl describe pod -n edge -l app=pstn-probe | grep -A6 Events"
+echo "  kubectl describe pod -n edge -l app=pstn-probe"
 echo ""

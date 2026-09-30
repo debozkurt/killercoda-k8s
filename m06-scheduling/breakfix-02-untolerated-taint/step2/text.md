@@ -1,15 +1,17 @@
 # Step 2 — Fix it and verify
 
-The worker is tainted `dedicated=telephony:NoSchedule`. Give `pstn-probe` a toleration whose key, value, and effect match, and the taint stops repelling it.
+The worker carries `dedicated=telephony:NoSchedule`. A toleration matches a taint when its key, value and effect match. Add that toleration to the Pod template.
 
 ## Add the matching toleration
 
+The Deployment has no `tolerations` list yet, so the JSON patch creates one:
+
 ```bash
 kubectl patch deployment pstn-probe -n edge --type=json -p \
-  '[{"op":"add","path":"/spec/template/spec/tolerations","value":[{"key":"dedicated","value":"telephony","operator":"Equal","effect":"NoSchedule"}]}]'
+  '[{"op":"add","path":"/spec/template/spec/tolerations","value":[{"key":"dedicated","operator":"Equal","value":"telephony","effect":"NoSchedule"}]}]'
 ```{{exec}}
 
-The template change rolls a new Pod that tolerates the worker's taint. (The control-plane taint still repels it — that's fine; it only needs one node, and the worker is now open to it.)
+The template change rolls a new Pod. The control-plane taint still repels it, and that is fine: the Pod needs only one node.
 
 Or by hand:
 
@@ -17,7 +19,7 @@ Or by hand:
 kubectl edit deployment pstn-probe -n edge
 # under spec.template.spec, add:
 #   tolerations:
-#     - { key: dedicated, value: telephony, operator: Equal, effect: NoSchedule }
+#     - { key: dedicated, operator: Equal, value: telephony, effect: NoSchedule }
 ```
 
 ## Verify
@@ -27,10 +29,14 @@ kubectl get pods -n edge -o wide
 kubectl get deploy pstn-probe -n edge
 ```{{exec}}
 
-The new Pod schedules onto the worker and goes `Running`; the Deployment reports `1/1`. Confirm the reason it's now allowed:
+The new Pod lands on the worker and reaches `Running`, and the Deployment reports `1/1`. Read its events:
 
 ```bash
-kubectl describe pod -n edge -l app=pstn-probe | grep -A3 Events
+kubectl describe pod -n edge -l app=pstn-probe
 ```{{exec}}
 
-`Scheduled … Successfully assigned edge/pstn-probe-… to <worker>`. The taint on the node never changed — the Pod earned an exception to it. A toleration doesn't *force* a Pod onto a tainted node; it only removes the taint as a reason to keep it off. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+The last event is `Scheduled`, and the `Tolerations:` block now starts with `dedicated=telephony:NoSchedule`. The taint on the node did not change. The Pod gained an exception to it.
+
+A toleration is permission, not attraction. It removes the taint as a reason to refuse the Pod, and it does not pull the Pod toward the node. To reserve a pool for telephony, the team also needs a node affinity on the telephony workloads.
+
+For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). Then see `finish.md`.

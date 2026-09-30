@@ -11,8 +11,8 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "Cluster is ready. Start by seeing which node ran what:"
+echo "Cluster is ready. Start by seeing which node runs what:"
 echo ""
 echo "  kubectl get nodes"
-echo "  kubectl get pods -A -o wide"
+echo "  kubectl get pods -A -o wide --sort-by=.spec.nodeName"
 echo ""

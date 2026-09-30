@@ -1,34 +1,61 @@
-# Step 4 — The scheduler's decision and headroom
+# Step 4 — Place a Pod and read the ledger
 
-Scheduling leaves a record. Every placed Pod has a `Scheduled` event, and every node has a headroom figure that predicts what will fit next.
+The scheduler keeps no private state about what it booked. It reads the requests of the Pods on each node. Create one Pod, and watch it land and reserve room.
 
-## The Scheduled event
-
-```bash
-kubectl describe pod -n media -l app=session-broker | grep -A4 Events
-```{{exec}}
-
-You'll see `Scheduled   default-scheduler   Successfully assigned media/session-broker-... to <worker>`. That one line is the scheduler saying "I filtered, I scored, I bound it here." When scheduling *fails*, the same slot instead reads `FailedScheduling` with the per-node reasons — that's the event you'll live in for the rest of the module.
-
-Look across the whole cluster's recent scheduling decisions:
+## Read the ledger before
 
 ```bash
-kubectl get events -A --field-selector reason=Scheduled | tail -10
+kubectl describe node -l '!node-role.kubernetes.io/control-plane' | grep -A8 'Allocated resources'
 ```{{exec}}
 
-## How much room is left
+Note the `cpu` and `memory` values in the `Requests` column.
 
-A Pod schedules only if its requests fit the node's **Allocatable** minus what's already reserved. Read the worker's ledger:
+## Create a Guaranteed Pod
+
+This Pod sets each limit equal to its request, which makes it `Guaranteed`. It uses `nginx:1.25` because the node already holds that image:
 
 ```bash
-kubectl describe node -l '!node-role.kubernetes.io/control-plane' | grep -A6 'Allocated resources'
+kubectl apply -f - <<'YAML'
+apiVersion: v1
+kind: Pod
+metadata: { name: placement-demo, namespace: analytics }
+spec:
+  containers:
+    - name: app
+      image: nginx:1.25
+      resources:
+        requests: { cpu: 20m, memory: 64Mi }
+        limits:   { cpu: 20m, memory: 64Mi }
+YAML
+kubectl wait --for=condition=Ready pod placement-demo -n analytics --timeout=60s
+kubectl describe pod placement-demo -n analytics
 ```{{exec}}
 
-The percentages are requests-of-Allocatable. As long as a new Pod's requests fit under the remaining headroom, it schedules; ask for more than that — or more than any single node has — and it won't. That's not a hypothetical:
+Read three lines:
+
+- `Node:` names the worker.
+- `QoS Class:` reads `Guaranteed`.
+- The last event reads `Scheduled`, from `default-scheduler`, with the message `Successfully assigned analytics/placement-demo to` the worker.
+
+That event is the scheduler's record of a filter, a score and a bind. For a Pod it cannot place, the same slot holds `FailedScheduling` instead.
+
+Off the happy path: if the Pod stays `Pending`, the worker's requests are already full. The `Events` block then names `Insufficient cpu` or `Insufficient memory`. Delete the Pod and continue.
+
+## Read the ledger after
 
 ```bash
-kubectl get nodes -o custom-columns=\
-'NODE:.metadata.name,CPU:.status.allocatable.cpu,MEM:.status.allocatable.memory'
+kubectl describe node -l '!node-role.kubernetes.io/control-plane' | grep -A8 'Allocated resources'
 ```{{exec}}
 
-Note the worker's Allocatable memory — a couple of GiB, not hundreds. A Pod that requests `256Gi` fits *nowhere*, and the scheduler says so in one event. That's breakfix-01. You've now seen healthy placement end to end; read [`LESSON.md`](../LESSON.md) for the *why*, then break it four ways. See `finish.md`.
+The CPU requests grew by 20m and the memory requests by 64Mi. The Pod uses almost none of it, and the reservation holds anyway.
+
+## Release the reservation
+
+```bash
+kubectl delete pod placement-demo -n analytics
+kubectl describe node -l '!node-role.kubernetes.io/control-plane' | grep -A8 'Allocated resources'
+```{{exec}}
+
+The totals drop back. Deleting a Pod frees its requests for the next Pod the scheduler places.
+
+Next: what to run when a Pod does not get a node.

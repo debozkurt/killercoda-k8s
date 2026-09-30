@@ -1,41 +1,38 @@
 # Step 1 — Diagnose the Pending Pod
 
-A `Pending` Pod has no logs — it never ran. The story lives in one scheduler event.
+A `Pending` Pod has no logs, because it never ran. The scheduler wrote its reason into an event.
 
-## Confirm it's Pending
+## Confirm it is Pending
 
 ```bash
 kubectl get pods -n analytics -o wide
 ```{{exec}}
 
-`stream-analyzer-...` is `Pending` with no `NODE` assigned. It's not crashing, not pulling — it was never placed.
+`stream-analyzer-...` shows `Pending`, and its `NODE` column reads `<none>`. It is not crashing and not pulling an image. The scheduler never placed it.
 
 ## Read why the scheduler refused it
 
 ```bash
-kubectl describe pod -n analytics -l app=stream-analyzer | grep -A6 Events
+kubectl describe pod -n analytics -l app=stream-analyzer
 ```{{exec}}
 
-The `FailedScheduling` event names the reason per node, something like:
+Two parts of the output matter. In the container block, `Requests:` shows memory 256Gi. At the bottom, the `FailedScheduling` event reads:
 
 ```text
-0/2 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: },
-                         1 Insufficient memory.
+0/2 nodes are available: 1 Insufficient memory, 1 node(s) had untolerated taint
+{node-role.kubernetes.io/control-plane: }. preemption: 0/2 nodes are available: ...
 ```
 
-Skip the control-plane line — that taint is expected on this cluster (baseline). The actionable half is the worker's line: **`Insufficient memory`**. The scheduler fits Pods by their memory *request*, and no node has enough free to cover this one's.
+Skip the control-plane entry, which the baseline showed on every refusal. The worker's entry is **`Insufficient memory`**. The scheduler fits a Pod by its requests, and no node has enough free memory to cover this one.
 
-## How much is it asking for?
+## Compare the request with what a node offers
 
-```bash
-kubectl get pod -n analytics -l app=stream-analyzer \
-  -o jsonpath='{.items[0].spec.containers[0].resources.requests}'; echo
-```{{exec}}
-
-`memory:256Gi`. Now compare against what a node actually offers:
+The `Allocatable:` block is the part of each node that Pods may reserve:
 
 ```bash
-kubectl get nodes -o custom-columns='NODE:.metadata.name,ALLOCATABLE_MEM:.status.allocatable.memory'
+kubectl describe nodes | grep -A6 Allocatable
 ```{{exec}}
 
-The nodes have a couple of GiB each — `256Gi` fits nowhere. That's a classic unit slip: someone meant `256Mi` and typed `256Gi`. The image and app are fine; the *request* is impossible. On to the fix.
+Read the `memory:` line for each node. Each shows a few GiB at most, written in Ki. A 256Gi request fits nowhere, so no amount of waiting helps. The value is a unit slip: someone meant 256Mi and typed 256Gi.
+
+Next: correct the request.

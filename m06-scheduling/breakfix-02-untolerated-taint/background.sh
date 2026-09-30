@@ -713,7 +713,13 @@ done
 WORKER=$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' \
   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
 [ -z "$WORKER" ] && WORKER=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
-kubectl taint node "$WORKER" dedicated=telephony:NoSchedule --overwrite >/dev/null 2>&1
+kubectl taint node "$WORKER" dedicated=telephony:NoSchedule --overwrite
+# Node-level mutation, applied after creation: read it back and fail loudly if it
+# did not take, so the scenario never boots silently healthy.
+if [ "$(kubectl get node "$WORKER" -o jsonpath='{.spec.taints[?(@.key=="dedicated")].value}')" != "telephony" ]; then
+  echo "FATAL: breakfix-02 mutation did not take: $WORKER carries no dedicated=telephony taint" >&2
+  exit 1
+fi
 cat <<'EOF' | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment

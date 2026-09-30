@@ -1,6 +1,6 @@
 # Step 1 — Where the fleet landed
 
-The scheduler placed every fleet Pod on a node. Start by seeing the nodes and who ran where.
+The scheduler placed every fleet Pod on a node. Start with the nodes, then see which Pods run where.
 
 ## Two nodes, one of them off-limits
 
@@ -8,26 +8,24 @@ The scheduler placed every fleet Pod on a node. Start by seeing the nodes and wh
 kubectl get nodes
 ```{{exec}}
 
-Two nodes: one `control-plane`, one worker. Now look at where the fleet's Pods actually run — `-o wide` adds the `NODE` column:
+Two nodes: one with the `control-plane` role, and one worker. The `-o wide` flag adds a `NODE` column to a Pod listing. Sort by that column to group the Pods by node:
 
 ```bash
-kubectl get pods -A -o wide --sort-by='.spec.nodeName' | grep -v kube-system
+kubectl get pods -A -o wide --sort-by=.spec.nodeName
 ```{{exec}}
 
-Almost everything is on the **worker**. The only fleet Pod on the control-plane node is the `sbc-edge` DaemonSet (which is supposed to run everywhere). That's not luck — it's a taint.
+Nearly every fleet Pod runs on the **worker**. On the control-plane node you find system Pods in `kube-system` and one fleet Pod: `sbc-edge`. A **DaemonSet** is a controller that runs one Pod on each node, and `sbc-edge` is a DaemonSet. A taint explains the rest.
 
-## Why the control-plane is empty
+## Why the control-plane node stays empty
+
+A **taint** is a mark on a node that repels every Pod without a matching **toleration**. Read the taints on both nodes:
 
 ```bash
-kubectl describe node -l node-role.kubernetes.io/control-plane | grep -A2 Taints
+kubectl describe nodes | grep -E '^Name:|^Taints:'
 ```{{exec}}
 
-The control-plane node carries `node-role.kubernetes.io/control-plane:NoSchedule`. A **taint** repels every Pod that doesn't explicitly **tolerate** it, so the scheduler won't place ordinary workloads here — kubeadm adds this taint on purpose to keep user workloads off the control plane. The worker has no such taint, so the fleet piles onto it.
+The control-plane node shows `node-role.kubernetes.io/control-plane:NoSchedule`. kubeadm adds that taint to keep ordinary workloads off the control plane. The worker shows `Taints: <none>`, so the scheduler sends the fleet there.
 
-Confirm the worker is clean:
+This asymmetry appears in every scheduling failure in this module. Each `FailedScheduling` message carries one entry for the control-plane taint. That entry is expected. The actionable cause is the worker's entry.
 
-```bash
-kubectl describe node -l '!node-role.kubernetes.io/control-plane' | grep -A2 Taints
-```{{exec}}
-
-`Taints: <none>`. That asymmetry — one node tainted, one open — is why *every* scheduling failure you'll debug in this module shows a `{node-role.kubernetes.io/control-plane}` line in its event. It's expected noise; the real cause is always on the worker's line. Next: the resource contract that decides whether a Pod fits that worker at all.
+Next: the resource contract that decides whether a Pod fits the worker at all.

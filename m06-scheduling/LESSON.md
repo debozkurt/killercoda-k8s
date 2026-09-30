@@ -1,58 +1,56 @@
 # M06 — Scheduling
 
-> How the scheduler decides which node runs each Pod — requests, limits, QoS, taints, and affinity — and the handful of ways a Pod ends up `Pending` forever or gets killed the moment it starts.
+> The scheduler decides which node runs each Pod. This module covers the fields it reads (requests, taints, affinity and spread), the limits the node enforces after placement, and the signature each one leaves when a Pod does not run.
 
 ## What you'll learn
 
-- Explain what the scheduler actually does: filter the nodes a Pod *can* run on, score the survivors, and bind the Pod to the best one — and read the `FailedScheduling` event it emits when the filter empties
-- Distinguish **requests** (what the scheduler fits against a node's Allocatable) from **limits** (what the kubelet and kernel enforce at runtime), and stop conflating a scheduling failure with a runtime one
-- Derive a Pod's **QoS class** (Guaranteed / Burstable / BestEffort) from its requests and limits, and predict who gets OOM-killed or evicted first under pressure
-- Use **taints and tolerations** to keep Pods off nodes — and recognize the `untolerated taint` that keeps them off by accident
-- Steer placement with **nodeSelector / node affinity**, and spread replicas across failure domains with **pod anti-affinity** and **topology spread constraints** — and see how a hard spread rule wedges a Deployment when the node set shrinks
-- Work the **Pending differential**: split "won't schedule" into insufficient resources vs. untolerated taint vs. unmatched affinity vs. unsatisfiable spread — one `FailedScheduling` signature each
+- Describe the scheduler's three moves (filter, score, bind) and read the `FailedScheduling` event it writes when no node survives the filter
+- Separate a **request**, which the scheduler fits against a node's Allocatable, from a **limit**, which the kernel enforces at runtime
+- Derive a Pod's **QoS class** from its requests and limits, and state what that class does and does not decide under node pressure
+- Use **taints and tolerations** to keep Pods off nodes, and recognize the `untolerated taint` that keeps them off by accident
+- Steer placement with **`nodeSelector`** and **node affinity**, and spread replicas with **pod anti-affinity** and **topology spread constraints**
+- Work the **`Pending` differential**: untolerated taint, unmatched node affinity, insufficient resources, or an unsatisfiable spread, one signature each, plus the runtime `OOMKilled` counterpart
 
 ## Why it matters
 
-A Pod that won't schedule is one of the most common pages an SRE takes, and one of the most misread. It sits `Pending` — no container starts, no application log is written — so every instinct that worked for a crashing Pod (logs, `--previous`, restart) returns nothing. The answer isn't in the Pod's logs, because the Pod never ran; it's in one event that names, node by node, why the scheduler rejected each one.
+A Pod that does not schedule is a common page, and a commonly misread one. The Pod sits `Pending`, no container starts, and no log exists. The instincts that work on a crashing Pod return nothing. The answer is in one event, and that event names the reason each node refused the Pod.
 
-At Polyphone the pressure is constant. A media node drains for a kernel patch and its Pods need somewhere to go. A new region comes online with tainted node pools before anyone writes the tolerations. Someone right-sizes a request during a capacity review and fat-fingers the unit. A signaling service meant to survive a node failure quietly runs every replica on one box because nobody spread them. Each is a scheduling decision — made, or refused, by one component reading a few fields. Once you can read those fields, "why won't this Pod schedule?" becomes a two-minute lookup. The flip side matters as much: a Pod that schedules cleanly and then OOM-kills on a loop is *also* a resource problem, but a different one (its request fit, its limit didn't hold), and telling the two apart is half the skill.
+Polyphone sees all four failures every week. A media node drains for a kernel patch. A new region comes online with tainted node pools before anybody writes the tolerations. A capacity review slips a memory request from `Mi` to `Gi`. A signaling service meant to survive a node failure runs every replica on one node. The scheduler makes or refuses each of these decisions by reading a few fields. Once you can read those fields, "why does this Pod not schedule?" is a two-minute lookup.
+
+The same resource fields also fail after placement. A Pod can schedule cleanly and then die in a loop with `OOMKilled`. Its request fit the node, and its limit did not hold its workload. Telling a placement failure from a runtime failure is half the skill.
 
 ## Scope
 
-**Covers:** what the kube-scheduler does (filter → score → bind); resource **requests** and **limits** for CPU and memory, node **capacity** vs. **Allocatable**, and how requests drive placement; **QoS classes** and their role in OOM and node-pressure eviction; **taints and tolerations** (the three effects, the control-plane taint, and NoSchedule-vs-NoExecute); **nodeSelector** and **node affinity**; **pod anti-affinity** and **topology spread constraints** for HA placement; and the `Pending`/`FailedScheduling` differential that ties them together.
+**Covers:** what kube-scheduler does (filter, score, bind) and the order its filters run; resource requests and limits for CPU and memory; node Capacity and Allocatable; QoS classes and their real role in node-pressure eviction and the kernel OOM killer; taints and tolerations, including the three effects and the built-in taints; `nodeSelector` and node affinity; pod affinity, pod anti-affinity and topology spread constraints; and the `Pending` differential that ties them together.
 
-**Doesn't cover:** the Horizontal/Vertical Pod Autoscalers and Cluster Autoscaler that *change* how much you're asking for or how many nodes exist → M09; **PriorityClass and preemption** (a higher-priority Pod evicting a lower one to schedule) — related but a distinct mechanism, noted where it intersects QoS but taught in M09; CPU pinning, NUMA, and the Topology Manager for latency-sensitive media → M23; PodDisruptionBudgets and graceful drain mechanics → M09; storage-driven scheduling (a Pod pinned by where its volume can bind) touched only in passing → M05.
+**Doesn't cover:** the Horizontal Pod, Vertical Pod and Cluster autoscalers (M09); PriorityClass and preemption beyond a definition; PodDisruptionBudgets and drain mechanics (M09); CPU pinning, NUMA and the Topology Manager (M26); and storage-driven placement (M05).
 
-**Assumes:** M00 (`get → describe → events → logs`, and that a Pod's story lives in the gap between `spec` and `status`), M01 (Pods, Deployments, ReplicaSets, labels and selectors, and that a controller — not you — creates the Pods), and a working idea of a Linux **cgroup** as the kernel mechanism that caps a process's CPU and memory. Labels from M01 are load-bearing again here: affinity and spread are label queries against nodes and Pods.
+**Assumes:** M00 (`get → describe → events → logs`), M01 (Pods, Deployments, ReplicaSets, labels and selectors), and a working idea of a Linux **cgroup** as the kernel mechanism that caps a process's CPU and memory. Labels are load-bearing again: affinity and spread are label queries.
 
 ## Vocabulary
 
 | Term | Definition |
 |------|------------|
-| **kube-scheduler** | The control-plane component that watches for Pods with no `spec.nodeName` and assigns each to a node: it **filters** out nodes the Pod can't run on, **scores** the survivors, and **binds** the Pod to the best one. An empty filter result means `Pending`. |
-| **request** | The amount of CPU/memory a container asks for. The scheduler sums a Pod's requests and places it only on a node whose **Allocatable** can still cover them. Requests are the *only* resource number scheduling uses. |
-| **limit** | The runtime ceiling for a container. CPU over-limit is **throttled** (CFS quota); memory over-limit is **OOM-killed**. Limits do not affect scheduling. |
-| **capacity vs. Allocatable** | A node's **Capacity** is its total CPU/memory; **Allocatable** is what's left for Pods after the kubelet and system daemons reserve their share. The scheduler fits against Allocatable, not Capacity. |
-| **QoS class** | A label Kubernetes derives from a Pod's requests/limits: **Guaranteed**, **Burstable**, or **BestEffort**. It sets the order in which the kubelet kills Pods under node pressure. |
-| **OOMKilled** | A container terminated by the kernel out-of-memory killer for exceeding its memory limit. Shows as `Reason: OOMKilled`, exit code **137** (128 + SIGKILL). |
-| **eviction (node-pressure)** | The kubelet proactively killing Pods when a node runs low on memory/disk, in QoS order (BestEffort first). Distinct from scheduler preemption. |
-| **taint** | A `key=value:effect` mark on a **node** that repels Pods. Effects: `NoSchedule`, `PreferNoSchedule`, `NoExecute`. |
-| **toleration** | A mark on a **Pod** that lets it schedule onto a node with a matching taint. A taint repels; a matching toleration is the exception that lets one through. |
-| **nodeSelector / node affinity** | Ways a Pod requires (or prefers) nodes carrying certain labels. `nodeSelector` is an exact-match hard filter; node affinity adds `required…` (hard) and `preferred…` (soft, weighted) forms. |
-| **pod affinity / anti-affinity** | Rules that place a Pod near (affinity) or away from (anti-affinity) other Pods matching a label selector, within a **topologyKey** domain (e.g. per-hostname, per-zone). |
-| **topologyKey** | A node-label key that defines the domain for spreading or co-location — `kubernetes.io/hostname` (per node), `topology.kubernetes.io/zone` (per zone). |
-| **topology spread constraint** | A rule bounding how unevenly a Pod's replicas may be distributed across a topology (`maxSkew`), with `whenUnsatisfiable: DoNotSchedule` (hard) or `ScheduleAnyway` (soft). |
+| **kube-scheduler** | The control-plane component that "selects an optimal node to run newly created or not yet scheduled (unscheduled) pods." It filters, scores, then binds. |
+| **feasible node** | A node that passes every filter for a Pod. No feasible node means `Pending`. |
+| **request** | The CPU or memory a container asks for. The scheduler sums a Pod's requests and places it only on a node whose Allocatable still covers them. |
+| **limit** | The runtime ceiling for a container. The kernel throttles CPU above the limit and OOM-kills a container above its memory limit. The scheduler ignores limits. |
+| **Capacity / Allocatable** | Capacity is a node's total CPU and memory. Allocatable is the part left for Pods after the node reserves resources for the kubelet and the operating system. |
+| **QoS class** | `Guaranteed`, `Burstable` or `BestEffort`. The API server derives it from requests and limits at creation and records it in `status.qosClass`. |
+| **`OOMKilled`** | A container the kernel's out-of-memory killer terminated. Exit code 137 (128 + SIGKILL). |
+| **node-pressure eviction** | The kubelet terminating Pods to reclaim memory or disk when its node runs low. |
+| **taint** | A `key=value:effect` mark on a **node** that repels Pods. |
+| **toleration** | A mark on a **Pod** that lets the scheduler place it on a node with a matching taint. |
+| **node affinity** | A rule on a Pod that requires or prefers nodes with certain labels. `nodeSelector` is its simplest form. |
+| **pod anti-affinity** | A rule that keeps a Pod away from other Pods that match a label selector, within a topology domain. |
+| **`topologyKey`** | The node label that defines a domain: `kubernetes.io/hostname` for one node, `topology.kubernetes.io/zone` for one zone. |
+| **topology spread constraint** | A rule that limits how unevenly a workload's Pods spread across domains (`maxSkew`), with a hard or a soft response. |
 
 ## Mental model
 
-Scheduling is a fitting problem solved in two moves. For each `Pending` Pod, the scheduler runs every node through a set of **filters** (does the Pod fit the node's free resources? does the Pod tolerate the node's taints? does the node match the Pod's affinity and selectors? can the Pod's topology spread still be satisfied here?). Nodes that fail any filter are out. The scheduler **scores** whatever survives and **binds** the Pod to the best node by writing `spec.nodeName`; the kubelet on that node takes it from there<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/">[9]</a></sup>. When *no* node survives the filters, the Pod stays `Pending` and the scheduler records one event that lists, per node, the first filter each one failed:
+The scheduler works on Pods that have no node. For each one it runs every node through a chain of **filters**. The nodes that pass are the feasible nodes. The scheduler **scores** those nodes, picks the highest, and **binds** the Pod by writing its node name through the API server<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/">[1]</a></sup>. The kubelet on that node then starts the containers. If no node passes, the Pod stays `Pending` and the scheduler records a `FailedScheduling` event.
 
-```text
-0/2 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: },
-                         1 Insufficient memory.
-```
-
-That line is the whole diagnosis. Read right to left from "why won't it schedule": the message enumerates the reasons, and the reasons *are* the differential.
+The default filters run in a fixed order, and a node stops at its first failure. The diagram shows the four filters behind nearly every `Pending` Pod, in the order the scheduler runs them.
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {
@@ -61,135 +59,169 @@ That line is the whole diagnosis. Read right to left from "why won't it schedule
   'secondaryColor':'#3a3a3a', 'tertiaryColor':'#1f1f1f',
   'background':'#0f0f0f'
 }}}%%
-flowchart LR
-    P[Pending Pod] --> F1{fits requests vs<br/>Allocatable?}
-    F1 -->|no| R1[Insufficient cpu/memory]
-    F1 -->|yes| F2{tolerates the<br/>node's taints?}
-    F2 -->|no| R2[untolerated taint]
-    F2 -->|yes| F3{matches node<br/>affinity/selector?}
-    F3 -->|no| R3[didn't match node<br/>affinity/selector]
-    F3 -->|yes| F4{satisfies pod affinity<br/>+ topology spread?}
-    F4 -->|no| R4[didn't match pod anti-affinity /<br/>topology spread constraints]
-    F4 -->|yes| S[Scheduled → bound to node]
+flowchart TD
+    P[Pod with no node] --> F1{tolerates the<br/>node's taints?}
+    F1 -->|no| R1[untolerated taint]
+    F1 -->|yes| F2{matches node<br/>affinity and selector?}
+    F2 -->|no| R2[didn't match Pod's<br/>node affinity/selector]
+    F2 -->|yes| F3{requests fit<br/>free Allocatable?}
+    F3 -->|no| R3[Insufficient cpu<br/>or memory]
+    F3 -->|yes| F4{spread and pod<br/>anti-affinity hold?}
+    F4 -->|no| R4[topology spread or<br/>anti-affinity rules]
+    F4 -->|yes| S[feasible: scored, then bound]
 ```
 
-Two facts make this model pay off. First, **the scheduler fits requests, not limits** — a node can be overcommitted on limits and still accept Pods, because scheduling only sums requests against Allocatable. That's why a giant *request* won't schedule while a too-small *limit* schedules fine and then dies at runtime. Second, this lab's control-plane node is tainted, so **every** `FailedScheduling` message here carries an `untolerated taint {node-role.kubernetes.io/control-plane}` line — expected noise. The actionable cause is whatever the *worker* line says; skim past the control-plane line and read the rest.
+The event counts the nodes behind each reason and joins the reasons into one line:
+
+```text
+0/2 nodes are available: 1 Insufficient memory, 1 node(s) had untolerated taint
+{node-role.kubernetes.io/control-plane: }. preemption: 0/2 nodes are available:
+1 No preemption victims found for incoming pod, 1 Preemption is not helpful for scheduling.
+```
+
+**That line is the diagnosis.** Each entry is one node's first failed filter. The scheduler sorts the entries as text, so their order says nothing about which node is which. The `preemption:` clause reports whether evicting a lower-priority Pod would help. Read the first sentence. Two facts make the model useful. First, **the scheduler fits requests, not limits**, so a huge request never schedules while a tiny limit schedules and fails later. Second, a kubeadm control-plane node carries a `NoSchedule` taint. On a small cluster, every message carries one entry for that node. The actionable cause is the entry for the nodes you expected the Pod to use.
 
 ## Concept walkthrough
 
 ### The resource contract: requests, limits, and QoS
 
-Every container can declare two numbers per resource. The **request** is a reservation: "I need at least this much." The scheduler adds up a Pod's requests and will only place it on a node whose **Allocatable** — total capacity minus what the kubelet and OS reserve for themselves — still has room<sup><a href="https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/">[1]</a></sup>. That reservation is then held for the Pod whether or not it uses it. The **limit** is a runtime ceiling the node enforces, and the two resources enforce it differently: over its **CPU** limit a container is **throttled** — the kernel's CFS scheduler hands it fewer time slices, and it runs slower; over its **memory** limit it is **killed**, because memory can't be throttled — the OOM killer terminates the process and you see `OOMKilled`, exit code 137<sup><a href="https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/">[1]</a></sup>.
+Each container can declare two numbers per resource. The docs define the split by who reads each number: "When you specify the resource *request* for containers in a Pod, the kube-scheduler uses this information to decide which node to place the Pod on. When you specify a resource *limit* for a container, the kubelet enforces those limits"<sup><a href="https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/">[2]</a></sup>.
 
-This split is the single most useful distinction in the module. **Requests are what you fit; limits are what kills you.** A too-large request is a *scheduling* failure — the Pod never starts, it sits `Pending` with `Insufficient memory`. A too-small limit is a *runtime* failure — the Pod schedules, starts, and gets OOM-killed into `CrashLoopBackOff`. Same resource, opposite symptom, opposite fix. `Pending` → look at requests and node headroom; a running Pod dead with exit 137 → look at the memory limit.
+A request is a reservation. The scheduler adds the new Pod's requests to the requests already on a node and compares the total with the node's **Allocatable**. Allocatable is Capacity minus what the node reserves for the kubelet, the operating system, and the eviction threshold<sup><a href="https://kubernetes.io/docs/tasks/administer-cluster/reserve-compute-resources/">[3]</a></sup>. The scheduler never reads live usage. A node at 5% CPU use can refuse a Pod, because its requests are already fully booked. `kubectl describe node` prints this ledger under `Allocated resources`.
 
-From those same two numbers Kubernetes derives the Pod's **QoS class**, which decides its survival priority when a node runs out of memory<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/">[2]</a></sup>:
+A limit is a ceiling, and the two resources enforce it differently. CPU is compressible: "`cpu` limits are enforced by CPU throttling"<sup><a href="https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/">[2]</a></sup>. The container gets fewer time slices and runs slower, but it keeps running. Memory is not compressible. "`memory` limits are enforced by the kernel with out of memory (OOM) kills," and the docs add that they "are enforced reactively"<sup><a href="https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/">[2]</a></sup>. When the kernel reclaims memory, it kills a process over the limit, and the container reports `OOMKilled` with exit code 137.
 
-- **Guaranteed** — every container sets a CPU *and* memory limit equal to its request. The Pod gets exactly what it reserved and is the last to be evicted.
-- **Burstable** — at least one request or limit is set, but it's not Guaranteed (the common case: requests below limits). It may use spare capacity but has no guarantee it'll keep it.
-- **BestEffort** — no requests or limits anywhere. First to be killed when the node is under pressure.
+**Requests are what you fit, and limits are what kill you.** A request that is too large is a scheduling failure: the Pod sits `Pending` with `Insufficient memory`. A memory limit that is too small is a runtime failure: the Pod schedules, starts, and falls into `CrashLoopBackOff` with `OOMKilled`. Same resource, opposite symptom, opposite fix. One default joins the two numbers. If you set a limit and no request, Kubernetes "copies the limit you specified and uses it as the requested value"<sup><a href="https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/">[2]</a></sup>.
 
-Under **node-pressure eviction**, the kubelet reclaims memory by killing Pods in exactly that order — BestEffort, then Burstable, then Guaranteed — and within a class, those most over their requests go first<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/">[3]</a></sup>. That's why "just don't set limits" is bad advice: a BestEffort Pod is the first casualty of any node that gets tight, and you don't pick which one. Honest requests matter too — a Pod that requests far less than it uses gets packed onto a node that can't actually hold it, and the whole node starts evicting.
+From the same numbers, Kubernetes derives the Pod's **QoS class**<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/">[4]</a></sup>.
 
-<details>
-<summary>📖 Going deeper: OOMKill vs. eviction vs. preemption — three different killers<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/">[3]</a></sup></summary>
+| QoS class | Rule | Meaning |
+|-----------|------|---------|
+| `Guaranteed` | Every container sets CPU and memory requests and limits, and each limit equals its request. | The Pod reserves exactly what it may use. |
+| `Burstable` | The Pod is not `Guaranteed`, and at least one container sets a CPU or memory request or limit. | The common case: requests below limits. |
+| `BestEffort` | No container sets any CPU or memory request or limit. | The Pod reserves nothing. |
 
-Three mechanisms end a running Pod's life, and conflating them sends you to the wrong fix:
+The class is fixed at creation. `kubectl describe pod` prints it on the `QoS Class:` line.
 
-- **OOMKill** is the **kernel**, acting on **one container** that touched its own **memory limit** (or a cgroup limit the node imposes). It's synchronous and local: the process dies, the container restarts per its `restartPolicy`, and you see `Last State: Terminated, Reason: OOMKilled`. Fix: the container's memory limit or its actual usage.
-- **Node-pressure eviction** is the **kubelet**, acting on **whole Pods**, when the **node** as a whole crosses a memory or disk threshold. It picks victims by **QoS class** and by how far each Pod exceeds its requests. The Pod is deleted (and rescheduled elsewhere if it's controller-owned). Fix: node capacity, or requests that reflect reality.
-- **Preemption** is the **scheduler**, deleting a **lower-PriorityClass** Pod to make room for a higher-priority `Pending` one. It is driven by **PriorityClass, not QoS** — a common and costly conflation. QoS never influences which Pod the scheduler preempts. Preemption and PriorityClass are M09.
-
-The tell: OOMKill leaves the Pod in place with a climbing restart count; eviction and preemption make it *disappear* from its node. `kubectl get events` names which — `OOMKilling`, `Evicted`, and `Preempted` are three different reasons.
-
-</details>
+QoS does less than most engineers believe. Under **node-pressure eviction**, the kubelet ranks Pods by three factors: whether usage exceeds requests, then Pod priority, then usage relative to requests<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/">[5]</a></sup>. The docs say it plainly: "The kubelet does not use the pod's QoS class to determine the eviction order." QoS is only a good *estimate* of that order. A `BestEffort` Pod always exceeds its zero request, and a `Guaranteed` Pod never exceeds its own. The deciding fact is the request, not the label. A Pod that requests far less than it uses is the first candidate, whatever its class. That is why honest requests matter, and why "set no requests to stay flexible" makes a Pod the first casualty on a crowded node.
 
 <details>
-<summary>📖 Going deeper: resizing without a restart, and where sidecars land in the math<sup><a href="https://kubernetes.io/docs/tasks/configure-pod-container/resize-container-resources/">[8]</a></sup></summary>
+<summary>📖 Going deeper: OOMKill, eviction and preemption are three different killers<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/">[5]</a></sup></summary>
 
-Two facts that changed recently enough to be worth pinning:
+Three mechanisms end a running Pod, and each has a different owner. Conflating them sends you to the wrong fix.
 
-**In-place Pod resize is stable (GA in v1.35, on by default).** You can change a running container's CPU/memory requests and limits without recreating the Pod, via the `resize` subresource (`kubectl patch pod … --subresource=resize`). CPU changes apply live; a memory *increase* often needs a container restart, controlled per-resource by `resizePolicy`. It does **not** change the Pod's QoS class — that's fixed at creation. Before this, giving a running Pod more memory meant deleting and rescheduling it; now a too-tight limit can sometimes be widened in place (subject to the node having the room).
+- **OOMKill.** The **kernel** kills one container that exceeded its own memory limit. The Pod stays on its node, the container restarts according to its `restartPolicy`, and the restart count climbs. `kubectl describe pod` shows `Last State: Terminated` with `Reason: OOMKilled`. No Kubernetes event names it. The fix is the memory limit or the application's real usage.
+- **Node-pressure eviction.** The **kubelet** acts when the whole node crosses a memory or disk threshold. It sets the chosen Pods' phase to `Failed` and terminates them, It ignores PodDisruptionBudgets, and on a hard threshold it gives no grace period. The Pod object stays listed with reason `Evicted`, and its controller creates a replacement elsewhere. The fix is node capacity, or requests that match real usage.
+- **Preemption.** The **scheduler** deletes a lower-priority Pod so that a higher-priority `Pending` Pod fits<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/">[6]</a></sup>. PriorityClass drives it, and QoS plays no part. The victim receives a `Preempted` event.
 
-**Native sidecar containers are stable (GA in v1.33)** — an init container with `restartPolicy: Always`. For scheduling, a sidecar's request counts toward the Pod's effective request for its *whole* life, unlike a plain init container whose reservation only spikes during init. A mesh or log-shipper sidecar (M13, M15) at 100m/128Mi adds that to every Pod's footprint the scheduler must fit — easy to forget when a node "mysteriously" stops accepting Pods after a mesh rollout.
+QoS does act directly in one place: the kernel's own OOM killer. When a whole node runs out of memory before the kubelet can evict, the kernel picks a victim by `oom_score_adj`. The kubelet sets that value by class: -997 for `Guaranteed`, 1000 for `BestEffort`, and a value between for `Burstable` that falls as the memory request grows<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/">[5]</a></sup>. So a `BestEffort` container is the kernel's first choice.
+
+One recent change softens the fix. In-place Pod resize is stable in v1.35: a patch to the Pod's `resize` subresource changes a running container's requests and limits without recreating the Pod, within its original QoS class<sup><a href="https://kubernetes.io/docs/tasks/configure-pod-container/resize-container-resources/">[7]</a></sup>.
 
 </details>
 
 ### Taints and tolerations: nodes that push back
 
-Requests and affinity are the Pod saying where it *will* go. Taints are the **node** saying who it *won't* take. A taint is a `key=value:effect` mark on a node that repels every Pod without a matching **toleration**<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/">[4]</a></sup>. The relationship is deliberately asymmetric: the taint is the default (keep off), the toleration is the exception (this Pod may). Three effects, in ascending severity:
+A taint is the node's side of placement. In the docs' words, "Taints are the opposite -- they allow a node to repel a set of pods"<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/">[8]</a></sup>. A taint is a `key=value:effect` mark on a node. It repels every Pod without a matching **toleration**, and the docs define that side too: "Tolerations allow the scheduler to schedule pods with matching taints." The taint is the default, and the toleration is the exception.
 
-- **`NoSchedule`** — the scheduler won't place a new Pod here unless it tolerates the taint. Pods already running are **left alone**.
-- **`PreferNoSchedule`** — a soft version; the scheduler avoids the node if it can, but will use it rather than leave a Pod `Pending`.
-- **`NoExecute`** — the strongest; not only blocks new Pods but **evicts** running ones that don't tolerate it. A toleration may carry `tolerationSeconds` to grant a grace period before eviction.
+| Effect | New Pods without a toleration | Running Pods without a toleration |
+|--------|-------------------------------|-----------------------------------|
+| `NoSchedule` | The scheduler does not place them. | Stay. |
+| `PreferNoSchedule` | The scheduler avoids the node, but uses it rather than leave a Pod `Pending`. | Stay. |
+| `NoExecute` | The scheduler does not place them. | Evicted. A toleration can set `tolerationSeconds` to delay the eviction. |
 
-The NoSchedule-vs-NoExecute line is worth internalizing, because it explains a scene you'll meet: someone taints a node `NoSchedule` and is surprised the existing Pods stay put. They stay because `NoSchedule` only gates *new* scheduling — the taint you add now doesn't reach back and evict what's already there. Had they used `NoExecute`, the node would have emptied. Tainting a live node with `NoSchedule` leaves its running Pods in place while blocking any new Pod that lacks the toleration.
+The `NoSchedule` row explains a common surprise. An engineer taints a live node `NoSchedule` and expects it to empty, but the running Pods stay. `NoSchedule` gates only new placement. The taint added now does not evict the Pods already there. A `NoExecute` taint would empty the node.
 
-You already run tolerations. The `sbc-edge` DaemonSet carries a toleration for `node-role.kubernetes.io/control-plane:NoSchedule` — that's how a "one Pod per node" DaemonSet gets a Pod onto the control-plane node, which kubeadm taints to keep ordinary workloads off<sup><a href="https://kubernetes.io/docs/reference/labels-annotations-taints/">[7]</a></sup>. Every other workload lacks that toleration, which is exactly why the whole fleet lands on the worker and nothing but `sbc-edge` (and system Pods) touches the control-plane. Kubernetes also taints nodes automatically on trouble: `node.kubernetes.io/not-ready` and `.../unreachable` are the `NoExecute` taints the node controller adds to evict Pods off a failed node, and `kubectl cordon` adds `node.kubernetes.io/unschedulable:NoSchedule`<sup><a href="https://kubernetes.io/docs/reference/labels-annotations-taints/">[7]</a></sup>.
+A toleration is permission, not attraction: "Tolerations allow scheduling but don't guarantee scheduling"<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/">[8]</a></sup>. A Pod that tolerates a dedicated node can still land on any untainted node. To reserve a node pool for one workload, taint the pool so other Pods stay off, and give the workload a node affinity to that pool so it goes there.
 
-Reading them is one line of `describe`:
-
-```bash
-kubectl describe node <node> | grep -A2 Taints
-```
+Kubernetes applies taints of its own<sup><a href="https://kubernetes.io/docs/reference/labels-annotations-taints/">[9]</a></sup>. kubeadm taints each control-plane node `node-role.kubernetes.io/control-plane:NoSchedule`, which keeps ordinary workloads off it. A DaemonSet that must run there, such as `sbc-edge`, carries a toleration for that taint. The node controller adds `node.kubernetes.io/not-ready` and `node.kubernetes.io/unreachable` with effect `NoExecute` when a node fails, and those taints move Pods off the failed node. `kubectl cordon` adds `node.kubernetes.io/unschedulable:NoSchedule`. `kubectl describe node` prints every taint on its `Taints:` line.
 
 ### Steering and spreading: affinity, anti-affinity, topology spread
 
-The last family of filters is about labels — matching Pods to nodes, and Pods to each other.
+**`nodeSelector` and node affinity attract a Pod to labeled nodes.** The docs call `nodeSelector` "the simplest recommended form of node selection constraint"<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/">[10]</a></sup>. It is a map of labels, and Kubernetes schedules the Pod only onto nodes that carry each one. Node affinity is the expressive form. It adds operators (`In`, `NotIn`, `Exists`, `DoesNotExist`, `Gt`, `Lt`) and two strengths that recur in every affinity type. `requiredDuringSchedulingIgnoredDuringExecution` is a hard filter: no matching node, no placement. `preferredDuringSchedulingIgnoredDuringExecution` is a weighted preference, and the scheduler still places the Pod when no node matches. The suffix has a precise meaning: "`IgnoredDuringExecution` means that if the node labels change after Kubernetes schedules the Pod, the Pod continues to run"<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/">[10]</a></sup>. A required rule that names a label no node carries leaves the Pod `Pending` with `didn't match Pod's node affinity/selector`.
 
-**nodeSelector and node affinity** attract a Pod to nodes carrying particular labels. `nodeSelector` is the blunt form: an exact `key: value` match, hard-required<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/">[5]</a></sup>. **Node affinity** is the expressive form, with two flavors that recur across every affinity type: `requiredDuringSchedulingIgnoredDuringExecution` (a hard filter — no matching node, no schedule) and `preferredDuringSchedulingIgnoredDuringExecution` (a soft, weighted preference the scheduler won't leave you `Pending` over). The fleet uses this already: `media-engine` and `transcoder` require `disktype=ssd`, and the lab labels the worker `disktype=ssd` so they land cleanly. Point a `required` node affinity at a label no node carries and the Pod is `Pending` with `didn't match Pod's node affinity/selector`.
+```yaml
+spec:
+  nodeSelector:
+    disktype: ssd              # hard: only nodes labeled disktype=ssd
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 50           # soft: favour a zone, never block on it
+          preference:
+            matchExpressions:
+              - { key: topology.kubernetes.io/zone, operator: In, values: [us-east-1a] }
+```
 
-**Pod affinity and anti-affinity** place a Pod relative to *other Pods* rather than to nodes. Anti-affinity is the one you'll reach for most: "don't put two of these on the same node," the standard way to make a replicated service survive a single node failure. It works through a **topologyKey** — the node label that defines what "same place" means: `kubernetes.io/hostname` (same node), `topology.kubernetes.io/zone` (same zone). A `required` anti-affinity on hostname means *every* replica must be on a distinct node — a strong guarantee, and a trap: it needs at least as many schedulable nodes as replicas, or the surplus replicas sit `Pending` with `didn't match pod anti-affinity rules`. Three replicas under that rule on a cluster with only one usable node leaves two of them stuck.
+**Pod affinity and anti-affinity place a Pod relative to other Pods.** They "allow you to constrain which nodes your Pods can be scheduled on based on the labels of Pods already running on that node"<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/">[10]</a></sup>. Anti-affinity is the common one: "do not put two replicas of this service in the same place." The `topologyKey` defines "the same place." With `kubernetes.io/hostname`, each node is its own domain. With `topology.kubernetes.io/zone`, each zone is a domain. A **required** anti-affinity on hostname puts every replica on a different node. That is a strong guarantee, and it needs at least as many schedulable nodes as replicas. The surplus replicas sit `Pending` with `didn't match pod anti-affinity rules`.
 
-**Topology spread constraints** are the modern, more flexible tool for the same goal — even distribution across a topology, rather than the all-or-nothing of required anti-affinity<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/">[6]</a></sup>. You set a `maxSkew` (how uneven it may get), a `topologyKey` (spread across nodes, zones), and a `whenUnsatisfiable`: `DoNotSchedule` (hard — the same wedge as required anti-affinity) or `ScheduleAnyway` (soft — pack them in but prefer to spread). The failure to know cold: a `DoNotSchedule` spread wedges a Deployment the moment the schedulable domain count drops below what the skew needs — a node drain or a zone outage silently turns "highly available" into "won't scale up." And two defaults bite: `whenUnsatisfiable` defaults to `DoNotSchedule` (the wedge-prone one), and `nodeTaintsPolicy` defaults to `Ignore`, so the skew math *counts* nodes the Pod can't even tolerate<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/">[6]</a></sup>.
+**Topology spread constraints** do the same job with a dial instead of a switch<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/">[11]</a></sup>. `maxSkew` sets how uneven the spread may get. `topologyKey` sets the domain. `whenUnsatisfiable` sets the response: `DoNotSchedule` keeps the Pod `Pending`, and `ScheduleAnyway` places it while preferring the nodes that reduce the skew. Two defaults deserve attention. `whenUnsatisfiable` defaults to `DoNotSchedule`, the hard form. `nodeTaintsPolicy` defaults to the `Ignore` behavior, so the skew calculation counts nodes the Pod cannot even tolerate.
 
-The unifying idea: affinity, anti-affinity, and topology spread are all just more filters. Each steers a Pod toward the placement you want — and, in its `required`/`DoNotSchedule` form, keeps it `Pending` when the cluster can't satisfy it. The gap between "highly available" and "stuck" is often one node's worth of headroom.
+In their `required` or `DoNotSchedule` form, all of these keep a Pod `Pending` when the cluster cannot satisfy them. The gap between "highly available" and "stuck" is often one node's worth of room.
+
+<details>
+<summary>📖 Going deeper: hard placement rules during rollouts and drains<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/">[10]</a></sup></summary>
+
+Required anti-affinity works in both directions. The scheduler checks the incoming Pod's rules against the Pods on a node. It also checks the rules of the Pods already on that node against the incoming Pod. If an existing Pod's required anti-affinity matches the newcomer's labels, the node refuses the newcomer with `node(s) didn't satisfy existing pods anti-affinity rules`.
+
+This matters most during a rolling update. The new ReplicaSet's Pods carry the same `app` label as the old ones. So the old Pods' required rule repels their own replacements from every node the old Pods occupy. On a cluster with spare nodes, the new Pods land elsewhere and the rollout proceeds. On a cluster with no spare node, the new Pods sit `Pending`. With a small replica count, the rolling-update maths rounds `maxUnavailable` down to zero, so the Deployment controller never removes an old Pod either. The rollout stalls until an operator removes the old Pods, for example by scaling to zero and back. Softening the rule to `preferred` does not help until the old Pods are gone, because the old Pods still carry the hard version. The `matchLabelKeys` field (beta from v1.31, stable from v1.33) solves this at the source: with `pod-template-hash` in the list, each revision only repels Pods of its own revision.
+
+Drains produce the same wedge. A drain removes one domain, and a hard rule that needed it leaves the evicted replicas `Pending` until the node returns. Alert on `Pending` Pods whose reason names anti-affinity or spread. Otherwise a routine drain quietly reduces redundancy.
+
+The rules also cost scheduler time. The docs warn that inter-pod affinity "can slow down scheduling in large clusters significantly." They do not recommend it "in clusters larger than several hundred nodes."
+
+</details>
 
 ## Hands-on
 
-Four steps in the baseline, four break/fix scenarios — all on the full Polyphone fleet on a 2-node cluster (one tainted control-plane, one worker). Each break/fix layers one small extra workload that fails to schedule (or fails to stay up) for exactly one reason, so you practice reading a single `FailedScheduling` (or `OOMKilled`) signature at a time.
+Five baseline steps and five break/fix scenarios run on the full Polyphone fleet, on a 2-node cluster: one tainted control-plane node and one worker. Each break/fix layers one small workload that fails for exactly one reason.
 
-- **`baseline/`** — where the fleet actually landed and why: nodes and the control-plane taint, the requests/limits/QoS contract read off the running Pods (`kubectl top`, `describe node`'s allocated-resources table), the nodeAffinity and tolerations the fleet already uses, and the scheduler's `Scheduled` event. What healthy placement looks like before the differential breaks it.
-- **`breakfix-01-insufficient-resources`** — a Pod stuck `Pending` with `Insufficient memory`: a request fat-fingered from Mi to Gi that fits no node. Tests reading `FailedScheduling` and node Allocatable, and the requests-drive-scheduling rule.
-- **`breakfix-02-untolerated-taint`** — `Pending` with `untolerated taint`: a node tainted for a dedicated pool, and a new workload missing the toleration. Tests `describe node`'s Taints line and writing a matching toleration.
-- **`breakfix-03-antiaffinity-unschedulable`** — two of three replicas `Pending` with `didn't match pod anti-affinity rules`: a required per-hostname spread that needs more nodes than the cluster can schedule. Tests hard-vs-soft placement and the spread wedge.
-- **`breakfix-04-oom-killed`** — a Pod that *schedules* fine, then `CrashLoopBackOff` with `OOMKilled`, exit 137: a memory limit set below the container's working set. The runtime counterpart to breakfix-01 — requests fit, the limit didn't hold.
+- **`baseline/`** — where the fleet landed and why. Read the control-plane taint, the fleet's resources and QoS, and its affinity and tolerations. Then place a Pod yourself, and learn the `Pending` triage.
+- **`breakfix-01-insufficient-resources/`** — a Pod `Pending` with `Insufficient memory`, because a request slipped from `Mi` to `Gi`.
+- **`breakfix-02-untolerated-taint/`** — a Pod `Pending` with `untolerated taint`, because a node was dedicated to one workload class and the new workload lacks the toleration.
+- **`breakfix-03-antiaffinity-unschedulable/`** — two of three replicas `Pending` under a required one-per-node anti-affinity, and a fix that stalls until the old Pods leave.
+- **`breakfix-04-oom-killed/`** — a Pod that schedules, then loops through `CrashLoopBackOff` with `OOMKilled`, because its memory limit sits below its working set.
+- **`breakfix-05-node-affinity-mismatch/`** — a Pod `Pending` with `didn't match Pod's node affinity/selector`, because it asks for a node label that no node carries.
 
-The first three walk the `Pending` differential — one filter, one signature each; the fourth flips to the runtime side to drive home that a request is what you fit and a limit is what kills you. Check yourself against `ANSWER-KEY.md` after each.
+Check yourself against `ANSWER-KEY.md` after each.
 
 ## Common failure modes
 
 | Symptom | Likely cause | Where to look |
 |---------|--------------|---------------|
-| Pod `Pending`, `FailedScheduling: Insufficient cpu/memory` | Request larger than any node's free Allocatable (often a unit slip, or genuine capacity shortage) | `kubectl describe pod` Events; `kubectl describe node` "Allocated resources"; the container's `resources.requests` |
-| Pod `Pending`, `untolerated taint {…}` | Node is tainted and the Pod lacks a matching toleration | `kubectl describe node \| grep Taints`; the Pod's `spec.tolerations` |
-| Pod `Pending`, `didn't match Pod's node affinity/selector` | `nodeSelector`/required node affinity points at a label no node has | `kubectl get nodes --show-labels`; the Pod's `nodeSelector`/`nodeAffinity` |
-| Some replicas `Pending`, `didn't match pod anti-affinity rules` / `topology spread constraints` | Required anti-affinity or `DoNotSchedule` spread needs more schedulable domains than exist | count schedulable nodes/zones vs. replicas; the Pod's `affinity`/`topologySpreadConstraints` |
-| Pod runs, then `CrashLoopBackOff`, `Last State: OOMKilled`, exit 137 | Memory **limit** below the container's actual usage | `kubectl describe pod` Last State; `resources.limits.memory` vs. `kubectl top pod` |
-| Pod `Evicted`, disappeared from its node | Node-pressure eviction (memory/disk); BestEffort/Burstable killed first | node conditions (`MemoryPressure`/`DiskPressure`); the Pod's QoS class and requests |
-| Pod scheduled onto a surprising node, or none | Overcommitted limits masking honest requests; requests far below real usage | compare `requests` to `kubectl top`; the node's requests vs. Allocatable, not its live usage |
+| `Pending`, `Insufficient cpu` or `Insufficient memory` | A request larger than any node's free Allocatable: a unit slip, or real capacity shortage | `describe pod` events; `describe node` under `Allocated resources`; the container's `resources.requests` |
+| `Pending`, `had untolerated taint {…}` | The node is tainted, and the Pod lacks a matching toleration | `describe node`, `Taints:` line; the Pod's `tolerations` |
+| `Pending`, `didn't match Pod's node affinity/selector` | A `nodeSelector` or required node affinity names a label no node carries | `get nodes -L <key>`; the Pod's `nodeSelector` or `nodeAffinity` |
+| Some replicas `Pending`, `didn't match pod anti-affinity rules` or `topology spread constraints` | A hard spread rule needs more schedulable domains than exist | Count schedulable nodes or zones against replicas; the Pod's `affinity` and `topologySpreadConstraints` |
+| Rollout stalls, new Pods `didn't satisfy existing pods anti-affinity rules` | Old Pods' required anti-affinity repels their replacements | `get rs`; remove the old Pods |
+| Pod runs, then `CrashLoopBackOff`, `Last State: OOMKilled`, exit 137 | The memory limit is below the container's working set | `describe pod`, `Last State:`; `resources.limits.memory` against `kubectl top pod` |
+| Pod `Failed` with reason `Evicted` | Node-pressure eviction; Pods using more than they request go first | Node conditions `MemoryPressure` and `DiskPressure`; the Pod's requests against its usage |
+| Node refuses Pods while its CPU is nearly idle | Requests, not usage, fill Allocatable | `describe node`, `Allocated resources`; right-size inflated requests |
 
 ## Recap
 
-- **The scheduler filters then scores.** A Pod that fits no node stays `Pending`, and its one `FailedScheduling` event names, per node, the first filter each one failed. That list *is* the differential — read it before anything else.
-- **Requests are what you fit; limits are what kills you.** Scheduling sums **requests** against node **Allocatable** and ignores limits entirely. A too-big request → `Pending`; a too-small memory limit → `OOMKilled` at runtime. Same resource, opposite symptom, opposite fix.
-- **QoS falls out of requests and limits and sets the kill order.** Guaranteed (request == limit everywhere) survives longest; BestEffort (nothing set) dies first under node pressure. QoS drives kubelet **eviction**, not scheduler preemption — don't conflate them.
-- **Taints repel; tolerations are the exception.** `NoSchedule` blocks new Pods but leaves running ones alone; `NoExecute` evicts. On this cluster the control-plane taint puts an expected `untolerated taint` line in every `FailedScheduling` message — read past it to the worker's reason.
-- **`required` affinity and `DoNotSchedule` spread are HA and a trap in one.** They enforce distribution, and they wedge — leaving replicas `Pending` — the moment the schedulable node/zone count drops below what the rule needs. Prefer `preferred`/`ScheduleAnyway` unless you truly need the hard guarantee and have the domains to back it.
+- **The scheduler filters, scores, then binds.** A Pod that no node can take stays `Pending`, and its `FailedScheduling` event lists each node's first failed filter. That list is the differential, so read it before anything else.
+- **Requests are what you fit, and limits are what kill you.** The scheduler sums requests against Allocatable and ignores limits and live usage. A request that is too large means `Pending`. A memory limit that is too small means `OOMKilled` at runtime.
+- **QoS estimates who suffers first, and requests decide it.** The kubelet evicts Pods that use more than they request, then by priority. A `BestEffort` Pod requests nothing, so it always qualifies.
+- **Taints repel, and a toleration is permission, not attraction.** `NoSchedule` blocks new Pods and leaves running ones. `NoExecute` evicts them. A dedicated pool needs a taint and a node affinity.
+- **A hard placement rule is an availability guarantee and a trap.** `required` anti-affinity and `DoNotSchedule` spread leave replicas `Pending` when the domains run out, and required anti-affinity also repels a Deployment's own new Pods. Use the soft forms unless you need the guarantee and have the domains to back it.
 
 ## Production thinking
 
-- A capacity review sets every service's memory request to its observed p99. A week later a node drain can't reschedule half its Pods — they're all `Pending`. What did tightening requests to p99 do to the cluster's ability to absorb a lost node, and what headroom would you have kept?
-- You want every replica of a signaling service on a distinct node for HA, so you write a `required` per-hostname anti-affinity. It works in stage (5 nodes) and wedges in a small prod region (3 nodes, 4 replicas) during a node reboot. How do you get the availability guarantee without the wedge — and what's the trade-off of `preferred`/`ScheduleAnyway` you're accepting?
-- A team ships services with no resource requests "to keep them flexible." Everything runs fine for weeks, then one busy node starts evicting their Pods first and at random during traffic spikes. Explain the QoS mechanism that made them the sacrifice, and what one field would have changed it.
+- A capacity review sets every service's memory request to its observed p99. A week later, a node drain cannot reschedule half its Pods. What did the tighter requests do to the cluster's room to absorb a lost node, and how much headroom would you keep?
+- A signaling service uses a required per-hostname anti-affinity. It works in stage with 5 nodes and wedges in a small prod region with 3 nodes and 4 replicas during a node reboot. How do you keep the availability guarantee without the wedge, and what does the soft form give up?
+- A team ships services with no resource requests "to keep them flexible." During a traffic spike, one busy node evicts their Pods first. Which fact about eviction ranking made them the first candidates, and which single field would have changed that?
+
 ## References
 
-1. Kubernetes — Resource Management for Pods and Containers: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-2. Kubernetes — Pod Quality of Service Classes: https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/
-3. Kubernetes — Node-pressure Eviction: https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/
-4. Kubernetes — Taints and Tolerations: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
-5. Kubernetes — Assigning Pods to Nodes (nodeSelector, node affinity): https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/
-6. Kubernetes — Pod Topology Spread Constraints: https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/
-7. Kubernetes — Well-Known Labels, Annotations and Taints: https://kubernetes.io/docs/reference/labels-annotations-taints/
-8. Kubernetes — Resize CPU and Memory Resources assigned to Containers: https://kubernetes.io/docs/tasks/configure-pod-container/resize-container-resources/
-9. Kubernetes — kube-scheduler: https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/
+1. Kubernetes — Kubernetes Scheduler: https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/
+2. Kubernetes — Resource Management for Pods and Containers: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+3. Kubernetes — Reserve Compute Resources for System Daemons: https://kubernetes.io/docs/tasks/administer-cluster/reserve-compute-resources/
+4. Kubernetes — Pod Quality of Service Classes: https://kubernetes.io/docs/concepts/workloads/pods/pod-qos/
+5. Kubernetes — Node-pressure Eviction: https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/
+6. Kubernetes — Pod Priority and Preemption: https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/
+7. Kubernetes — Resize CPU and Memory Resources assigned to Containers: https://kubernetes.io/docs/tasks/configure-pod-container/resize-container-resources/
+8. Kubernetes — Taints and Tolerations: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
+9. Kubernetes — Well-Known Labels, Annotations and Taints: https://kubernetes.io/docs/reference/labels-annotations-taints/
+10. Kubernetes — Assigning Pods to Nodes: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/
+11. Kubernetes — Pod Topology Spread Constraints: https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/

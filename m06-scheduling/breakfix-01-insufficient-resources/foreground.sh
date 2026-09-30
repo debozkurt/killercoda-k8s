@@ -7,9 +7,9 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "stream-analyzer (analytics) has no running Pod — it's stuck Pending."
-echo "The scheduler couldn't place it. Read why, in one command:"
+echo "stream-analyzer (analytics) has no running Pod. It is stuck Pending."
+echo "The scheduler could not place it. Start here:"
 echo ""
-echo "  kubectl get pods -n analytics"
-echo "  kubectl describe pod -n analytics -l app=stream-analyzer | grep -A6 Events"
+echo "  kubectl get pods -n analytics -o wide"
+echo "  kubectl describe pod -n analytics -l app=stream-analyzer"
 echo ""

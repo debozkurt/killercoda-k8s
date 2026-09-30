@@ -1,0 +1,19 @@
+{
+  "title": "M06 — Break/fix 05: Node Affinity Mismatch",
+  "description": "conference-mixer is Pending, and no node is short or tainted against it. Its nodeSelector asks for a node label no node carries. Read the labels and correct the selector.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the unmatched selector", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

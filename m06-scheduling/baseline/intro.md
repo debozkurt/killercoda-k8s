@@ -1,14 +1,15 @@
 # M06 — Baseline Tour
 
-Every Pod you've run so far landed on *some* node — and the component that chose, for each one, was the **kube-scheduler**. It watches for Pods with no node assigned, filters the nodes each Pod *can* run on (does it fit? does it tolerate the taints? does it match the affinity?), scores the survivors, and binds the Pod to the best one. When no node survives the filter, the Pod sits `Pending` — and that's most of this module.
+Every Pod you have run so far landed on a node. The **kube-scheduler** chose each node. In the docs' words, it "selects an optimal node to run newly created or not yet scheduled (unscheduled) pods". For each Pod it filters out the nodes the Pod cannot use, scores the rest, and binds the Pod to the best one. When no node survives the filter, the Pod sits `Pending`. Most of this module is about reading why.
 
-This tour runs on the full Polyphone fleet on a **2-node cluster**: one control-plane node (tainted, so ordinary workloads stay off it) and one worker (where the fleet actually runs). Nothing to fix — you're learning to *read* the placement decisions the fleet already embodies before the break/fix scenarios break each one.
+The tour runs on the full Polyphone fleet on a **2-node cluster**. One control-plane node carries a taint that keeps ordinary workloads off it. One worker runs the fleet. Nothing is broken here. You read the placement decisions the fleet already carries, so that a broken one stands out later.
 
-Four short steps:
+Five short steps:
 
-1. **Where the fleet landed** — the two nodes, the control-plane taint, and why the whole fleet is on the worker
-2. **Requests, limits, and QoS** — the resource contract on each Pod, and the class that decides who dies first under pressure
-3. **Steering placement: affinity and taints** — the nodeAffinity and tolerations the fleet already uses to control where Pods go
-4. **The scheduler's decision and headroom** — the `Scheduled` event, and how much room is left before the next Pod won't fit
+1. **Where the fleet landed** — the two nodes, the control-plane taint, and why the fleet sits on the worker
+2. **Requests, limits, and QoS** — the resource contract on each Pod, and the class Kubernetes derives from it
+3. **Labels, affinity, and tolerations** — the node affinity and tolerations the fleet uses to control placement
+4. **Place a Pod and read the ledger** — create a Pod, watch the scheduler bind it, and watch its request reserve room on the node
+5. **The Pending triage** — the commands that split every `Pending` Pod by cause
 
-See what healthy placement looks like, so a `Pending` Pod stands out later. The cluster takes 90–150 seconds to come up. Click **Start** when ready.
+The cluster takes 90–150 seconds to come up. Click **Start** when ready.

@@ -7,9 +7,9 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "media-buffer (media) scheduled onto a node — but it's in CrashLoopBackOff."
-echo "It's not a scheduling problem this time. Read what killed the container:"
+echo "media-buffer (media) has a node, and it is in CrashLoopBackOff."
+echo "This is not a scheduling problem. Read what killed the container:"
 echo ""
 echo "  kubectl get pods -n media -l app=media-buffer"
-echo "  kubectl describe pod -n media -l app=media-buffer | grep -A5 'Last State'"
+echo "  kubectl describe pod -n media -l app=media-buffer"
 echo ""

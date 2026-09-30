@@ -1,6 +1,6 @@
 {
   "title": "M06 — Break/fix 02: Untolerated Taint",
-  "description": "pstn-probe is Pending, but nothing is short on resources. A node was tainted for a dedicated pool and the Pod lacks the matching toleration. Read the node's taint and add it.",
+  "description": "pstn-probe is Pending, yet no node is short of resources. A node was tainted for a dedicated pool, and the Pod lacks the matching toleration. Read the node's taint and add the toleration.",
   "details": {
     "intro": {
       "text": "intro.md",
@@ -8,10 +8,19 @@
       "foreground": "foreground.sh"
     },
     "steps": [
-      { "title": "Diagnose the untolerated taint", "text": "step1/text.md" },
-      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+      {
+        "title": "Diagnose the untolerated taint",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
     ],
-    "finish": { "text": "finish.md" }
+    "finish": {
+      "text": "finish.md"
+    }
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"
