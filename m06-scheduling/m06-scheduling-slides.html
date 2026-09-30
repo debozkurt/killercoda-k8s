@@ -280,29 +280,29 @@
   <!-- 4 — FILTER CASCADE -->
   <section class="slide">
     <div class="wrap">
-      <h2>The filters run in a fixed order,<br/>and a node stops at its first failure</h2>
-      <p class="sub">For a Pod with no node, the scheduler runs each node left to right. These four filters sit behind nearly every <code>Pending</code> Pod, and each "no" has its own text in the event.</p>
+      <h2>How the scheduler filters nodes</h2>
+      <p class="sub">Each node goes through the same checks in order. If the Pod does not specify a constraint, that check passes.</p>
       <div class="cascade">
         <div class="col">
-          <div class="node"><div class="step-n">FILTER 1</div><div class="t">Taints</div><div class="s">tolerates the node's taints?</div></div>
+          <div class="node"><div class="step-n">FILTER 1</div><div class="t">Taints</div><div class="s">Can the Pod tolerate this node's taints?</div></div>
           <div class="down">no &#8595;</div>
           <div class="node bad"><div class="s">had untolerated taint</div></div>
         </div>
         <div class="arrow"><span class="lbl">yes</span>&#8594;</div>
         <div class="col">
-          <div class="node"><div class="step-n">FILTER 2</div><div class="t">Node affinity</div><div class="s">matches nodeSelector and node affinity?</div></div>
+          <div class="node"><div class="step-n">FILTER 2</div><div class="t">Node selection</div><div class="s">Does the node satisfy the Pod's placement requirements?</div></div>
           <div class="down">no &#8595;</div>
           <div class="node bad"><div class="s">didn't match Pod's node affinity/selector</div></div>
         </div>
         <div class="arrow"><span class="lbl">yes</span>&#8594;</div>
         <div class="col">
-          <div class="node"><div class="step-n">FILTER 3</div><div class="t">Resources</div><div class="s">requests fit free Allocatable?</div></div>
+          <div class="node"><div class="step-n">FILTER 3</div><div class="t">Resources</div><div class="s">Does the node have enough CPU and memory?</div></div>
           <div class="down">no &#8595;</div>
           <div class="node bad"><div class="s">Insufficient cpu / memory</div></div>
         </div>
         <div class="arrow"><span class="lbl">yes</span>&#8594;</div>
         <div class="col">
-          <div class="node"><div class="step-n">FILTER 4</div><div class="t">Spread</div><div class="s">topology spread and anti-affinity hold?</div></div>
+          <div class="node"><div class="step-n">FILTER 4</div><div class="t">Spread</div><div class="s">Does placing the Pod here satisfy its spread rules?</div></div>
           <div class="down">no &#8595;</div>
           <div class="node bad"><div class="s">didn't match pod anti-affinity rules</div></div>
         </div>
