@@ -234,23 +234,22 @@
   <!-- 1 — TITLE -->
   <section class="slide">
     <div class="wrap">
-      <h1>Scheduling:<br/>which node runs each Pod</h1>
-      <p class="lead">Requests, limits, QoS, taints, affinity and spread: the fields the scheduler reads, and the signature each leaves when a Pod does not run.</p>
-      <p class="sub" style="margin-top:1.4rem">A <code>Pending</code> Pod starts no container and writes no log. One <code>FailedScheduling</code> event names the reason each node refused it.</p>
+      <h1>Scheduling:<br/>how Kubernetes selects a Node</h1>
+      <p class="lead">Use scheduling events and Node state to diagnose a <code>Pending</code> Pod.</p>
+      <p class="sub" style="margin-top:1.4rem">Focus: requests and limits, QoS, taints and tolerations, node selection, affinity, and topology spread.</p>
     </div>
   </section>
 
   <!-- 2 — OBJECTIVES -->
   <section class="slide">
     <div class="wrap">
-      <h2>What you'll walk away with</h2>
+      <h2>Objectives</h2>
       <ul>
-        <li><strong>The scheduler's three moves</strong>: filter, score, bind, and the order the filters run</li>
-        <li><strong>Requests and limits</strong>: the scheduler fits the request, and the kernel enforces the limit</li>
-        <li><strong>QoS classes</strong>: how Kubernetes derives them, and what they do and do not decide under node pressure</li>
-        <li><strong>Taints and tolerations</strong>: nodes that repel Pods, and the exception a Pod carries</li>
-        <li><strong>Affinity and spread</strong>: steering Pods onto labeled nodes, spreading replicas, and how a hard rule leaves replicas <code>Pending</code></li>
-        <li><strong>The <code>Pending</code> differential</strong>: one message entry per filter, plus the runtime <code>OOMKilled</code> counterpart</li>
+        <li>Explain how the scheduler <strong>filters, scores, and binds</strong> a Pod.</li>
+        <li>Use <code>kubectl describe pod</code> to read a <code>FailedScheduling</code> event.</li>
+        <li>Explain the difference between a resource <strong>request</strong> and a resource <strong>limit</strong>.</li>
+        <li>Explain how requests and limits determine a Pod's <strong>QoS class</strong>.</li>
+        <li>Diagnose scheduling failures caused by <strong>resources, taints, node selection, affinity, and topology constraints</strong>.</li>
       </ul>
     </div>
   </section>
@@ -258,47 +257,47 @@
   <!-- 3 — FILTER / SCORE / BIND -->
   <section class="slide">
     <div class="wrap">
-      <h2>The scheduler filters, scores, then binds</h2>
-      <p class="sub" style="margin-bottom:1.8rem">kube-scheduler "selects an optimal node to run newly created or not yet scheduled (unscheduled) pods".</p>
-      <div class="flow" style="margin:.4rem 0 1.4rem;justify-content:center;gap:1rem">
-        <div class="node"><div class="t">Pod</div><div class="s">no node yet</div></div>
+      <h2>The scheduler filters, scores, and binds</h2>
+      <div class="flow" style="margin:.4rem 0 1.5rem;justify-content:center;gap:1rem">
+        <div class="node"><div class="t">Unscheduled Pod</div><div class="s">no Node assigned</div></div>
         <div class="arrow"><span class="lbl">filter</span>&#8594;</div>
-        <div class="node"><div class="t">Feasible nodes</div><div class="s">passed every filter</div></div>
+        <div class="node"><div class="t">Feasible Nodes</div><div class="s">meet requirements</div></div>
         <div class="arrow"><span class="lbl">score</span>&#8594;</div>
-        <div class="node"><div class="t">Best node</div><div class="s">highest score</div></div>
+        <div class="node"><div class="t">Selected Node</div><div class="s">highest final score</div></div>
         <div class="arrow"><span class="lbl">bind</span>&#8594;</div>
-        <div class="node good"><div class="t">Bound</div><div class="s">node name written</div></div>
+        <div class="node good"><div class="t">Pod bound</div><div class="s">Node assigned</div></div>
       </div>
       <ul>
-        <li>No feasible node: the Pod stays <code>Pending</code>, and the scheduler records <code>FailedScheduling</code>.</li>
-        <li>Scheduling fails at the filter, never at the score.</li>
-        <li>After the bind, the kubelet on that node starts the containers.</li>
+        <li><strong>Filter:</strong> remove Nodes that cannot run the Pod.</li>
+        <li><strong>Score:</strong> rank the Nodes that passed filtering.</li>
+        <li><strong>Bind:</strong> assign the selected Node to the Pod.</li>
+        <li>If no Node passes filtering, the Pod remains <code>Pending</code>.</li>
       </ul>
     </div>
   </section>
 
-  <!-- 4 — FILTER CASCADE -->
+  <!-- 4 — FILTERS -->
   <section class="slide">
     <div class="wrap">
-      <h2>Common node filtering checks</h2>
-      <p class="sub" style="margin-bottom:1.3rem">These are common reasons a node becomes infeasible. The table groups them by purpose, not execution order.</p>
+      <h2>Common scheduling filters</h2>
+      <p class="sub" style="margin-bottom:1.3rem">These checks are grouped by purpose. This table is not an execution order.</p>
       <table>
-        <tr><th>Check</th><th>What the node must satisfy</th><th>When it matters</th></tr>
-        <tr><td>Taints</td><td class="muted">The Pod tolerates the node's blocking taints.</td><td class="muted">The node has <code>NoSchedule</code> or <code>NoExecute</code> taints.</td></tr>
-        <tr><td>Node selection</td><td class="muted">The node matches required selectors and node affinity.</td><td class="muted">The Pod or scheduler profile adds placement requirements.</td></tr>
-        <tr><td>Resources</td><td class="muted">The node has enough available CPU and memory for the Pod's requests.</td><td class="muted">The Pod requests resources.</td></tr>
-        <tr><td>Pod placement</td><td class="muted">The placement satisfies required anti-affinity and hard spread constraints.</td><td class="muted">The Pod defines required rules.</td></tr>
+        <tr><th>Check</th><th>Requirement</th></tr>
+        <tr><td>Resources</td><td class="muted">The Node has enough available resources for the Pod's requests.</td></tr>
+        <tr><td>Taints</td><td class="muted">The Pod tolerates each blocking taint on the Node.</td></tr>
+        <tr><td>Node selection</td><td class="muted">The Node matches required selectors and node affinity.</td></tr>
+        <tr><td>Pod placement</td><td class="muted">The placement satisfies required pod affinity, anti-affinity, and topology spread constraints.</td></tr>
       </table>
-      <div class="note" style="margin-top:1.2rem"><p>For each node, filter plugins run in the configured order and stop after the first rejection. Nodes may be checked concurrently.</p></div>
+      <div class="note" style="margin-top:1.2rem"><p>Filter plugins run in their configured order. A Node stops at its first failed filter. Different Nodes can be evaluated concurrently. Scheduler configuration can change the enabled plugins and their order.</p></div>
     </div>
   </section>
 
-  <!-- 5 — READING THE EVENT -->
+  <!-- 5 — FAILED SCHEDULING -->
   <section class="slide">
     <div class="wrap">
-      <h2>The <code>FailedScheduling</code> event<br/>is the diagnosis</h2>
+      <h2>Start with <code>FailedScheduling</code></h2>
       <div class="terminal">
-<span class="c">kubectl</span> describe pod &lt;pod&gt; -n &lt;ns&gt;
+<span class="c">kubectl</span> describe pod &lt;pod&gt; -n &lt;namespace&gt;
 <span class="o">...</span>
 <span class="r">Warning  FailedScheduling</span>
   0/2 nodes are available:
@@ -307,265 +306,199 @@
       {node-role.kubernetes.io/control-plane: }.
   <span class="o">preemption: 0/2 nodes are available: ...</span>
       </div>
-      <ul style="margin-top:1.4rem">
-        <li><code>0/2</code>: no evaluated node passed every required filter.</li>
-        <li>Each entry groups nodes rejected for the same reason. The text order does not show plugin order.</li>
-        <li>The <code>preemption:</code> clause says whether evicting a lower-priority Pod would help. Stop reading before it.</li>
-      </ul>
-      <div class="note warn" style="margin-top:1rem"><p>A kubeadm control-plane node carries a <code>NoSchedule</code> taint, so on a small cluster every message has an entry for it. Read the entry for the nodes you expected the Pod to use.</p></div>
-    </div>
-  </section>
-
-  <!-- 6 — REQUEST AND LIMIT ANATOMY -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Two numbers per resource,<br/>and a different reader for each</h2>
-      <div class="terminal">
-spec:
-  containers:
-    - name: app
-      resources:
-        <span class="c">requests</span>: { cpu: 25m, memory: 32Mi }
-        <span class="o">#  read by the scheduler, before placement</span>
-        <span class="c">limits</span>:   { cpu: 100m, memory: 64Mi }
-        <span class="o">#  enforced by the node, while it runs</span>
-      </div>
-      <ul style="margin-top:1.5rem">
-        <li>The scheduler sums a Pod's requests. It never reads limits or live usage.</li>
-        <li>A limit with no request: Kubernetes copies the limit into the request.</li>
-        <li><code>describe pod</code> prints both blocks as <code>Limits:</code> and <code>Requests:</code>.</li>
+      <ul style="margin-top:1.3rem">
+        <li><code>0/2</code> means that no evaluated Node passed all required filters.</li>
+        <li>Each entry groups Nodes that failed for the same reported reason.</li>
+        <li>The event text does not show filter execution order.</li>
+        <li>Read the initial filter failures before the <code>preemption:</code> result.</li>
       </ul>
     </div>
   </section>
 
-  <!-- 7 — THE NODE LEDGER -->
+  <!-- 6 — REQUESTS / LIMITS -->
   <section class="slide">
     <div class="wrap">
-      <h2>A request is a reservation<br/>in the node's ledger</h2>
-      <p class="sub" style="margin-bottom:1.3rem">Allocatable is Capacity minus what the node reserves for the kubelet, the operating system and eviction. The scheduler compares requests with what is left.</p>
-      <div class="terminal">
-<span class="o"># example: a node whose CPU requests are nearly booked</span>
-<span class="c">kubectl</span> describe node &lt;worker&gt;
-<span class="o">Capacity:      cpu: 2      memory: 4Gi</span>
-<span class="c">Allocatable</span>:   cpu: 2      memory: 3.6Gi
-...
-<span class="c">Allocated resources</span>:
-  Resource  Requests      Limits
-  cpu       <span class="g">1850m (92%)</span>   3200m (160%)
-  memory    1.1Gi (30%)   2.3Gi (64%)
-      </div>
-      <ul style="margin-top:1.4rem">
-        <li>The node above refuses a Pod that requests 200m CPU, even while its CPU sits nearly idle.</li>
-        <li>Limits may add up to more than 100%. The scheduler does not check them.</li>
-      </ul>
-    </div>
-  </section>
-
-  <!-- 8 — REQUESTS FIT, LIMITS KILL -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Requests are what you fit;<br/>limits are what kill you</h2>
+      <h2>Request = scheduling<br/>Limit = runtime</h2>
       <div class="cards c2">
-        <div class="card">
-          <h3>Request too large</h3>
-          <p>No node has that much free Allocatable, so the scheduler places the Pod nowhere.</p>
+        <div class="card good">
+          <h3>Request</h3>
+          <p>The scheduler uses the request to determine whether the Pod fits on a Node.</p>
           <div class="sigs">
-            <div class="sig"><span class="lbl">symptom</span><span class="val"><code>Pending</code>, <code>Insufficient memory</code></span></div>
-            <div class="sig"><span class="lbl">fix</span><span class="val">right-size the request, or add capacity</span></div>
+            <div class="sig"><span class="lbl">CPU</span><span class="val"><code>500m</code></span></div>
+            <div class="sig"><span class="lbl">memory</span><span class="val"><code>1Gi</code></span></div>
           </div>
         </div>
-        <div class="card bad">
-          <h3>Memory limit too small</h3>
-          <p>The Pod schedules and starts. The kernel's OOM killer kills it for going over its limit.</p>
+        <div class="card">
+          <h3>Limit</h3>
+          <p>The Node runtime enforces the limit after the container starts.</p>
           <div class="sigs">
-            <div class="sig"><span class="lbl">symptom</span><span class="val"><code>OOMKilled</code>, exit 137, <code>CrashLoopBackOff</code></span></div>
-            <div class="sig"><span class="lbl">fix</span><span class="val">raise the limit above the working set</span></div>
+            <div class="sig"><span class="lbl">CPU</span><span class="val">CPU use is throttled above the limit.</span></div>
+            <div class="sig"><span class="lbl">memory</span><span class="val">Exceeding the limit can cause an OOM kill.</span></div>
           </div>
         </div>
       </div>
-      <div class="grid-2 tight" style="margin-top:1.5rem">
-        <ul style="margin:0">
-          <li>The kernel throttles CPU over the limit. The container runs slower and keeps running.</li>
-        </ul>
-        <ul style="margin:0">
-          <li>Memory limits "are enforced reactively": the kernel kills when it reclaims memory.</li>
-        </ul>
-      </div>
+      <div class="note" style="margin-top:1.4rem"><p>The scheduler uses requests. Low current CPU or memory use does not make a Node schedulable when its requested capacity is full.</p></div>
     </div>
   </section>
 
-  <!-- 9 — QOS CLASSES -->
+  <!-- 7 — NODE CAPACITY -->
   <section class="slide">
     <div class="wrap">
-      <h2>Kubernetes derives a QoS class<br/>from requests and limits</h2>
-      <table>
-        <tr><th>Class</th><th>Rule</th></tr>
-        <tr><td><code>Guaranteed</code></td><td class="muted">every container sets CPU and memory requests and limits, and each limit equals its request</td></tr>
-        <tr><td><code>Burstable</code></td><td class="muted">not Guaranteed, and at least one container sets a CPU or memory request or limit</td></tr>
-        <tr><td><code>BestEffort</code></td><td class="muted">no container sets any CPU or memory request or limit</td></tr>
-      </table>
-      <ul style="margin-top:1.4rem">
-        <li>The API server sets it at creation, in <code>status.qosClass</code>. <code>describe pod</code> prints <code>QoS Class:</code>.</li>
-        <li>The class does not change for the life of the Pod, even under in-place resize.</li>
-      </ul>
-    </div>
-  </section>
-
-  <!-- 10 — THREE KILLERS -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>OOMKill, eviction, preemption:<br/>three killers, three owners</h2>
-      <div class="cards c3">
-        <div class="card">
-          <h3>OOMKill</h3>
-          <p>The <strong>kernel</strong> kills one container over its own memory limit. The Pod stays on its node and restarts in place.</p>
-          <div class="sigs"><div class="sig"><span class="lbl">read</span><span class="val"><code>Last State:</code> <code>OOMKilled</code></span></div></div>
-        </div>
-        <div class="card">
-          <h3>Eviction</h3>
-          <p>The <strong>kubelet</strong> terminates whole Pods when its node runs low. The Pod stays listed as <code>Failed</code>, and its controller replaces it.</p>
-          <div class="sigs"><div class="sig"><span class="lbl">read</span><span class="val">reason <code>Evicted</code></span></div></div>
-        </div>
-        <div class="card">
-          <h3>Preemption</h3>
-          <p>The <strong>scheduler</strong> deletes a lower-priority Pod so that a higher-priority <code>Pending</code> Pod fits. QoS plays no part.</p>
-          <div class="sigs"><div class="sig"><span class="lbl">read</span><span class="val">event <code>Preempted</code></span></div></div>
-        </div>
-      </div>
-      <div class="note" style="margin-top:1.4rem"><p>An OOMKill leaves a climbing restart count on the same Pod. Eviction and preemption end the Pod, and a replacement appears.</p></div>
-    </div>
-  </section>
-
-  <!-- 11 — TAINTS -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>A taint repels;<br/>a toleration is the exception</h2>
-      <p class="sub" style="margin-bottom:1.3rem">"Taints are the opposite -- they allow a node to repel a set of pods." A taint is a <code>key=value:effect</code> mark on a node.</p>
-      <table>
-        <tr><th>Effect</th><th>Scheduler, for new Pods without a toleration</th><th>Running Pods without a toleration</th></tr>
-        <tr><td><code>NoSchedule</code></td><td class="muted">does not place them</td><td class="muted">stay</td></tr>
-        <tr><td><code>PreferNoSchedule</code></td><td class="muted">avoids the node, but places them rather than leave them <code>Pending</code></td><td class="muted">stay</td></tr>
-        <tr><td><code>NoExecute</code></td><td class="muted">does not place them</td><td class="muted">evicted, after <code>tolerationSeconds</code> if set</td></tr>
-      </table>
-      <ul style="margin-top:1.4rem">
-        <li>"Tolerations allow scheduling but don't guarantee scheduling." A toleration is permission, not attraction.</li>
-        <li>To reserve a pool: taint it to keep others off, and give the workload a node affinity to go there.</li>
-      </ul>
-    </div>
-  </section>
-
-  <!-- 12 — BUILT-IN TAINTS AND TOLERATIONS -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Kubernetes adds its own<br/>taints and tolerations</h2>
+      <h2>A request must fit in Node Allocatable</h2>
       <div class="terminal">
-<span class="c">kubectl</span> describe nodes | grep -E '^Name:|^Taints:'
-<span class="o">Name:    controlplane</span>
-Taints:  <span class="g">node-role.kubernetes.io/control-plane:NoSchedule</span>
-<span class="o">Name:    node01</span>
-Taints:  &lt;none&gt;
+Node Allocatable CPU:       2000m
+Existing Pod requests:     -1850m
+                           -------
+Available for requests:      150m
 
-<span class="c">kubectl</span> describe pod &lt;any-pod&gt; | grep -A2 Tolerations
-Tolerations: node.kubernetes.io/not-ready:NoExecute
-               op=Exists for 300s
-             node.kubernetes.io/unreachable:NoExecute
-               op=Exists for 300s
+New Pod request:             200m    <span class="r">does not fit</span>
       </div>
       <ul style="margin-top:1.4rem">
-        <li>The node controller taints a failed node <code>not-ready</code> or <code>unreachable</code>, with <code>NoExecute</code>. Its Pods stay bound for 300s. Then the cluster evicts them, and their controllers create replacements.</li>
-        <li>DaemonSet Pods tolerate both with no time limit. <code>kubectl cordon</code> adds <code>unschedulable:NoSchedule</code>.</li>
+        <li>The scheduler compares Pod requests with the Node's available Allocatable resources.</li>
+        <li>The Pod remains <code>Pending</code> with <code>Insufficient cpu</code>.</li>
+        <li>The result is the same if current CPU use is low.</li>
+      </ul>
+      <div class="note" style="margin-top:1rem"><p>Use <code>kubectl describe node &lt;node&gt;</code> to inspect <code>Allocatable</code> and <code>Allocated resources</code>.</p></div>
+    </div>
+  </section>
+
+  <!-- 8 — QOS -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Requests and limits determine QoS</h2>
+      <p class="sub" style="margin-bottom:1.2rem">Kubernetes assigns each Pod a Quality of Service class from its CPU and memory requests and limits.</p>
+      <table>
+        <tr><th>Class</th><th>CPU and memory configuration</th></tr>
+        <tr><td><code>Guaranteed</code></td><td class="muted">Every container has requests and limits for CPU and memory. Each request equals its limit.</td></tr>
+        <tr><td><code>Burstable</code></td><td class="muted">The Pod is not Guaranteed, and at least one CPU or memory request or limit is set.</td></tr>
+        <tr><td><code>BestEffort</code></td><td class="muted">No CPU or memory request or limit is set.</td></tr>
+      </table>
+      <ul style="margin-top:1.3rem">
+        <li>QoS class affects Pod selection during node-pressure eviction.</li>
+        <li>QoS class does not determine whether the scheduler can fit the Pod on a Node.</li>
+        <li>Read it with <code>kubectl get pod &lt;pod&gt; -o jsonpath='{.status.qosClass}'</code>.</li>
       </ul>
     </div>
   </section>
 
-  <!-- 13 — NODE AFFINITY -->
+  <!-- 9 — TAINTS -->
   <section class="slide">
     <div class="wrap">
-      <h2><code>nodeSelector</code> and node affinity<br/>steer a Pod onto labeled nodes</h2>
-      <div class="terminal">
-spec:
+      <h2>Taints restrict Nodes;<br/>tolerations allow a Pod to pass</h2>
+      <table>
+        <tr><th>Taint effect</th><th>Pod without a matching toleration</th></tr>
+        <tr><td><code>NoSchedule</code></td><td class="muted">The scheduler does not place the Pod on the Node. Existing Pods remain.</td></tr>
+        <tr><td><code>PreferNoSchedule</code></td><td class="muted">The scheduler tries to avoid the Node. This is a preference, not a hard filter.</td></tr>
+        <tr><td><code>NoExecute</code></td><td class="muted">The scheduler does not place the Pod. Existing Pods without a matching toleration are evicted.</td></tr>
+      </table>
+      <div class="terminal" style="margin-top:1.3rem"><span class="c">kubectl</span> describe node &lt;node&gt; | grep -A2 Taints
+<span class="c">kubectl</span> describe pod &lt;pod&gt; | grep -A5 Tolerations</div>
+      <div class="note" style="margin-top:1rem"><p>A toleration permits placement on a tainted Node. It does not select that Node.</p></div>
+    </div>
+  </section>
+
+  <!-- 10 — NODE SELECTION -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Node selection uses Node labels</h2>
+      <div class="grid-2 tight">
+        <div>
+          <div class="terminal">spec:
   <span class="c">nodeSelector</span>:
-    disktype: ssd          <span class="o"># hard: every label must match</span>
+    disktype: ssd
+
   affinity:
     nodeAffinity:
       <span class="c">preferredDuringScheduling</span>...:
-        - weight: 50       <span class="o"># soft: weighted, never blocks</span>
-          preference:
-            matchExpressions:
-              - key: topology.kubernetes.io/zone
-                operator: In
-                values: [us-east-1a]
+        - weight: 50
+          preference: ...</div>
+        </div>
+        <div>
+          <ul style="margin:0">
+            <li><code>nodeSelector</code> is a hard requirement.</li>
+            <li><code>requiredDuringScheduling...</code> node affinity is a hard requirement.</li>
+            <li><code>preferredDuringScheduling...</code> node affinity affects scoring. It does not block scheduling.</li>
+            <li>Required rules that match no Node leave the Pod <code>Pending</code>.</li>
+          </ul>
+        </div>
       </div>
-      <ul style="margin-top:1.4rem">
-        <li><code>required...</code> is a hard filter. No match: <code>didn't match Pod's node affinity/selector</code>.</li>
-        <li><code>IgnoredDuringExecution</code>: "if the node labels change after Kubernetes schedules the Pod, the Pod continues to run."</li>
-      </ul>
+      <div class="note" style="margin-top:1.2rem"><p>Check Node labels with <code>kubectl get nodes --show-labels</code>.</p></div>
     </div>
   </section>
 
-  <!-- 14 — SPREAD -->
+  <!-- 11 — POD PLACEMENT -->
   <section class="slide">
     <div class="wrap">
-      <h2>Anti-affinity and topology spread<br/>keep replicas apart</h2>
-      <p class="sub" style="margin-bottom:1.3rem">A <code>topologyKey</code> names the domain: <code>kubernetes.io/hostname</code> for one node, <code>topology.kubernetes.io/zone</code> for one zone.</p>
+      <h2>Pod placement can depend on other Pods</h2>
+      <p class="sub" style="margin-bottom:1.3rem">A topology domain is a set of Nodes that share the same value for a topology label.</p>
       <div class="cards c2">
         <div class="card">
-          <h3>Pod anti-affinity</h3>
-          <p>Keeps a Pod away from Pods that match a label selector. <code>required</code> on hostname puts every replica on its own node.</p>
-          <div class="sigs"><div class="sig"><span class="lbl">Pending</span><span class="val"><code>didn't match pod anti-affinity rules</code></span></div></div>
+          <h3>Pod affinity and anti-affinity</h3>
+          <p>Pod affinity places Pods near matching Pods. Pod anti-affinity places Pods away from matching Pods.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">hard</span><span class="val"><code>requiredDuringScheduling...</code></span></div>
+            <div class="sig"><span class="lbl">soft</span><span class="val"><code>preferredDuringScheduling...</code></span></div>
+          </div>
         </div>
         <div class="card">
           <h3>Topology spread</h3>
-          <p>Limits the skew between domains. <code>whenUnsatisfiable</code> picks the response.</p>
+          <p>Topology spread constraints control how matching Pods are distributed across Nodes, zones, or other topology domains.</p>
           <div class="sigs">
-            <div class="sig"><span class="lbl">hard</span><span class="val"><code>DoNotSchedule</code>, the default</span></div>
+            <div class="sig"><span class="lbl">hard</span><span class="val"><code>DoNotSchedule</code></span></div>
             <div class="sig"><span class="lbl">soft</span><span class="val"><code>ScheduleAnyway</code></span></div>
           </div>
         </div>
       </div>
-      <div class="note warn" style="margin-top:1.4rem"><p>A hard rule needs at least as many schedulable domains as it demands. A drain or a zone loss leaves the surplus replicas <code>Pending</code>.</p></div>
+      <div class="note warn" style="margin-top:1.3rem"><p>A hard placement constraint can leave replicas <code>Pending</code> when no valid topology domain is available.</p></div>
     </div>
   </section>
 
-  <!-- 15 — THE PENDING DIFFERENTIAL -->
+  <!-- 12 — DIAGNOSTIC FLOW -->
   <section class="slide">
     <div class="wrap">
-      <h2>The <code>Pending</code> differential</h2>
-      <p class="sub" style="margin-bottom:1.3rem">The event groups why candidate nodes failed. Treat each entry as a clue, not a guaranteed execution trace. The last row is the runtime counterpart.</p>
+      <h2>Diagnose a <code>Pending</code> Pod</h2>
+      <div class="terminal"><span class="c">kubectl</span> describe pod &lt;pod&gt; -n &lt;namespace&gt;
+              │
+              ▼
+       <span class="r">FailedScheduling</span>
+              │
+      ┌───────┼───────────────┬──────────────────┐
+      │       │               │                  │
+Insufficient  untolerated     node affinity /    topology /
+cpu / memory  taint           selector           anti-affinity
+      │       │               │                  │
+      ▼       ▼               ▼                  ▼
+requests +    Node taints +   Node labels +      Pods + topology
+Allocatable   tolerations     Pod requirements   domains</div>
+      <div class="note" style="margin-top:1.3rem"><p>Start with the event. Inspect Node state only for the failure that the event reports.</p></div>
+    </div>
+  </section>
+
+  <!-- 13 — REFERENCE TABLE -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>Common <code>FailedScheduling</code> messages</h2>
       <table>
-        <tr><th>Filter</th><th>Entry in the event</th><th>Fix</th></tr>
-        <tr><td>taints</td><td><code>had untolerated taint {k: v}</code></td><td class="muted">add a matching toleration</td></tr>
-        <tr><td>node affinity</td><td><code>didn't match Pod's node affinity/selector</code></td><td class="muted">fix the selector, or label the node if it has the hardware</td></tr>
-        <tr><td>requests</td><td><code>Insufficient cpu</code> / <code>memory</code></td><td class="muted">right-size the request, or add capacity</td></tr>
-        <tr><td>spread, anti-affinity</td><td><code>didn't match pod anti-affinity rules</code></td><td class="muted">soften the rule, or add domains</td></tr>
-        <tr><td><em>runtime</em></td><td><code>Last State: OOMKilled</code>, exit 137</td><td class="muted">raise the memory limit</td></tr>
+        <tr><th>Event text</th><th>Check</th><th>Useful command</th></tr>
+        <tr><td><code>Insufficient cpu</code> / <code>memory</code></td><td class="muted">Pod requests and Node Allocatable</td><td><code>describe node</code></td></tr>
+        <tr><td><code>had untolerated taint</code></td><td class="muted">Node taints and Pod tolerations</td><td><code>describe node</code></td></tr>
+        <tr><td><code>didn't match Pod's node affinity/selector</code></td><td class="muted">Node labels and required selection rules</td><td><code>get nodes --show-labels</code></td></tr>
+        <tr><td>pod affinity / anti-affinity failure</td><td class="muted">Matching Pods and topology labels</td><td><code>get pods -o wide</code></td></tr>
+        <tr><td>topology spread failure</td><td class="muted">Topology domains, skew, and matching Pods</td><td><code>get nodes -L &lt;topology-key&gt;</code></td></tr>
       </table>
     </div>
   </section>
 
-  <!-- 16 — BEYOND THE FILTERS -->
+  <!-- 14 — RECAP -->
   <section class="slide">
     <div class="wrap">
-      <h2>Three signatures<br/>outside the filter table</h2>
-      <table>
-        <tr><th>Symptom</th><th>Likely cause</th><th>Where to look</th></tr>
-        <tr><td>rollout stalls, <code>didn't satisfy existing pods anti-affinity rules</code></td><td>old Pods' required rule repels the new Pods</td><td class="muted"><code>get rs</code>; remove the old Pods</td></tr>
-        <tr><td>Pod <code>Failed</code>, reason <code>Evicted</code></td><td>node pressure; usage above requests</td><td class="muted">node conditions; requests against usage</td></tr>
-        <tr><td>node refuses Pods while its CPU is nearly idle</td><td>requests, not usage, fill Allocatable</td><td class="muted"><code>describe node</code>, <code>Allocated resources</code></td></tr>
-      </table>
-    </div>
-  </section>
-
-  <!-- 17 — RECAP -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>What to carry forward</h2>
+      <h2>Scheduling: key rules</h2>
       <ul>
-        <li><strong>Filter, score, bind.</strong> A Pod that no node can take stays <code>Pending</code>, and its <code>FailedScheduling</code> event lists each node's first failed filter. Read it first.</li>
-        <li><strong>Requests are what you fit, and limits are what kill you.</strong> Too large a request means <code>Pending</code>. Too small a memory limit means <code>OOMKilled</code>.</li>
-        <li><strong>QoS estimates who suffers first, and requests decide it.</strong> The kubelet evicts Pods that use more than they request, then by priority.</li>
-        <li><strong>Taints repel, and a toleration is permission, not attraction.</strong> <code>NoSchedule</code> leaves running Pods. <code>NoExecute</code> evicts them.</li>
-        <li><strong>A hard placement rule is a guarantee and a trap.</strong> It leaves replicas <code>Pending</code> when domains run out, and required anti-affinity also repels a Deployment's own new Pods.</li>
+        <li>The scheduler <strong>filters</strong> Nodes, <strong>scores</strong> feasible Nodes, and <strong>binds</strong> the Pod to the selected Node.</li>
+        <li>A resource <strong>request</strong> is used for scheduling. A resource <strong>limit</strong> is enforced at runtime.</li>
+        <li>CPU and memory requests and limits determine the Pod's <strong>QoS class</strong>.</li>
+        <li>Taints, required node selection, affinity, and hard topology rules can make a Node infeasible.</li>
+        <li>For a <code>Pending</code> Pod, read <code>FailedScheduling</code> first. Then inspect the relevant Pod and Node configuration.</li>
       </ul>
     </div>
   </section>
