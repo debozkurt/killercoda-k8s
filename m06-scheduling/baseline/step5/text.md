@@ -33,10 +33,10 @@ Read it in three parts:
 - Each `N reason` entry — N nodes stopped at that filter. Each node reports only its first failure. The scheduler sorts the entries alphabetically, not by node.
 - `preemption:` — whether evicting a lower-priority Pod would help. Stop reading before it.
 
-The scheduler runs its filters in a fixed order, and each branch has its own text:
+The scheduler can evaluate Nodes concurrently. For each Node, it calls Filter plugins in the scheduler profile's configured order. The first rejection stops filtering for that Node. The order is configurable, so use this table as a map from event text to the failed constraint, not as a universal execution sequence:
 
 ```text
-filter (in order)         entry in the message
+failed constraint         typical event text
 -----------------------   -------------------------------------------------
 taints and tolerations    node(s) had untolerated taint {key: value}
 node affinity, selector   node(s) didn't match Pod's node affinity/selector

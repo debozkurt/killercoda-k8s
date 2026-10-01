@@ -50,7 +50,7 @@ The same resource fields also fail after placement. A Pod can schedule cleanly a
 
 The scheduler works on Pods that have no node. For each one it runs every node through a chain of **filters**. The nodes that pass are the feasible nodes. The scheduler **scores** those nodes, picks the highest, and **binds** the Pod by writing its node name through the API server<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler/">[1]</a></sup>. The kubelet on that node then starts the containers. If no node passes, the Pod stays `Pending` and the scheduler records a `FailedScheduling` event.
 
-The default filters run in a fixed order, and a node stops at its first failure. The diagram shows the four filters behind nearly every `Pending` Pod, in the order the scheduler runs them.
+The scheduler can evaluate Nodes concurrently. For each Node, it calls Filter plugins in the scheduler profile's configured order. A plugin rejection stops filtering for that Node. Scheduler configuration can change both the enabled plugins and their order. The diagram groups four common filters as a diagnostic model; it does not show a universal execution sequence.
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {
