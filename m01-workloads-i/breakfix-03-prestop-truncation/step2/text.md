@@ -39,4 +39,4 @@ kubectl get deploy session-broker -n media -o yaml
 
 In the pod template's `spec:`, the line now reads `terminationGracePeriodSeconds: 30` — the drain has room to finish.
 
-For self-grading, the precise grace-period accounting, the PID-1 signal-forwarding trap, and the production angle (how to *measure* the right grace period rather than guess), see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading, the precise grace-period accounting, the PID-1 signal-forwarding trap, and the production angle (how to *measure* the right grace period rather than guess), see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m01-workloads-i/ANSWER-KEY.md). You're done — see `finish.md`.

@@ -26,4 +26,4 @@ kubectl rollout status  deployment/orders-api -n tenant-apps --timeout=90s
 kubectl get pods -n tenant-apps -l app=orders-api -L env
 ```{{exec}}
 
-`orders-api` goes to `1/1`, and its Pod now carries `env=tenant` — the mutating webhook fired on CREATE, injected the label, and the validating webhook admitted it. Mutate supplies what validate requires, in that order. You fixed the *mutating* configuration, not the workload and not the validating rule. For the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`orders-api` goes to `1/1`, and its Pod now carries `env=tenant` — the mutating webhook fired on CREATE, injected the label, and the validating webhook admitted it. Mutate supplies what validate requires, in that order. You fixed the *mutating* configuration, not the workload and not the validating rule. For the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m21-admission-control/ANSWER-KEY.md). You're done — see `finish.md`.

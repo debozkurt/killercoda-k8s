@@ -59,4 +59,4 @@ All three replicas now share one node, so one node failure takes out all three. 
 - **Best-effort spread is enough?** `preferred`, or a topology spread with `ScheduleAnyway`, is correct.
 - **Fewer replicas are acceptable?** Scaling to 1 also clears the `Pending` Pods, at the cost of redundancy.
 
-For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). Then see `finish.md`.
+For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m06-scheduling/ANSWER-KEY.md). Then see `finish.md`.

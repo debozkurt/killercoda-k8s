@@ -43,6 +43,6 @@ kubectl get pods -n analytics
 
 You should see `metrics-aggregator-*` pods Running with `1/1 READY`. The alert would now clear.
 
-For self-grading and the GitOps production fix (`kubectl set image` is triage; the real fix lives in `platform-gitops`), see [`ANSWER-KEY.md`](../ANSWER-KEY.md). For the diagnostic loop concepts behind this, see [`LESSON.md`](../LESSON.md).
+For self-grading and the GitOps production fix (`kubectl set image` is triage; the real fix lives in `platform-gitops`), see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m00-foundations/ANSWER-KEY.md). For the diagnostic loop concepts behind this, see [`LESSON.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m00-foundations/LESSON.md).
 
 You're done with breakfix-02. See `finish.md`.

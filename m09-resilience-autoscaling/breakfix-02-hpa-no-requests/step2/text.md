@@ -33,4 +33,4 @@ The percentage is measured against the **request**, not the limit — the reques
 - **CPU-utilization HPAs require a CPU request on every container in the Pod.** No request is the single most common reason an HPA reads `<unknown>`. Enforce requests with a `LimitRange` or admission policy (M20) so an autoscaled workload can't ship without one.
 - **Size the request honestly.** The target percentage is relative to the request, so a too-small request makes the workload look busier than it is (HPA over-scales); a too-large one hides real load (HPA under-scales). The request is both the scheduler's reservation (M06) *and* the autoscaler's yardstick.
 
-For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m09-resilience-autoscaling/ANSWER-KEY.md). You're done — see `finish.md`.

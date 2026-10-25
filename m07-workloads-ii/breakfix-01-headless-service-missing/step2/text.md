@@ -38,4 +38,4 @@ kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n app-services -- 
   nslookup session-store-1.session-store.app-services.svc.cluster.local
 ```{{exec}}
 
-Each ordinal resolves to its own Pod. The Pods never changed — you didn't restart or reschedule anything. All that was missing was the Service that turns their stable names into DNS records. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+Each ordinal resolves to its own Pod. The Pods never changed — you didn't restart or reschedule anything. All that was missing was the Service that turns their stable names into DNS records. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m07-workloads-ii/ANSWER-KEY.md). You're done — see `finish.md`.

@@ -46,4 +46,4 @@ kubectl rollout status deployment/tenant-portal -n tenant-apps --timeout=60s
 kubectl get pods -n tenant-apps -L owner
 ```{{exec}}
 
-The replacement Pod goes through admission, the mutate rule matches it now, and it comes up carrying `owner=platform`. That two-step — fix the policy, then re-admit — is the whole muscle: correcting a mutation never reaches Pods that are already running. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+The replacement Pod goes through admission, the mutate rule matches it now, and it comes up carrying `owner=platform`. That two-step — fix the policy, then re-admit — is the whole muscle: correcting a mutation never reaches Pods that are already running. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m20-kyverno-opa/ANSWER-KEY.md). You're done — see `finish.md`.

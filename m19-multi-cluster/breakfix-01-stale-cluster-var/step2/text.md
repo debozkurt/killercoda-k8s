@@ -43,4 +43,4 @@ REF=$(kubectl get deploy edge-relay -n edge -o jsonpath='{.spec.template.spec.co
 kubectl get configmap "$REF" -n edge -o jsonpath='REGION={.data.REGION}{"\n"}'
 ```{{exec}}
 
-`REGION=eu-central-1` — the cluster reports its own region. One line in the owning layer; the diagnosis was tracing a wrong value to the single file that produces it. For the full write-up see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`REGION=eu-central-1` — the cluster reports its own region. One line in the owning layer; the diagnosis was tracing a wrong value to the single file that produces it. For the full write-up see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m19-multi-cluster/ANSWER-KEY.md). You're done — see `finish.md`.

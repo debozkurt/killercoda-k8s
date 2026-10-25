@@ -31,4 +31,4 @@ kubectl run dns-test --rm -i --restart=Never --image=busybox:1.36 -n provisionin
   wget -qO- -T3 http://session-broker.media.svc.cluster.local/ | head -4
 ```{{exec}}
 
-The `Environment:` block now shows `BROKER_ENDPOINT` carrying the qualified name, and the `wget` from `provisioning` returns nginx's HTML — the broker is reachable from the caller's namespace. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+The `Environment:` block now shows `BROKER_ENDPOINT` carrying the qualified name, and the `wget` from `provisioning` returns nginx's HTML — the broker is reachable from the caller's namespace. For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m04-networking-services-dns/ANSWER-KEY.md). You're done — see `finish.md`.

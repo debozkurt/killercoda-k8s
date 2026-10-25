@@ -27,4 +27,4 @@ kubectl exec -n media deploy/mesh-client -c curl -- \
   curl -s -o /dev/null -w "HTTP %{http_code}\n" --max-time 5 http://session-broker.media/
 ```{{exec}}
 
-`HTTP 200`. The route now lands on live pods. For self-grading and the full path, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`HTTP 200`. The route now lands on live pods. For self-grading and the full path, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m15-service-mesh/ANSWER-KEY.md). You're done — see `finish.md`.

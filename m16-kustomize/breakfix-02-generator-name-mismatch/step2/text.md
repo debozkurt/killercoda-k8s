@@ -35,4 +35,4 @@ REF=$(kubectl get deploy edge-relay -n edge -o jsonpath='{.spec.template.spec.co
 kubectl get configmap "$REF" -n edge
 ```{{exec}}
 
-Pods `Running` and `1/1`, and the ConfigMap the Deployment references now exists. The container found its config because the reference finally pointed at the object the generator built. For the full write-up see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+Pods `Running` and `1/1`, and the ConfigMap the Deployment references now exists. The container found its config because the reference finally pointed at the object the generator built. For the full write-up see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m16-kustomize/ANSWER-KEY.md). You're done — see `finish.md`.

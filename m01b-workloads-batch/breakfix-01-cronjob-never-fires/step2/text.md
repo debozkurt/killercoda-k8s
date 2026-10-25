@@ -45,4 +45,4 @@ kubectl get jobs -n cdr-storage -l app=cdr-rollup
 
 You'll see `cdr-rollup-recover` (your manual one) and, after the boundary, a scheduled `cdr-rollup-<timestamp>`. The rollup is firing again.
 
-For self-grading, the full CronJob differential, and the production angle (how a suspended CronJob escapes every alert), see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading, the full CronJob differential, and the production angle (how a suspended CronJob escapes every alert), see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m01b-workloads-batch/ANSWER-KEY.md). You're done — see `finish.md`.

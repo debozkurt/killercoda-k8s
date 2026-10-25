@@ -25,4 +25,4 @@ kubectl rollout status  deployment/billing-api -n tenant-apps --timeout=90s
 kubectl get pods -n tenant-apps -l app=billing-api -L env
 ```{{exec}}
 
-`billing-api` goes to `1/1`, its Pod is `Running`, and it even carries the injected `env=tenant` — the mutating webhook fired the moment the call could complete. Nothing about the configuration changed; it was never wrong. You fixed the *backend*, not the gate. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`billing-api` goes to `1/1`, its Pod is `Running`, and it even carries the injected `env=tenant` — the mutating webhook fired the moment the call could complete. Nothing about the configuration changed; it was never wrong. You fixed the *backend*, not the gate. For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m21-admission-control/ANSWER-KEY.md). You're done — see `finish.md`.

@@ -26,4 +26,4 @@ kubectl get deployment vega-media -n media
 kubectl get mediatenant vega -n media -o jsonpath='{.status.phase}'; echo
 ```{{exec}}
 
-`vega-media` exists (3 replicas, the value from the manifest), and the tenant's `.status.phase` moves to `Ready`. A valid custom resource was all the operator needed — the schema was the gate, not the operator. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`vega-media` exists (3 replicas, the value from the manifest), and the tenant's `.status.phase` moves to `Ready`. A valid custom resource was all the operator needed — the schema was the gate, not the operator. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m08-crds-operators/ANSWER-KEY.md). You're done — see `finish.md`.

@@ -39,4 +39,4 @@ kubectl rollout status deployment/edge-relay -n edge --timeout=90s
 kubectl get deploy edge-relay -n edge
 ```{{exec}}
 
-`READY 3/3` — edge-relay exists and the prod replica count landed. The fix was one line in a patch file; the diagnosis was reading a build error instead of poking at a cluster that had nothing to show. For the full write-up see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`READY 3/3` — edge-relay exists and the prod replica count landed. The fix was one line in a patch file; the diagnosis was reading a build error instead of poking at a cluster that had nothing to show. For the full write-up see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m16-kustomize/ANSWER-KEY.md). You're done — see `finish.md`.

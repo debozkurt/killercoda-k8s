@@ -32,4 +32,4 @@ kubectl get pods -n call-routing -l app=route-watcher
 kubectl logs -n call-routing deploy/route-watcher --tail=4
 ```{{exec}}
 
-`Running`, and the logs show `HTTP 200`. Note what you did *not* do: you didn't touch the Role, the RoleBinding, or grant `default` anything. The RBAC was correct all along — "fixing" it by granting `default` the permission would have handed that access to every other Pod in the namespace. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`Running`, and the logs show `HTTP 200`. Note what you did *not* do: you didn't touch the Role, the RoleBinding, or grant `default` anything. The RBAC was correct all along — "fixing" it by granting `default` the permission would have handed that access to every other Pod in the namespace. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m10-security-rbac/ANSWER-KEY.md). You're done — see `finish.md`.

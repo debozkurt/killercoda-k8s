@@ -40,4 +40,4 @@ kubectl top pod -n media -l app=media-buffer
 
 In production, set the limit from observed peak usage plus headroom. A limit at the steady-state level kills the workload the first time it does something larger than usual.
 
-For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). Then see `finish.md`.
+For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m06-scheduling/ANSWER-KEY.md). Then see `finish.md`.

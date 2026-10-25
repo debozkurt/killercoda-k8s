@@ -37,4 +37,4 @@ kubectl get pod -n media -l app=media-recorder -o yaml
 
 `media-recorder` is `Running` `1/1`, and the pod's `spec:` now carries `imagePullSecrets:` with `- name: regcred`. The pull authenticated. The pull authenticated.
 
-For self-grading, the credential-rotation production angle, and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading, the credential-rotation production angle, and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m02-images-registries/ANSWER-KEY.md). You're done — see `finish.md`.

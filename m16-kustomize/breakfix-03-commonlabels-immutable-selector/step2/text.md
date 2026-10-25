@@ -52,4 +52,4 @@ kubectl get deploy edge-relay -n edge \
   -o jsonpath='selector={.spec.selector.matchLabels}  meta-tier={.metadata.labels.tier}{"\n"}'
 ```{{exec}}
 
-`READY 3/3` on `nginx:1.27` — the prod promotion landed. The selector is still `{app: edge-relay}` (untouched), and `tier: prod` is present as a metadata label. You got the label you wanted without touching the field you're not allowed to change. For the full write-up see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`READY 3/3` on `nginx:1.27` — the prod promotion landed. The selector is still `{app: edge-relay}` (untouched), and `tier: prod` is present as a metadata label. You got the label you wanted without touching the field you're not allowed to change. For the full write-up see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m16-kustomize/ANSWER-KEY.md). You're done — see `finish.md`.

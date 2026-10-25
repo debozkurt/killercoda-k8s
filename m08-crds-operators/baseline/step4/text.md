@@ -23,4 +23,4 @@ The two uids match — the Deployment's owner *is* this MediaTenant. And the Dep
 
 ## Why it matters
 
-Delete the MediaTenant and the **garbage collector** walks that chain and removes everything under it — you don't clean up the child by hand. (Don't delete anything now; break/fix 03 is what happens when the ownerReference is missing.) The ownerReference is the thread cascading deletion pulls; no thread, no cleanup. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+Delete the MediaTenant and the **garbage collector** walks that chain and removes everything under it — you don't clean up the child by hand. (Don't delete anything now; break/fix 03 is what happens when the ownerReference is missing.) The ownerReference is the thread cascading deletion pulls; no thread, no cleanup. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m08-crds-operators/ANSWER-KEY.md). You're done — see `finish.md`.

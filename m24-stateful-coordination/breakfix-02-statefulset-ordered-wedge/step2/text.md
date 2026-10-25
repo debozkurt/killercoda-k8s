@@ -36,4 +36,4 @@ kubectl get statefulset session-cache -n media
 kubectl get pods -n media -l app=session-cache
 ```{{exec}}
 
-`READY 3/3`, and all three ordinals — `session-cache-0`, `-1`, `-2` — are `Running` and `1/1` Ready. The moment ordinal 0 passed its probe, `OrderedReady` unblocked and created the rest in order. That's the tell of this failure class: fix the *first* unready ordinal — and, because the template fix won't reroll a never-Ready Pod, delete that Pod so the fix takes — and the whole set unwedges from there. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`READY 3/3`, and all three ordinals — `session-cache-0`, `-1`, `-2` — are `Running` and `1/1` Ready. The moment ordinal 0 passed its probe, `OrderedReady` unblocked and created the rest in order. That's the tell of this failure class: fix the *first* unready ordinal — and, because the template fix won't reroll a never-Ready Pod, delete that Pod so the fix takes — and the whole set unwedges from there. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m24-stateful-coordination/ANSWER-KEY.md). You're done — see `finish.md`.

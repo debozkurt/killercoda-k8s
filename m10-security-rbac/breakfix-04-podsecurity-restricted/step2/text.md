@@ -38,4 +38,4 @@ A Pod now exists and goes `Running` — admission accepted it because it meets `
 kubectl get deploy payments-api -n payments
 ```{{exec}}
 
-`1/1` available. Nothing about the app changed; you gave the Pod the security posture the namespace requires. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`1/1` available. Nothing about the app changed; you gave the Pod the security posture the namespace requires. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m10-security-rbac/ANSWER-KEY.md). You're done — see `finish.md`.

@@ -21,4 +21,4 @@ kubectl exec -n media deploy/mesh-client -c curl -- \
 kubectl get peerauthentication default -n media -o jsonpath='{.spec.mtls.mode}{"\n"}'
 ```{{exec}}
 
-`HTTP 200`, and the PeerAuthentication is still `STRICT`. You fixed the mismatch by bringing the client up to mTLS, not by weakening the server — the traffic is encrypted and authenticated end to end. For self-grading and the full path, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`HTTP 200`, and the PeerAuthentication is still `STRICT`. You fixed the mismatch by bringing the client up to mTLS, not by weakening the server — the traffic is encrypted and authenticated end to end. For self-grading and the full path, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m15-service-mesh/ANSWER-KEY.md). You're done — see `finish.md`.

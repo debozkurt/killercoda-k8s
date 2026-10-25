@@ -33,4 +33,4 @@ kubectl get pods -n edge -l app=media-probe -o wide
 kubectl exec deploy/media-probe -n edge -- ls /sys/class/net
 ```{{exec}}
 
-The Pod is `Running`, and `ls /sys/class/net` shows `eth0`, `lo`, and `net1` — the macvlan second NIC attached. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+The Pod is `Running`, and `ls /sys/class/net` shows `eth0`, `lo`, and `net1` — the macvlan second NIC attached. For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m22-host-networking/ANSWER-KEY.md). You're done — see `finish.md`.

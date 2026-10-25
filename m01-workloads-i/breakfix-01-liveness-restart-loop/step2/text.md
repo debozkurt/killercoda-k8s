@@ -42,4 +42,4 @@ kubectl get pods -n call-routing -w
 
 A stable restart count is the signal the loop is dead. (Ctrl-C to stop watching.)
 
-For self-grading, the real-crash-vs-probe distinction, and the production fix (this belongs in `platform-gitops`, not a live patch), see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading, the real-crash-vs-probe distinction, and the production fix (this belongs in `platform-gitops`, not a live patch), see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m01-workloads-i/ANSWER-KEY.md). You're done — see `finish.md`.

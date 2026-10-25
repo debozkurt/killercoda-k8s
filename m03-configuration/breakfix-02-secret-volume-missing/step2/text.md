@@ -37,4 +37,4 @@ kubectl get pods -n admin-portal -l app=portal-ui
 
 Both `portal-ui` pods are `Running` `1/1`. The mount the kubelet was blocked on now resolves.
 
-For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m03-configuration/ANSWER-KEY.md). You're done — see `finish.md`.

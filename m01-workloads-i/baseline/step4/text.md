@@ -50,4 +50,4 @@ kubectl get pods -n app-services -l app=sip-app
 
 The ReplicaSet has already replaced the deleted Pod — back to `2/2`, both `Running`. You've now watched the full life of a Pod: created by a controller, judged by probes, and shut down gracefully. The breakfix scenarios break one piece of this each.
 
-For the *why* behind everything here, read [`LESSON.md`](../LESSON.md). When you're ready to be tested, start **`breakfix-01-liveness-restart-loop`**.
+For the *why* behind everything here, read [`LESSON.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m01-workloads-i/LESSON.md). When you're ready to be tested, start **`breakfix-01-liveness-restart-loop`**.

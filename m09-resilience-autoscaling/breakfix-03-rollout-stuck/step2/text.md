@@ -35,4 +35,4 @@ Back to `nginx:1.25`. The rollout is complete and the service is on a known-good
 
 The durable prevention is upstream: a readiness probe so a bad Pod is never counted Ready, and a pipeline that verifies the image exists (and ideally canaries the release) before it reaches a cluster.
 
-For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m09-resilience-autoscaling/ANSWER-KEY.md). You're done — see `finish.md`.

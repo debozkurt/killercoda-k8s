@@ -43,4 +43,4 @@ kubectl get pods -n cdr-storage
 
 `cdr-data` is Bound to a `local-path` volume, and `cdr-writer` is Running and Ready. The volume was provisioned the moment a Pod consumed the claim.
 
-For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You are done — see `finish.md`.
+For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m05-storage/ANSWER-KEY.md). You are done — see `finish.md`.

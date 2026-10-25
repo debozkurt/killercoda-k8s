@@ -65,4 +65,4 @@ The output now reaches `[schema-migrate] done` — no shell error.
 kubectl get job schema-migrate -n provisioning
 ```{{exec}}
 
-`COMPLETIONS 1/1`, with a `DURATION` — the migration succeeded and the release can proceed. For self-grading, the retrying-vs-given-up distinction, the `OnFailure` vs `Never` difference, and the GitOps fix, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`COMPLETIONS 1/1`, with a `DURATION` — the migration succeeded and the release can proceed. For self-grading, the retrying-vs-given-up distinction, the `OnFailure` vs `Never` difference, and the GitOps fix, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m01b-workloads-batch/ANSWER-KEY.md). You're done — see `finish.md`.

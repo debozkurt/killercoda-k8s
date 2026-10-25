@@ -45,4 +45,4 @@ kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n admin-portal 
   wget -qO- --timeout=5 --header "Host: portal.polyphone.example" "http://$CIP/"
 ```{{exec}}
 
-nginx's HTML comes back instead of a `503` — the request now routes host → rule → `portal-ui:80` → a Ready Pod. Nothing about the Service or its Pods changed; only the port the rule named. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+nginx's HTML comes back instead of a `503` — the request now routes host → rule → `portal-ui:80` → a Ready Pod. Nothing about the Service or its Pods changed; only the port the rule named. For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m14-networking-policy-ingress/ANSWER-KEY.md). You're done — see `finish.md`.

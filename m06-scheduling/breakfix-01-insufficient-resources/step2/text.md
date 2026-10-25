@@ -41,4 +41,4 @@ The events include `Scheduled`, with `Successfully assigned analytics/stream-ana
 
 Do not run `rollout restart` as a repair step. `kubectl set resources` already starts a rollout, and restarting without changing the requests only creates another unschedulable Pod.
 
-For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). Then see `finish.md`.
+For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m06-scheduling/ANSWER-KEY.md). Then see `finish.md`.

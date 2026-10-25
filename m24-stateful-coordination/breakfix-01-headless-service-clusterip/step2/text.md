@@ -42,4 +42,4 @@ kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
   nslookup session-cache-0.session-cache.media.svc.cluster.local
 ```{{exec}}
 
-`session-cache-0.session-cache.media.svc.cluster.local` resolves to Pod-0's IP — per-Pod DNS is published again and peers can address specific members. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`session-cache-0.session-cache.media.svc.cluster.local` resolves to Pod-0's IP — per-Pod DNS is published again and peers can address specific members. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m24-stateful-coordination/ANSWER-KEY.md). You're done — see `finish.md`.

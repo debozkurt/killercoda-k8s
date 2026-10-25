@@ -26,4 +26,4 @@ kubectl rollout status  deployment/sip-canary -n signaling --timeout=90s
 kubectl get pods -n signaling -l app=sip-canary
 ```{{exec}}
 
-`sip-canary` goes to `1/1` — the webhook no longer sees `signaling`, so there's no `env` requirement to fail. Note `tenant-apps` is still governed exactly as before; you didn't weaken the policy, you *scoped* it. You fixed the webhook's `namespaceSelector`, not the workload. For the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`sip-canary` goes to `1/1` — the webhook no longer sees `signaling`, so there's no `env` requirement to fail. Note `tenant-apps` is still governed exactly as before; you didn't weaken the policy, you *scoped* it. You fixed the webhook's `namespaceSelector`, not the workload. For the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m21-admission-control/ANSWER-KEY.md). You're done — see `finish.md`.

@@ -31,4 +31,4 @@ kubectl rollout status deployment/billing-api -n tenant-apps --timeout=60s
 kubectl get pods -n tenant-apps -l app=billing-api
 ```{{exec}}
 
-`billing-api` goes to `1/1` and a Pod is finally `Running`. The rejection is gone because the object now complies — nothing about the policy changed. You fixed the workload, not the gate. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`billing-api` goes to `1/1` and a Pod is finally `Running`. The rejection is gone because the object now complies — nothing about the policy changed. You fixed the workload, not the gate. For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m20-kyverno-opa/ANSWER-KEY.md). You're done — see `finish.md`.

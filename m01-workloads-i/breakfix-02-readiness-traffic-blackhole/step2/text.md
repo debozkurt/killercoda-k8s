@@ -42,4 +42,4 @@ kubectl get pods -n app-services -l app=directory
 
 `Running`, `1/1 READY`. The blackhole is closed.
 
-For self-grading, the liveness-vs-readiness contrast, and the production angle (a readiness probe tied to a flaky dependency can blackhole *every* replica at once — see the answer key), check [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading, the liveness-vs-readiness contrast, and the production angle (a readiness probe tied to a flaky dependency can blackhole *every* replica at once — see the answer key), check [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m01-workloads-i/ANSWER-KEY.md). You're done — see `finish.md`.

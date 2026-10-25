@@ -47,6 +47,6 @@ kubectl get events -n number-porting --sort-by='.lastTimestamp' | tail -5
 
 Recent events should show `SuccessfulCreate` instead of `FailedCreate`.
 
-For self-grading and the production answer (raise the quota vs revert the replica bump — `kubectl patch` is triage, the real fix lives in GitOps), see [`ANSWER-KEY.md`](../ANSWER-KEY.md). For the resource model and owner-chain concepts, see [`LESSON.md`](../LESSON.md).
+For self-grading and the production answer (raise the quota vs revert the replica bump — `kubectl patch` is triage, the real fix lives in GitOps), see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m00-foundations/ANSWER-KEY.md). For the resource model and owner-chain concepts, see [`LESSON.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m00-foundations/LESSON.md).
 
 You're done with breakfix-03. See `finish.md`.

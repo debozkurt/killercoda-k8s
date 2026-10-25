@@ -34,6 +34,6 @@ The `voicemail` release is `deployed` and its Deployment is `2/2`. The dependenc
 
 ## The durable fix
 
-The `kubectl patch` fixes this cluster. The lasting fix corrects the `dependsOn` name in the `HelmRelease` manifest in git — a `dependsOn` that names a nonexistent object is exactly the kind of typo or stale-rename that a reviewed commit (and, ideally, CI that validates references) catches before it ships. A dependency should also be a real ordering need: only list objects the release genuinely requires first, because every `dependsOn` is another thing that can block it. For the triage-vs-durable discussion, see [ANSWER-KEY.md](../ANSWER-KEY.md).
+The `kubectl patch` fixes this cluster. The lasting fix corrects the `dependsOn` name in the `HelmRelease` manifest in git — a `dependsOn` that names a nonexistent object is exactly the kind of typo or stale-rename that a reviewed commit (and, ideally, CI that validates references) catches before it ships. A dependency should also be a real ordering need: only list objects the release genuinely requires first, because every `dependsOn` is another thing that can block it. For the triage-vs-durable discussion, see [ANSWER-KEY.md](https://github.com/debozkurt/killercoda-k8s/blob/main/m18-flux/ANSWER-KEY.md).
 
 You're done with breakfix-03, and with M18. See `finish.md`.

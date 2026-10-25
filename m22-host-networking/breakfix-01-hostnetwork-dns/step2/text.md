@@ -34,4 +34,4 @@ kubectl exec deploy/rtp-relay -n media -- cat /etc/resolv.conf
 kubectl exec deploy/rtp-relay -n media -- getent hosts session-broker.media.svc.cluster.local; echo "exit=$?"
 ```{{exec}}
 
-`dnsPolicy` is now `ClusterFirstWithHostNet`, `resolv.conf` shows the `kube-dns` nameserver and the `svc.cluster.local` search domains, and the cluster name resolves (`exit=0`) — all while the Pod stays on the host network. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`dnsPolicy` is now `ClusterFirstWithHostNet`, `resolv.conf` shows the `kube-dns` nameserver and the `svc.cluster.local` search domains, and the cluster name resolves (`exit=0`) — all while the Pod stays on the host network. For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m22-host-networking/ANSWER-KEY.md). You're done — see `finish.md`.

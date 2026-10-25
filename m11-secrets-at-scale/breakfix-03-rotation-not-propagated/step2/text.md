@@ -25,4 +25,4 @@ echo "proc : $(kubectl exec deploy/billing-processor -n provisioning -- printenv
 
 Both `R0tated-prod-8842` — the rotation finally reached the running process. The fix wasn't in the store, the SecretSync, or the Secret; it was the missing second step: rolling the consumers after the value changed.
 
-For a durable version of this, you'd stop hand-rolling: annotate the Pod template with a hash of the Secret so a change rolls the Deployment automatically, or run a controller that watches the Secret and restarts consumers on change. Rotation becomes two coupled steps instead of one you can forget. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For a durable version of this, you'd stop hand-rolling: annotate the Pod template with a hash of the Secret so a change rolls the Deployment automatically, or run a controller that watches the Secret and restarts consumers on change. Rotation becomes two coupled steps instead of one you can forget. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m11-secrets-at-scale/ANSWER-KEY.md). You're done — see `finish.md`.

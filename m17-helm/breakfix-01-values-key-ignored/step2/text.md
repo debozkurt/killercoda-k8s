@@ -44,6 +44,6 @@ sed -i 's/^replicas:/replicaCount:/' /root/voicemail-values.yaml
 cat /root/voicemail-values.yaml
 ```{{exec}}
 
-In production that file lives in git and the correction is a reviewed commit, not an in-place `sed`. For the full contrast — `--set` triage vs the values-in-git source of truth — see [ANSWER-KEY.md](../ANSWER-KEY.md).
+In production that file lives in git and the correction is a reviewed commit, not an in-place `sed`. For the full contrast — `--set` triage vs the values-in-git source of truth — see [ANSWER-KEY.md](https://github.com/debozkurt/killercoda-k8s/blob/main/m17-helm/ANSWER-KEY.md).
 
 You're done with breakfix-01. See `finish.md`.

@@ -24,4 +24,4 @@ kubectl get deployment orion-media -n media -o jsonpath='{.metadata.ownerReferen
 
 `MediaTenant/orion` — the live children still carry their owner references, so cascading deletion will work for them. Only the un-owned orphan needed manual removal.
 
-The durable fix is upstream: the current operator stamps ownerReferences on everything it creates (that's why `orion-media` and `lyra-media` are safe), so no *new* orphans appear — this one predated that behavior. When you adopt owner-reference stamping, sweep for existing un-owned children once; new ones won't accumulate. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+The durable fix is upstream: the current operator stamps ownerReferences on everything it creates (that's why `orion-media` and `lyra-media` are safe), so no *new* orphans appear — this one predated that behavior. When you adopt owner-reference stamping, sweep for existing un-owned children once; new ones won't accumulate. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m08-crds-operators/ANSWER-KEY.md). You're done — see `finish.md`.

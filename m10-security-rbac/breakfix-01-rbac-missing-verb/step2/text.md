@@ -39,4 +39,4 @@ kubectl get pods -n media -l app=endpoint-watcher
 kubectl logs -n media deploy/endpoint-watcher --tail=4
 ```{{exec}}
 
-`Running`, no new restarts, and the logs now show `HTTP 200` with the endpoints list. The app never changed — the Role did. For self-grading and the full `Forbidden` differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`Running`, no new restarts, and the logs now show `HTTP 200` with the endpoints list. The app never changed — the Role did. For self-grading and the full `Forbidden` differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m10-security-rbac/ANSWER-KEY.md). You're done — see `finish.md`.

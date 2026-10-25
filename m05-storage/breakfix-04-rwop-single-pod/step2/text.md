@@ -63,4 +63,4 @@ Both replicas are Running and Ready on the same node, and `cdr-data` is Bound wi
 
 Restoring RWO is right here, because these Pods share a node and share data by design. Pick the mode from how the workload actually uses the volume. Use RWOP when a volume must never have two writers, such as a single-writer database, and accept that it caps the workload at one Pod. Use RWX on network file storage when Pods on several nodes must write one volume. Use `volumeClaimTemplates` in a StatefulSet (M07) when each replica needs its own volume instead of a shared one.
 
-For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You are done — see `finish.md`.
+For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m05-storage/ANSWER-KEY.md). You are done — see `finish.md`.

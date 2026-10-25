@@ -35,6 +35,6 @@ Image is back to `nginx:1.25`; `UP-TO-DATE` matches the replica count — the ro
 
 ## Why not `kubectl rollout undo`?
 
-`kubectl rollout undo deployment/voicemail` would also swap the Deployment back to its old ReplicaSet — and it would leave Helm's stored release still pointing at the broken revision 2. The next `helm upgrade` (or a GitOps reconcile) re-applies revision 2 and breaks it again. For a Helm-managed workload, recover *through Helm* so the release history and the live objects stay in agreement. See [ANSWER-KEY.md](../ANSWER-KEY.md) for the drift discussion and the real fix (correct the tag in git, then roll forward).
+`kubectl rollout undo deployment/voicemail` would also swap the Deployment back to its old ReplicaSet — and it would leave Helm's stored release still pointing at the broken revision 2. The next `helm upgrade` (or a GitOps reconcile) re-applies revision 2 and breaks it again. For a Helm-managed workload, recover *through Helm* so the release history and the live objects stay in agreement. See [ANSWER-KEY.md](https://github.com/debozkurt/killercoda-k8s/blob/main/m17-helm/ANSWER-KEY.md) for the drift discussion and the real fix (correct the tag in git, then roll forward).
 
 You're done with breakfix-02. See `finish.md`.

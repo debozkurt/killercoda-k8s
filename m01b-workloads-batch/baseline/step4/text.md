@@ -58,4 +58,4 @@ kubectl get jobs -n cdr-storage -l app=cdr-rollup
 
 The CronJob's `SUSPEND` column reads `False`, and at least one scheduled `cdr-rollup-<timestamp>` Job is listed. That's a healthy CronJob: not suspended, firing on schedule, keeping history. In `breakfix-01` you'll find one that creates nothing — and learn the short differential for why.
 
-For the *why* behind all of it, read [`LESSON.md`](../LESSON.md). When you're ready to be tested, start **`breakfix-01-cronjob-never-fires`**.
+For the *why* behind all of it, read [`LESSON.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m01b-workloads-batch/LESSON.md). When you're ready to be tested, start **`breakfix-01-cronjob-never-fires`**.

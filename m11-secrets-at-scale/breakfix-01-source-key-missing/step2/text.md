@@ -50,4 +50,4 @@ It moves to `Running` `1/1` (allow a few seconds for the kubelet's next retry). 
 kubectl exec deploy/partner-connector -n media -- printenv API_TOKEN
 ```{{exec}}
 
-The token from the store, delivered end to end. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+The token from the store, delivered end to end. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m11-secrets-at-scale/ANSWER-KEY.md). You're done — see `finish.md`.

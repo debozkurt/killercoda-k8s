@@ -36,4 +36,4 @@ changeme
 
 The container now receives the plaintext password. The kubelet decoded the (correctly, single-) encoded `data` value once, and the result is the real credential — not another layer of base64.
 
-For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m03-configuration/ANSWER-KEY.md). You're done — see `finish.md`.

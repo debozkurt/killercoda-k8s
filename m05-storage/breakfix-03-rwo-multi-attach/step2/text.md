@@ -29,4 +29,4 @@ Match the volume to how the workload uses its data:
 - Each replica needs its own durable volume → a StatefulSet with `volumeClaimTemplates` (M07). One claim per Pod, no sharing, no conflict.
 - The volume must never have two writers at all → `ReadWriteOncePod`, which break/fix 04 covers.
 
-For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You are done — see `finish.md`.
+For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m05-storage/ANSWER-KEY.md). You are done — see `finish.md`.

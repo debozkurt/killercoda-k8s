@@ -36,4 +36,4 @@ The eviction returns cleanly (no `TooManyRequests`), one Pod cycles, and the Dep
 - **Never set `minAvailable` equal to (or above) the replica count** — that's this bug: a budget that can never be met.
 - **Headroom for the drain to make progress.** The drain evicts, waits for the Deployment to bring a fresh Pod up *elsewhere*, then evicts the next. On a single-node cluster there's nowhere else to go, so a full drain still won't finish — but the budget is no longer the blocker, and that's the concept this scenario teaches.
 
-For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m09-resilience-autoscaling/ANSWER-KEY.md). You're done — see `finish.md`.

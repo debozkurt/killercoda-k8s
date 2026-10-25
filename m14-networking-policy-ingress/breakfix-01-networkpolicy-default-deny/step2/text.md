@@ -40,4 +40,4 @@ kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n signaling -- 
   wget -qO- --timeout=5 http://session-broker.media/
 ```{{exec}}
 
-That one still times out — exactly right. You restored the legitimate path and left the lockdown in place. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+That one still times out — exactly right. You restored the legitimate path and left the lockdown in place. For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m14-networking-policy-ingress/ANSWER-KEY.md). You're done — see `finish.md`.

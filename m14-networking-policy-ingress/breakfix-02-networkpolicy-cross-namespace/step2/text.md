@@ -42,4 +42,4 @@ kubectl run other --rm -i --restart=Never --image=busybox:1.36 -n app-services -
   wget -qO- --timeout=5 http://session-broker.media/
 ```{{exec}}
 
-That one times out — the allow is scoped to `sip-app` only, exactly as intended. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+That one times out — the allow is scoped to `sip-app` only, exactly as intended. For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m14-networking-policy-ingress/ANSWER-KEY.md). You're done — see `finish.md`.

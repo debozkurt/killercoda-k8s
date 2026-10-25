@@ -31,4 +31,4 @@ for ip in $(kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=
 done
 ```{{exec}}
 
-Every node's IP now returns `200` — the blackhole is gone. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+Every node's IP now returns `200` — the blackhole is gone. For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m22-host-networking/ANSWER-KEY.md). You're done — see `finish.md`.

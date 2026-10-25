@@ -34,6 +34,6 @@ It snaps back to `2/2` — the guarantee is restored.
 
 ## The durable fix
 
-`flux resume` is the right recovery. Two lessons outlast it. First, the emergency scale to 5 was lost because it lived only in the cluster — if 5 replicas was correct, it belonged in a git commit, not a `kubectl scale`. Second, `suspend` during an incident needs a tripwire so it isn't forgotten: an alert on suspended Flux objects, or a checklist item to `resume`. For the triage-vs-durable discussion, see [ANSWER-KEY.md](../ANSWER-KEY.md).
+`flux resume` is the right recovery. Two lessons outlast it. First, the emergency scale to 5 was lost because it lived only in the cluster — if 5 replicas was correct, it belonged in a git commit, not a `kubectl scale`. Second, `suspend` during an incident needs a tripwire so it isn't forgotten: an alert on suspended Flux objects, or a checklist item to `resume`. For the triage-vs-durable discussion, see [ANSWER-KEY.md](https://github.com/debozkurt/killercoda-k8s/blob/main/m18-flux/ANSWER-KEY.md).
 
 You're done with breakfix-02. See `finish.md`.

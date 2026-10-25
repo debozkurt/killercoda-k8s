@@ -45,4 +45,4 @@ REF=$(kubectl get deploy edge-relay -n edge -o jsonpath='{.spec.template.spec.co
 kubectl get configmap "$REF" -n edge -o jsonpath='MAX_SESSIONS={.data.MAX_SESSIONS}{"\n"}'
 ```{{exec}}
 
-`MAX_SESSIONS=8000` — the region standard reaches the cluster. The fix was deleting a leftover; the diagnosis was tracing the field up its path and seeing that a later layer, not the one you'd edit, was the winner. For the full write-up see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`MAX_SESSIONS=8000` — the region standard reaches the cluster. The fix was deleting a leftover; the diagnosis was tracing the field up its path and seeing that a later layer, not the one you'd edit, was the winner. For the full write-up see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m19-multi-cluster/ANSWER-KEY.md). You're done — see `finish.md`.

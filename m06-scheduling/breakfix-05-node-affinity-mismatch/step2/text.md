@@ -37,4 +37,4 @@ kubectl describe pod -n media -l app=conference-mixer
 
 One more property of node affinity: it is `IgnoredDuringExecution`. If someone removes the `disktype` label from the worker now, the running Pod stays. Only the next placement feels the change.
 
-For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). Then see `finish.md`.
+For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m06-scheduling/ANSWER-KEY.md). Then see `finish.md`.

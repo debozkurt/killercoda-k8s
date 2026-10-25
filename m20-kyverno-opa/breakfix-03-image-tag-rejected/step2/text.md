@@ -25,4 +25,4 @@ kubectl rollout status deployment/call-recorder -n tenant-apps --timeout=60s
 kubectl get pods -n tenant-apps -l app=call-recorder
 ```{{exec}}
 
-`call-recorder` reaches `1/1` and its Pod is `Running`. The image gate passed because the tag is now explicit — the same policy that rejected `:latest` accepts `nginx:1.25`. In production the durable form of this is stronger still: a digest (`@sha256:…`) or a signature-verified image (`verifyImages`), so what runs is provably fixed. For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`call-recorder` reaches `1/1` and its Pod is `Running`. The image gate passed because the tag is now explicit — the same policy that rejected `:latest` accepts `nginx:1.25`. In production the durable form of this is stronger still: a digest (`@sha256:…`) or a signature-verified image (`verifyImages`), so what runs is provably fixed. For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m20-kyverno-opa/ANSWER-KEY.md). You're done — see `finish.md`.

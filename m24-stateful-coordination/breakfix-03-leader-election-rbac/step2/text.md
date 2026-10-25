@@ -41,4 +41,4 @@ EOF
 kubectl get lease call-coordinator -n call-routing
 ```{{exec}}
 
-The create succeeds — permission denied is gone — and the Lease now exists with a `HOLDER`. With the verbs restored, a real workload's embedded election client would now acquire and renew this lock on its own; here you did it by hand to prove the permission works end to end. Leadership can be established and the singleton work can run. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+The create succeeds — permission denied is gone — and the Lease now exists with a `HOLDER`. With the verbs restored, a real workload's embedded election client would now acquire and renew this lock on its own; here you did it by hand to prove the permission works end to end. Leadership can be established and the singleton work can run. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m24-stateful-coordination/ANSWER-KEY.md). You're done — see `finish.md`.

@@ -39,6 +39,6 @@ kubectl get deploy -n app-services -l 'app in (dialplan,voicemail)'
 
 ## The durable fix
 
-Patching the live `GitRepository` fixes this cluster. In a bootstrapped setup the `GitRepository` manifest itself lives in git, so the real fix is a reviewed commit correcting `spec.ref.branch` — otherwise the next `flux bootstrap` or reconcile of Flux's own config reapplies `release-2024`. For the triage-vs-git-source contrast, see [ANSWER-KEY.md](../ANSWER-KEY.md).
+Patching the live `GitRepository` fixes this cluster. In a bootstrapped setup the `GitRepository` manifest itself lives in git, so the real fix is a reviewed commit correcting `spec.ref.branch` — otherwise the next `flux bootstrap` or reconcile of Flux's own config reapplies `release-2024`. For the triage-vs-git-source contrast, see [ANSWER-KEY.md](https://github.com/debozkurt/killercoda-k8s/blob/main/m18-flux/ANSWER-KEY.md).
 
 You're done with breakfix-01. See `finish.md`.

@@ -58,4 +58,4 @@ kubectl get job usage-export -n analytics
 
 `COMPLETIONS 4/4`, `STATUS Complete`. All four shards exported; downstream gets the full day. This time `Complete` and `correct` agree.
 
-For self-grading, why this bug is so dangerous, and the `completionMode: Indexed` technique for making sharded work diagnosable, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading, why this bug is so dangerous, and the `completionMode: Indexed` technique for making sharded work diagnosable, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m01b-workloads-batch/ANSWER-KEY.md). You're done — see `finish.md`.

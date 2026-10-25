@@ -50,4 +50,4 @@ kubectl get pods -n provisioning -l app=billing-processor
 kubectl get pods -n media -l app=partner-connector
 ```{{exec}}
 
-Both move to `Running` `1/1` (allow a few seconds). One binding fixed, and every consumer that depended on the store is back. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+Both move to `Running` `1/1` (allow a few seconds). One binding fixed, and every consumer that depended on the store is back. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m11-secrets-at-scale/ANSWER-KEY.md). You're done — see `finish.md`.

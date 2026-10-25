@@ -24,6 +24,6 @@ You see the `app-services` workloads — visible proof the cluster was always he
 kubectl get pods -l plane=app -A
 ```{{exec}}
 
-For self-grading and the production practices that make this class of incident impossible, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). For the underlying concepts (contexts, kubeconfig, the resource model), see [`LESSON.md`](../LESSON.md).
+For self-grading and the production practices that make this class of incident impossible, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m00-foundations/ANSWER-KEY.md). For the underlying concepts (contexts, kubeconfig, the resource model), see [`LESSON.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m00-foundations/LESSON.md).
 
 You're done with breakfix-01. See `finish.md`.

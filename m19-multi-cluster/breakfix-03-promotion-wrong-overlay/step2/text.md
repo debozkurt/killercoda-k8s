@@ -39,4 +39,4 @@ kubectl get deploy edge-relay -n edge -o jsonpath='stage running {.spec.template
 kubectl kustomize clusters/prod-us-east-1 | grep -m1 'image: nginx'
 ```{{exec}}
 
-Stage on `nginx:1.27`, prod renders `nginx:1.25`. The pin moved one tier, exactly as a promotion should. The diagnosis was reading a non-monotonic ladder and finding the layer the value landed in. For the full write-up see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+Stage on `nginx:1.27`, prod renders `nginx:1.25`. The pin moved one tier, exactly as a promotion should. The diagnosis was reading a non-monotonic ladder and finding the layer the value landed in. For the full write-up see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m19-multi-cluster/ANSWER-KEY.md). You're done — see `finish.md`.

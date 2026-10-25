@@ -37,4 +37,4 @@ kubectl get pods -n media -l app=session-broker
 
 `session-broker` is back to `Running` `1/1`. The reference now resolves to a key that exists, so the kubelet can build the container's environment.
 
-For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m03-configuration/ANSWER-KEY.md). You're done — see `finish.md`.

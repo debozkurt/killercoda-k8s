@@ -35,4 +35,4 @@ kubectl rollout status deployment node-inspector -n analytics --timeout=60s
 kubectl logs -n analytics deploy/node-inspector --tail=4
 ```{{exec}}
 
-`Running`, and the logs show `HTTP 200` with the node list. The verb and the identity were never the problem — the *scope* was. For self-grading and the full `Forbidden` differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`Running`, and the logs show `HTTP 200` with the node list. The verb and the identity were never the problem — the *scope* was. For self-grading and the full `Forbidden` differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m10-security-rbac/ANSWER-KEY.md). You're done — see `finish.md`.

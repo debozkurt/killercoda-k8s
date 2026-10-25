@@ -32,4 +32,4 @@ debug
 
 The running container now serves `debug`, matching the ConfigMap. The config and the workload agree again.
 
-For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m03-configuration/ANSWER-KEY.md). You're done — see `finish.md`.

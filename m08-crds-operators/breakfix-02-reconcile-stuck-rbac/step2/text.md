@@ -50,4 +50,4 @@ kubectl get deployments -n media -l managed-by=tenant-operator
 kubectl logs deployment/tenant-operator -n platform --tail=6
 ```{{exec}}
 
-The `Forbidden` lines are gone, replaced by `phase=Ready`. Nothing about the operator Pod changed — the same process, unblocked by the permission it was missing. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+The `Forbidden` lines are gone, replaced by `phase=Ready`. Nothing about the operator Pod changed — the same process, unblocked by the permission it was missing. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m08-crds-operators/ANSWER-KEY.md). You're done — see `finish.md`.

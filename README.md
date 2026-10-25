@@ -29,7 +29,7 @@ To run a lab with a group, use the module's `ANSWER-KEY.md` as the facilitator s
 | 3. Platform engineering | M16–M22, M24 | Kustomize, Helm, Flux, multi-cluster, Kyverno and OPA, admission control, host networking, stateful coordination |
 | 4. Capstone | M26 | operating the platform: multi-fault triage |
 
-Each lab module (M00–M24) has a `LESSON.md`, an `ANSWER-KEY.md`, a slide deck, a `baseline/` scenario, and `breakfix-NN-*/` scenarios. M26 is a lesson. The full plan is in [`CURRICULUM.md`](CURRICULUM.md).
+Each lab module (M00–M24) has a `LESSON.md`, an `ANSWER-KEY.md`, a slide deck, a `baseline/` scenario, and `breakfix-NN-*/` scenarios. The slide decks open in a browser, for example [M06 scheduling](https://debozkurt.github.io/killercoda-k8s/m06-scheduling/m06-scheduling-slides.html). M26 is a lesson. The full plan is in [`CURRICULUM.md`](CURRICULUM.md).
 
 ## Repository layout
 

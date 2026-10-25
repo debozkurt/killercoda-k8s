@@ -39,4 +39,4 @@ The last event is `Scheduled`, and the `Tolerations:` block now starts with `ded
 
 A toleration is permission, not attraction. It removes the taint as a reason to refuse the Pod, and it does not pull the Pod toward the node. To reserve a pool for telephony, the team also needs a node affinity on the telephony workloads.
 
-For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). Then see `finish.md`.
+For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m06-scheduling/ANSWER-KEY.md). Then see `finish.md`.

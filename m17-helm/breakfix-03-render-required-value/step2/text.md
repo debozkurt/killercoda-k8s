@@ -46,6 +46,6 @@ kubectl get deployment voicemail -n app-services \
 
 ## The durable fix
 
-`--set` on the command line works, but a value the chart *always* needs shouldn't depend on every caller remembering it. The durable fix is a committed values file (or a sensible chart default) so the install can't be run without it. See [ANSWER-KEY.md](../ANSWER-KEY.md) for `required` vs a default, and where this value belongs in a GitOps repo.
+`--set` on the command line works, but a value the chart *always* needs shouldn't depend on every caller remembering it. The durable fix is a committed values file (or a sensible chart default) so the install can't be run without it. See [ANSWER-KEY.md](https://github.com/debozkurt/killercoda-k8s/blob/main/m17-helm/ANSWER-KEY.md) for `required` vs a default, and where this value belongs in a GitOps repo.
 
 You're done with breakfix-03, and with M17. See `finish.md`.

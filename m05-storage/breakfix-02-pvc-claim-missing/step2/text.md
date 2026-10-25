@@ -32,4 +32,4 @@ kubectl get pvc -n app-services
 
 The `directory` Pod is Running and Ready, and `directory-data` is Bound now that a Pod consumes it. The volume never changed. Only the name the Pod used did.
 
-For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You are done — see `finish.md`.
+For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m05-storage/ANSWER-KEY.md). You are done — see `finish.md`.

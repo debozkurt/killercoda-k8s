@@ -31,4 +31,4 @@ kubectl describe deploy account-provisioner -n provisioning
 
 `account-provisioner` is `Running` `1/1`, and in the `Pod Template` the `Image:` line now reads `nginx:1.25` — a registry that resolves. The pull reached the registry because the registry exists.
 
-For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m02-images-registries/ANSWER-KEY.md). You're done — see `finish.md`.

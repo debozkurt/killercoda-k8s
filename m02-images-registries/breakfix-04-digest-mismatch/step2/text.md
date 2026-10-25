@@ -33,4 +33,4 @@ kubectl describe deploy directory -n app-services
 
 `directory` is `Running` `1/1`, and in the `Pod Template` the `Image:` line no longer carries the all-zeros digest. The reference resolves, so the pull succeeds.
 
-That's the last branch of the differential. For self-grading, the promotion-by-digest production angle, and a recap of all four causes, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+That's the last branch of the differential. For self-grading, the promotion-by-digest production angle, and a recap of all four causes, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m02-images-registries/ANSWER-KEY.md). You're done — see `finish.md`.

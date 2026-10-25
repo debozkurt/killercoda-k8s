@@ -33,4 +33,4 @@ kubectl get deploy metrics-aggregator -n analytics -o yaml
 
 `metrics-aggregator` is `Running` `1/1`, and in the Deployment YAML the container's `imagePullPolicy:` line now reads `IfNotPresent` — no longer `Never`. The pull happened because you let it.
 
-For self-grading and the full differential, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m02-images-registries/ANSWER-KEY.md). You're done — see `finish.md`.

@@ -30,4 +30,4 @@ kubectl get statefulset session-store -n app-services
 kubectl get pods -n app-services -l app=session-store
 ```{{exec}}
 
-`READY 3/3`, and all three ordinals `Running` and `1/1`. Nothing about the fix was "restart everything" — you corrected one field, Pod-0 passed its probe, and the ordered rollout finished itself. That's the lesson: in a StatefulSet, un-readiness of one Pod isn't a one-Pod problem — it's a rollout-wide stop. For self-grading, see [`ANSWER-KEY.md`](../ANSWER-KEY.md). You're done — see `finish.md`.
+`READY 3/3`, and all three ordinals `Running` and `1/1`. Nothing about the fix was "restart everything" — you corrected one field, Pod-0 passed its probe, and the ordered rollout finished itself. That's the lesson: in a StatefulSet, un-readiness of one Pod isn't a one-Pod problem — it's a rollout-wide stop. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m07-workloads-ii/ANSWER-KEY.md). You're done — see `finish.md`.
