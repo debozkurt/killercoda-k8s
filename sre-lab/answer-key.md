@@ -1,12 +1,12 @@
-# SRE Interview Lab — Answer Key (Interviewer Reference)
+# SRE Practice Lab: Answer Key and Facilitator Notes
 
-> Do NOT share this with candidates. This is your reference for evaluating responses.
+> Solutions for the practice lab. Try the scenarios before you read them. The notes also work as a script for running the lab with a teammate.
 > Environment: Killercoda kubernetes-kubeadm-2nodes with local-path-provisioner
 > 8 scenarios | 20 minutes | AI tools allowed
 
 ---
 
-## Interviewer Cheat Sheet
+## Facilitator Cheat Sheet
 
 | # | Namespace | Symptom at a glance | Difficulty |
 |---|-----------|-------------------|------------|
@@ -19,8 +19,8 @@
 | 7 | `media-processing` | Pod `Pending` (scheduling) | Intermediate |
 | 8 | `service-mesh` | Pod Running, app broken internally | Advanced |
 
-**Suggested pick for junior/mid candidates:** 1, 2, 3, 4, 5, 6
-**Suggested pick for senior candidates:** 3, 4, 5, 6, 7, 8
+**Suggested set for newer engineers:** 1, 2, 3, 4, 5, 6
+**Suggested set for experienced engineers:** 3, 4, 5, 6, 7, 8
 
 ---
 
@@ -367,7 +367,7 @@ kubectl edit deployment transcoder -n media-processing
 # Delete the affinity block
 ```
 
-**What to watch for:** A strong candidate asks "should I label the node or remove the affinity?" — for media transcoding, the affinity is likely intentional (needs fast disk I/O for real-time processing) and the production fix would be to label the correct node, not weaken the constraint. Tests understanding of K8s scheduling primitives (directly referenced in the JD: taints, tolerations, node affinity).
+**What to watch for:** A strong candidate asks "should I label the node or remove the affinity?" — for media transcoding, the affinity is likely intentional (needs fast disk I/O for real-time processing) and the production fix would be to label the correct node, not weaken the constraint. Tests understanding of K8s scheduling primitives (taints, tolerations, node affinity).
 
 **Expected time:** 2-3 min for experienced, 5+ min for junior.
 
@@ -417,10 +417,10 @@ kubectl get svc -n kube-system kube-dns              # Usually 10.96.0.10
 
 | Rating | Scenarios Solved | What you see |
 |--------|-----------------|--------------|
-| **Strong hire** | 6-8 (including intermediates) | Methodical: describe → events → logs. Explains reasoning. Mentions production considerations. |
-| **Hire** | 4-6 (beginners + some intermediate) | Solid diagnostic flow. Gets stuck on subtler issues but recovers. |
-| **Borderline** | 2-4 (mostly beginners) | Knows basic kubectl but lacks systematic approach. May need prompting. |
-| **No hire** | 0-1 | Cannot navigate kubectl or interpret pod status. |
+| **Strong** | 6-8 (including intermediates) | Methodical: describe → events → logs. Explains reasoning. Mentions production considerations. |
+| **Solid** | 4-6 (beginners + some intermediate) | Solid diagnostic flow. Gets stuck on subtler issues but recovers. |
+| **Developing** | 2-4 (mostly beginners) | Knows basic kubectl but lacks systematic approach. May need prompting. |
+| **Getting started** | 0-1 | Cannot navigate kubectl or interpret pod status. |
 
 ## What to observe beyond "did they fix it"
 
@@ -433,14 +433,14 @@ kubectl get svc -n kube-system kube-dns              # Usually 10.96.0.10
 | **Vocabulary** | Correct terms: PVC, selector, targetPort, affinity, OOMKilled | Vague: "the thing isn't working" |
 | **Production thinking** | "I'd check the runbook" / "I'd rollback first" / "Quotas are there for a reason" | No mention of impact, process, or why things are configured a certain way |
 
-## Suggested interview flow
+## Suggested session flow
 
 ```
-00:00-02:00   Brief the candidate. "We'll start with some quick operational
+00:00-02:00   Brief the participant. "We'll start with some quick operational
               tasks, then move to troubleshooting. Think out loud.
               You can use any tools including AI."
 02:00-07:00   Step 1: Operational tasks. Quick-fire, tests muscle memory.
-              Candidate reads from the lab or you read them out.
+              The participant reads from the lab, or you read them out.
 07:00-18:00   Step 2: Break/fix scenarios. Observe and take notes silently.
               Offer a hint at ~12 min if stuck on one scenario.
 18:00-20:00   Debrief: "What would you check next?"

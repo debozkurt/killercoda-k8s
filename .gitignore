@@ -4,7 +4,7 @@
 
 # Internal config & definitions — the only private layer.
 # Anything under an _internal/ dir at any depth is author-only:
-# disguise dictionaries, style guides, lesson-template specs, etc.
+# style guides, lesson-template specs, and other working notes.
 # Convention-driven (structural) rather than per-file enumeration so
 # new internal content is auto-private without a .gitignore update.
 **/_internal/

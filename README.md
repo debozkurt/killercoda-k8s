@@ -2,8 +2,8 @@
 
 Hands-on, scenario-based Kubernetes training that runs in the browser via [Killercoda](https://killercoda.com). Three flavors of content live here:
 
-- **Curriculum modules** ([`m00-foundations/`](m00-foundations/), and forthcoming `m01-`, `m02-`, ...) — a structured, multi-module path from K8s foundations through GitOps, policy, real-time workloads, and a capstone. Each module pairs a known-good cluster with broken-cluster siblings, a companion lesson doc, and a self-grading answer key. Built around a fictional real-time communications platform called **Polyphone** so every lesson reinforces the same vocabulary. See [`CURRICULUM.md`](CURRICULUM.md) for the master plan.
-- **Standalone scenarios** ([`operational-cluster/`](operational-cluster/), [`sre-lab/`](sre-lab/)) — independent labs. `operational-cluster` is a healthy reference cluster for `kubectl` practice; `sre-lab` is a timed 8-scenario interview-style break/fix assessment with its own answer key at [`sre-lab/answer-key.md`](sre-lab/answer-key.md).
+- **Curriculum modules** ([`m00-foundations/`](m00-foundations/) through [`m26-operate-platform/`](m26-operate-platform/)) — a structured, multi-module path from K8s foundations through GitOps, policy, real-time workloads, and a capstone. Each module pairs a known-good cluster with broken-cluster siblings, a companion lesson doc, and a self-grading answer key. Built around a fictional real-time communications platform called **Polyphone** so every lesson reinforces the same vocabulary. See [`CURRICULUM.md`](CURRICULUM.md) for the master plan.
+- **Standalone scenarios** ([`operational-cluster/`](operational-cluster/), [`sre-lab/`](sre-lab/)) — independent labs. `operational-cluster` is a healthy reference cluster for `kubectl` practice; `sre-lab` is a timed, interview-style practice lab with 8 break/fix scenarios ([run it on Killercoda](https://killercoda.com/debozkurt/scenario/sre-lab)); solutions are in [`sre-lab/answer-key.md`](sre-lab/answer-key.md).
 
 ## Quick start
 
@@ -35,7 +35,7 @@ Each scenario directory is a standalone Killercoda scenario. To run one in the b
 
 - **New to Kubernetes?** Begin with [`m00-foundations/`](m00-foundations/). Read `LESSON.md`, then run `baseline/` on Killercoda, then attempt `breakfix-01-context-blindness/` before checking yourself against `ANSWER-KEY.md`.
 - **Comfortable with Kubernetes, want practice?** [`operational-cluster/`](operational-cluster/) gives you a fully populated healthy cluster to explore at your own pace.
-- **Preparing for an SRE interview?** [`sre-lab/`](sre-lab/) is the timed 8-scenario assessment used by the original interview pack. [`sre-lab/answer-key.md`](sre-lab/answer-key.md) documents the expected diagnostic paths.
+- **Preparing for an SRE interview?** [`sre-lab/`](sre-lab/) is a timed 8-scenario practice lab ([run it on Killercoda](https://killercoda.com/debozkurt/scenario/sre-lab)). [`sre-lab/answer-key.md`](sre-lab/answer-key.md) documents the expected diagnostic paths.
 
 ## Disclaimer
 
