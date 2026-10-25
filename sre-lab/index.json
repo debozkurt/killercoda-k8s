@@ -1,6 +1,6 @@
 {
-  "title": "SRE Interview Lab",
-  "description": "SRE technical assessment — operational tasks and 8 break/fix scenarios",
+  "title": "SRE Practice Lab",
+  "description": "Timed SRE practice lab: operational tasks and 8 break/fix scenarios",
   "details": {
     "intro": {
       "text": "intro.md",

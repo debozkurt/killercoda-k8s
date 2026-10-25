@@ -14,6 +14,23 @@ Each scenario directory is a standalone Killercoda scenario. To run one in the b
 3. Wait for the background script to provision the cluster (60–120 seconds for the full Polyphone fleet).
 4. Follow the sidebar instructions.
 
+The practice lab is hosted, so you can skip the fork: [run sre-lab on Killercoda](https://killercoda.com/debozkurt/scenario/sre-lab).
+
+To run a lab with a group, use the module's `ANSWER-KEY.md` as the facilitator script.
+
+## Learning path
+
+26 modules, 108 Killercoda scenarios: 25 baselines, 81 break/fix labs, and 2 standalone labs. Every break/fix lab ends with a verify step that checks cluster state.
+
+| Tier | Modules | Focus |
+|---|---|---|
+| 1. Foundations | M00–M08, M01b | kubectl, workloads, jobs, images, configuration, Services and DNS, storage, scheduling, CRDs and operators |
+| 2. Operational depth | M09–M15 | resilience and autoscaling, RBAC, secrets, PKI and TLS, observability, NetworkPolicy and Ingress, service mesh |
+| 3. Platform engineering | M16–M22, M24 | Kustomize, Helm, Flux, multi-cluster, Kyverno and OPA, admission control, host networking, stateful coordination |
+| 4. Capstone | M26 | operating the platform: multi-fault triage |
+
+Each lab module (M00–M24) has a `LESSON.md`, an `ANSWER-KEY.md`, a slide deck, a `baseline/` scenario, and `breakfix-NN-*/` scenarios. M26 is a lesson. The full plan is in [`CURRICULUM.md`](CURRICULUM.md).
+
 ## Repository layout
 
 ```
@@ -22,8 +39,8 @@ Each scenario directory is a standalone Killercoda scenario. To run one in the b
 ├── CURRICULUM.md                    master plan: persona, fleet, module map
 ├── _baseline/                       canonical 17-workload Polyphone fleet (shared reference)
 ├── operational-cluster/             standalone: healthy reference cluster
-├── sre-lab/                         standalone: timed interview break/fix assessment
-│   └── answer-key.md                interviewer/self-grading reference
+├── sre-lab/                         standalone: timed 8-scenario practice lab
+│   └── answer-key.md                solutions and facilitator notes
 └── mNN-<topic>/                     one directory per curriculum module
     ├── LESSON.md                    companion doc
     ├── ANSWER-KEY.md                self-grading reference
@@ -44,3 +61,7 @@ Polyphone is a fictional company invented for this curriculum. The platform shap
 ## Contributing
 
 Each module follows a canonical lesson trio: Killercoda scenario(s), `LESSON.md`, `ANSWER-KEY.md`. The format is intentionally consistent so learners always know where to find what. New modules should match the existing M00 layout. Issues and PRs welcome.
+
+## License
+
+Code, scripts, and manifests are under the [MIT License](LICENSE). Lessons, answer keys, scenario text, and slide decks are under [CC BY 4.0](LICENSE-docs).

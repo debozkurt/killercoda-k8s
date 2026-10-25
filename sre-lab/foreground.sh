@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs in the foreground — candidate sees this output.
+# Runs in the foreground — the participant sees this output.
 # Waits for the background setup to finish before handing control.
 
 echo "Preparing your cluster environment..."
