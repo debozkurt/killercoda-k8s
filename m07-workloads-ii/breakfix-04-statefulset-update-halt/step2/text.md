@@ -29,4 +29,4 @@ The controller recreates `session-store-2` from the restored template, and the r
 kubectl get pods -n app-services -l app=session-store -L controller-revision-hash
 ```{{exec}}
 
-All three Pods are `1/1` and share one hash. Read `AGE`. Ordinals 0 and 1 are older than ordinal 2, because you never restarted them. See [`ANSWER-KEY.md`](../ANSWER-KEY.md) for self-grading, then `finish.md`.
+All three Pods are `1/1` and share one hash. Read `AGE`. Ordinals 0 and 1 are older than ordinal 2, because you never restarted them. See [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m07-workloads-ii/ANSWER-KEY.md) for self-grading, then `finish.md`.

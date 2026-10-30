@@ -41,4 +41,4 @@ kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n app-services -- 
   nslookup session-store-1.session-store.app-services.svc.cluster.local
 ```{{exec}}
 
-Each ordinal resolves to its own Pod. You restarted nothing. The only missing object was the Service. See [`ANSWER-KEY.md`](../ANSWER-KEY.md) for self-grading, then `finish.md`.
+Each ordinal resolves to its own Pod. You restarted nothing. The only missing object was the Service. See [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m07-workloads-ii/ANSWER-KEY.md) for self-grading, then `finish.md`.

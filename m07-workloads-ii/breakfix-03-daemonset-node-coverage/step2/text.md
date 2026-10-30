@@ -27,4 +27,4 @@ kubectl get daemonset rtp-probe -n edge
 kubectl get pods -n edge -l app=rtp-probe -o wide
 ```{{exec}}
 
-`DESIRED`, `CURRENT` and `READY` all read 2, and a second Pod now runs on the control-plane node. The node did not change, and its taint is still there. The Pod now tolerates it. `DESIRED` equal to the node count is the sign that coverage is complete. See [`ANSWER-KEY.md`](../ANSWER-KEY.md) for self-grading, then `finish.md`.
+`DESIRED`, `CURRENT` and `READY` all read 2, and a second Pod now runs on the control-plane node. The node did not change, and its taint is still there. The Pod now tolerates it. `DESIRED` equal to the node count is the sign that coverage is complete. See [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m07-workloads-ii/ANSWER-KEY.md) for self-grading, then `finish.md`.

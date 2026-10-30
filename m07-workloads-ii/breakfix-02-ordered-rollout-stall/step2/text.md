@@ -37,4 +37,4 @@ kubectl get statefulset session-store -n app-services
 kubectl get pods -n app-services -l app=session-store
 ```{{exec}}
 
-`READY 3/3`, and all three Pods are `1/1`. The two missing Pods were a symptom. The fault sat at ordinal 0. See [`ANSWER-KEY.md`](../ANSWER-KEY.md) for self-grading, then `finish.md`.
+`READY 3/3`, and all three Pods are `1/1`. The two missing Pods were a symptom. The fault sat at ordinal 0. See [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m07-workloads-ii/ANSWER-KEY.md) for self-grading, then `finish.md`.

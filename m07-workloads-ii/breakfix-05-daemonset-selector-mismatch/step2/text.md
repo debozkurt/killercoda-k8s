@@ -25,4 +25,4 @@ kubectl get pods -n media -l app=disk-exporter -o wide
 
 `DESIRED` is now 1, and one Pod runs on the worker. That is the correct number. The agent belongs on fast-disk nodes, and the worker is the only one. The control-plane node is correctly uncovered. In breakfix-03 the right answer was 2. The right number is always the nodes the agent belongs on.
 
-See [`ANSWER-KEY.md`](../ANSWER-KEY.md) for self-grading, then `finish.md`.
+See [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m07-workloads-ii/ANSWER-KEY.md) for self-grading, then `finish.md`.
