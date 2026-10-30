@@ -1,14 +1,12 @@
 #!/bin/bash
-# Checks: the healthy PDB on route-engine reports at least one allowed disruption,
-# so the "budget with headroom" story in this step holds. Defensive baseline check.
-ALLOWED=$(kubectl get pdb route-engine -n call-routing -o jsonpath='{.status.disruptionsAllowed}' 2>/dev/null)
-if [ -z "$ALLOWED" ]; then
-  echo "PDB route-engine has no status yet — the disruption controller may still be computing it. Wait a few seconds and retry." >&2
+# Checks: the sip-router HPA has scaled out at least once (a SuccessfulRescale event citing
+# utilization above target). Asserts the outcome, not the exact load command. Reads the event,
+# not live replicas, so removing the load before the scale-down window does not fail the check.
+MSG=$(kubectl get events -n signaling --field-selector involvedObject.name=sip-router,reason=SuccessfulRescale -o jsonpath='{.items[*].message}' 2>/dev/null)
+if ! echo "$MSG" | grep -q "above target"; then
+  echo "The sip-router HPA has not scaled out yet. Start the load and wait about a minute:" >&2
+  echo "  kubectl run load -n signaling --image=busybox:1.36 --restart=Never -- /bin/sh -c 'while true; do wget -q -O- http://sip-router-load > /dev/null; done'" >&2
   exit 1
 fi
-if [ "$ALLOWED" -lt 1 ]; then
-  echo "PDB route-engine reports ALLOWED DISRUPTIONS $ALLOWED (expected >= 1). Confirm route-engine has 2 healthy replicas and minAvailable is 1." >&2
-  exit 1
-fi
-echo "✓ PDB route-engine allows $ALLOWED disruption(s) — headroom for a safe drain"
+echo "✓ The sip-router HPA scaled out under load"
 exit 0

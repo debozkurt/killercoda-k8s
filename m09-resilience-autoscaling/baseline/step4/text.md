@@ -1,32 +1,37 @@
-# Step 4 — Graceful shutdown
+# Step 4 — PodDisruptionBudgets
 
-A rolling update and a node drain both do the same underlying thing over and over: they *terminate a Pod*. Whether that costs you dropped calls depends on how the Pod shuts down. Kubernetes gives every Pod a graceful-termination sequence; the question is whether the app uses it.
+Two kinds of disruption remove Pods. **Involuntary** disruption just happens: a node crashes. **Voluntary** disruption is one you start: draining a node for a kernel patch. A **PodDisruptionBudget** (PDB) limits how many replicas voluntary disruption may take down at once. The baseline ships one on `route-engine`.
 
-## Read the grace period
-
-```bash
-kubectl get pod -n call-routing -l app=route-engine \
-  -o jsonpath='{.items[0].spec.terminationGracePeriodSeconds}'; echo
-```{{exec}}
-
-`30` — the default. That's how long the kubelet waits, after asking a container to stop, before it forces the issue.
-
-## The termination lifecycle
-
-When a Pod is deleted (by a rollout, a drain, a scale-down), several things happen at once:
-
-1. The Pod is marked `Terminating` and **removed from its Service's Endpoints** — new traffic stops being routed to it (this is why a readiness probe going false, from M01, and termination both pull a Pod out of rotation).
-2. The container's **`preStop` hook** runs, if it has one (a place to drain connections or deregister).
-3. The container gets **`SIGTERM`** — the polite "please stop" signal. A well-behaved app catches it, stops accepting new work, finishes in-flight requests, and exits.
-4. If the container is still alive when `terminationGracePeriodSeconds` elapses, it gets **`SIGKILL`** — the non-negotiable kill.
-
-So the grace period is a *budget* for steps 2–3. Set it long enough and an app that handles `SIGTERM` drains cleanly; set it too short (or ignore `SIGTERM`) and the app is `SIGKILL`ed mid-request. Watch a clean termination — delete one replica and the Deployment immediately replaces it:
+## Read the budget
 
 ```bash
-kubectl delete pod -n call-routing -l app=route-engine --wait=false
-kubectl get pods -n call-routing -l app=route-engine -w --request-timeout=20s
+kubectl get pdb -n call-routing
 ```{{exec}}
 
-You'll see one Pod go `Terminating` while a replacement goes `Pending → Running`. (Press `Ctrl-C` to stop watching.) The service never fully drops because the other replica keeps serving — the same overlap a rolling update relies on.
+`ALLOWED DISRUPTIONS` is the number that matters. With 2 healthy replicas and a floor of 1, it reads 1. The budget lets one replica go at a time.
 
-The three pieces of this module compose here: a **rolling update** terminates Pods one batch at a time, a **PDB** caps how many terminate at once during a drain, and **graceful shutdown** makes each individual termination lossless. Get all three right and you patch nodes and ship releases without a blip. The probe and `preStop` mechanics behind step 1's readiness removal were covered in M01. You've now seen the healthy machinery end to end — read [`LESSON.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m09-resilience-autoscaling/LESSON.md) for the *why*, then break three pieces of it. See `finish.md`.
+```bash
+kubectl describe pdb route-engine -n call-routing
+```{{exec}}
+
+Read the `Status:` block: `Allowed disruptions:`, `Current:`, and `Desired:`. Current counts healthy Pods. The rule is allowed disruptions = current − desired, floored at 0. Here that is 2 − 1 = 1.
+
+## Watch the eviction API enforce it
+
+`kubectl drain` does not delete Pods. It calls the **eviction API**, which checks every budget first. Call that API on each `route-engine` Pod in a row. The first eviction passes. The second arrives before the replacement is Ready:
+
+```bash
+for POD in $(kubectl get pods -n call-routing -l app=route-engine -o name | cut -d/ -f2); do
+  echo "{\"apiVersion\":\"policy/v1\",\"kind\":\"Eviction\",\"metadata\":{\"name\":\"$POD\",\"namespace\":\"call-routing\"}}" > /tmp/evict.json
+  kubectl create --raw "/api/v1/namespaces/call-routing/pods/$POD/eviction" -f /tmp/evict.json; echo
+done
+```{{exec}}
+
+The first call returns a Status object with Success. The second returns `TooManyRequests: Cannot evict pod as it would violate the pod's disruption budget`. A drain retries that refusal until the budget opens. Read the state, then wait for the replacement:
+
+```bash
+kubectl get pods -n call-routing -l app=route-engine
+kubectl wait --for=condition=Ready pod -l app=route-engine -n call-routing --timeout=60s
+```{{exec}}
+
+This is how a rolling drain stays safe: evict one Pod, wait for its replacement, evict the next. A budget whose floor equals the replica count reads 0 allowed disruptions, and no eviction ever passes. Next: what a Pod does when told to stop.

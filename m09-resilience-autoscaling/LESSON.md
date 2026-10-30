@@ -1,52 +1,54 @@
 # M09 — Resilience & Autoscaling
 
-> How Kubernetes keeps a service available while the world changes underneath it — demand rising and falling, versions shipping, nodes draining — and the handful of ways each of those controls quietly stops protecting you.
+> How Kubernetes keeps a service available while demand, versions, and nodes change, and how each control fails without raising an alarm.
 
 ## What you'll learn
 
-- See resilience as the response to three kinds of change — **demand**, **version**, and **disruption** — each with its own control, and diagnose each control when it fails
-- Read a **HorizontalPodAutoscaler**: how it turns a metric into a replica count, why CPU utilization is measured *as a percentage of the request*, and why a missing request leaves it stuck at `<unknown>`
-- Distinguish the four autoscalers — **HPA** (more replicas), **VPA** (bigger replicas), **Cluster Autoscaler / Karpenter** (more nodes), **KEDA** (event-driven) — and know which axis each one moves
-- Drive a **rolling update**: `maxSurge`/`maxUnavailable`, the two-ReplicaSet handoff, `progressDeadlineSeconds`, and why a bad release *stalls* instead of taking the service down — then recover it with `rollout undo`
-- Use a **PodDisruptionBudget** to pace voluntary disruption safely, compute its **allowed disruptions**, and recognize the budget that blocks a drain forever
-- Trace the **graceful-shutdown** lifecycle — endpoint removal, `preStop`, `SIGTERM`, the grace period, `SIGKILL` — and see how rolling updates, PDBs, and graceful shutdown compose into lossless change
+- Name the three kinds of change a running service faces (demand, version, disruption) and the control for each
+- Read a **HorizontalPodAutoscaler**: how it turns a metric into a replica count, why utilization is a percentage of the request, and what can stop replicas from appearing after the HPA asks for them
+- Tell the four autoscalers apart by the axis each moves: HPA (replica count), VPA (Pod size), Cluster Autoscaler or Karpenter (nodes), KEDA (events)
+- Drive a **rolling update** with `maxSurge` and `maxUnavailable`, read a stalled rollout, and recover it with `rollout undo`
+- Compute a **PodDisruptionBudget**'s allowed disruptions and name each cause of a zero
+- Trace **graceful shutdown** (endpoint removal, `preStop`, `SIGTERM`, grace period, `SIGKILL`) and find a Pod that ignores `SIGTERM`
 
 ## Why it matters
 
-Availability isn't a property a service has; it's a property Kubernetes actively maintains against a stream of changes that never stops. Traffic doubles at the top of the hour. A release ships every afternoon. A node gets drained for a CVE patch on someone else's schedule. Each of those is a chance to drop calls — and Kubernetes has a specific mechanism to absorb each one without a blip. The failures in this module are what happens when one of those mechanisms is misconfigured: the autoscaler that silently never scales, the release that wedges half-deployed, the disruption budget that turns a routine node patch into a stuck maintenance window.
+Kubernetes maintains availability against a constant stream of changes. Traffic doubles at the top of the hour. A release ships every afternoon. A node drains for a CVE patch on someone else's schedule. Each change can drop calls, and Kubernetes has one control for each.
 
-At Polyphone these are the pages that arrive *between* incidents, when nothing is on fire yet. An HPA that reads `<unknown>` doesn't alarm — it just fails to add capacity when the surge comes, and the first symptom is latency, not an error. A `minAvailable` set one too high doesn't break anything today — it blocks the drain three weeks from now when a node needs patching, and the on-call engineer stares at a hung `kubectl drain` at 3am. These controls are quiet when healthy and quiet when broken; the skill is reading their state directly instead of waiting for the downstream symptom.
+Those controls are quiet when healthy and quiet when broken. An HPA that reads `<unknown>` raises no alert. It fails to add capacity during the surge, and the first symptom is latency. A budget set one too high breaks nothing today. Three weeks later it blocks a drain, and the on-call engineer watches a hung `kubectl drain` at 03:00. Read each control's own status instead of waiting for the downstream page.
 
 ## Scope
 
-**Covers:** the **HorizontalPodAutoscaler** (the control loop, the resource-metrics pipeline, utilization vs. request, min/max, and the missing-request failure); the wider autoscaler family — **Cluster Autoscaler/Karpenter**, **VPA**, **KEDA** — at the level of *which axis each scales and when to reach for it*; **Deployment rolling updates** (`RollingUpdate` strategy, `maxSurge`/`maxUnavailable`, the ReplicaSet handoff, `progressDeadlineSeconds`) and **rollback** (`rollout undo`, revisions); **PodDisruptionBudgets** (voluntary vs. involuntary disruption, `minAvailable`/`maxUnavailable`, allowed disruptions, the eviction API, node drain); and the **graceful-shutdown** lifecycle that makes each individual Pod termination lossless.
+**Covers:** the HorizontalPodAutoscaler (control loop, resource-metrics pipeline, utilization against the request, scaling damping, and the path from desired replicas to running Pods); the autoscaler family (Cluster Autoscaler, Karpenter, VPA, KEDA) by the axis each moves; Deployment rolling updates, rollback, and the stalled rollout; PodDisruptionBudgets (voluntary and involuntary disruption, allowed disruptions, healthy-Pod counting, the eviction API, node drain); graceful shutdown.
 
-**Doesn't cover:** installing or operating the autoscalers themselves (metrics-server is pre-installed; CA/VPA/KEDA are described, not deployed — they need cloud or operator infrastructure a single lab cluster can't provide); **custom and external metrics** for the HPA (queue depth, RPS) beyond noting KEDA as the usual answer → M13 for the metrics stack; **PriorityClass and preemption** (a higher-priority Pod evicting a lower one) — the involuntary counterpart to PDBs, noted where it intersects but a distinct mechanism; the **probe and `preStop` mechanics** themselves, which were drilled in M01 (`prestop-truncation`) and are reused here as one stage of the disruption lifecycle rather than re-taught.
+**Doesn't cover:** installing the autoscalers (metrics-server is pre-installed; Cluster Autoscaler, VPA, and KEDA need infrastructure a lab cluster lacks); custom and external HPA metrics → M13; HPA `behavior` tuning beyond the defaults; PriorityClass and preemption; probe and `preStop` mechanics → M01; `minReadySeconds`, pause and resume, and traffic-split canaries → M15.
 
-**Assumes:** M01 (Deployments, ReplicaSets, the reconciliation loop, readiness probes, and `terminationGracePeriodSeconds`/`preStop` from the lifecycle lesson), M06 (resource **requests** as the scheduler's reservation — the same number the HPA divides by), and M00 fluency (`get → describe → events`, reading a controller's `.status.conditions`). Requests from M06 are load-bearing again: here a request is also the autoscaler's definition of "100%."
+**Assumes:** M01 (Deployments, ReplicaSets, readiness probes, `terminationGracePeriodSeconds`), M06 (a resource request is the scheduler's reservation, and here it is also the autoscaler's 100%), and M00 fluency (`get → describe → events`).
 
 ## Vocabulary
 
 | Term | Definition |
 |------|------------|
-| **HorizontalPodAutoscaler (HPA)** | A controller that adjusts a workload's **replica count** to keep an observed metric near a target. Runs a loop (~15s): read metric, compute desired replicas, clamp to `minReplicas`/`maxReplicas`. |
-| **resource-metrics pipeline** | **metrics-server** scrapes each Pod's live CPU/memory and serves it on the metrics API; the HPA reads from there. No metrics-server → no resource metrics → HPA reads `<unknown>`. |
-| **utilization (HPA)** | Current usage expressed as a percentage of the container's **request** (`usage ÷ request`). The request is the denominator; without one, CPU/memory utilization is undefined. |
-| **Cluster Autoscaler / Karpenter** | Node-level autoscalers: they add/remove **nodes** when Pods can't schedule (or nodes sit idle). They scale the cluster, not the workload. |
-| **Vertical Pod Autoscaler (VPA)** | Right-sizes a workload's **requests/limits** (bigger or smaller Pods) from observed usage, rather than changing the replica count. |
-| **KEDA** | Event-driven autoscaling: scales on external signals (queue depth, stream lag, cron) and can scale **to zero**. Drives an HPA under the hood. |
-| **rolling update** | The default Deployment update: replace Pods gradually, bounded by `maxSurge` (extra Pods allowed) and `maxUnavailable` (Pods allowed down), so the service keeps serving throughout. |
-| **revision / rollback** | Each rollout is a numbered revision (a stored ReplicaSet template). `kubectl rollout undo` re-applies a prior revision — a rollback. |
-| **progressDeadlineSeconds** | How long a rollout may go without progress before the Deployment reports `Progressing=False, ProgressDeadlineExceeded`. It flags a stuck rollout; it does **not** auto-roll-back. |
-| **voluntary vs. involuntary disruption** | Voluntary: you cause it (drain, node upgrade, autoscaler scale-down). Involuntary: it happens to you (node crash, kernel OOM). PDBs constrain only *voluntary* disruptions. |
-| **PodDisruptionBudget (PDB)** | A floor on how many replicas must stay up during voluntary disruption. `minAvailable` or `maxUnavailable`; the eviction API enforces it. |
-| **allowed disruptions** | `currentHealthy − desiredHealthy`, floored at 0 — how many Pods the budget will let go *right now*. `0` means no eviction is permitted. |
-| **eviction API** | The graceful Pod-removal path (`.../eviction`) that `kubectl drain` and the Cluster Autoscaler use. Unlike `kubectl delete pod`, it consults PDBs first. |
-| **graceful shutdown** | The termination sequence: remove from Service Endpoints → run `preStop` → send `SIGTERM` → wait up to `terminationGracePeriodSeconds` → `SIGKILL`. Lets an app finish in-flight work. |
+| **HorizontalPodAutoscaler (HPA)** | "A HorizontalPodAutoscaler automatically updates a workload resource" to match demand<sup><a href="https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/">[1]</a></sup>. It changes the replica count, never the Pod template. |
+| **resource-metrics pipeline** | metrics-server scrapes live CPU and memory from each kubelet and serves them on the metrics API. The HPA reads that API. |
+| **utilization** | "The ratio between the current usage of resource to the requested resources of the pod"<sup><a href="https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/">[1]</a></sup>. The request is the denominator. |
+| **ResourceQuota** | A namespace-level cap, enforced at admission, on object counts or summed requests. A Pod over the cap is never created<sup><a href="https://kubernetes.io/docs/concepts/policy/resource-quotas/">[2]</a></sup>. |
+| **Cluster Autoscaler / Karpenter** | Node autoscalers. They add nodes for unschedulable Pods and remove idle nodes. |
+| **Vertical Pod Autoscaler (VPA)** | Changes a workload's requests and limits from observed usage. It does not change the replica count. |
+| **KEDA** | Event-driven autoscaling on external signals (queue depth, stream lag, cron). It can scale to zero. |
+| **rolling update** | The default Deployment update. It replaces Pods gradually, bounded by `maxSurge` and `maxUnavailable`. |
+| **revision** | One stored Pod template, kept as a ReplicaSet. `kubectl rollout undo` re-applies a previous revision. |
+| **progressDeadlineSeconds** | Seconds without progress before the Deployment reports `Progressing=False` with reason `ProgressDeadlineExceeded`. Default 600. |
+| **voluntary / involuntary disruption** | "We call other cases voluntary disruptions" (a drain, an upgrade, a scale-down). Involuntary cases are unavoidable (a node crash)<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/disruptions/">[7]</a></sup>. |
+| **PodDisruptionBudget (PDB)** | "A PDB limits the number of Pods of a replicated application that are down simultaneously from voluntary disruptions"<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/disruptions/">[7]</a></sup>. |
+| **healthy Pod (PDB)** | A Pod whose `Ready` condition is `True`. Only healthy Pods count toward the budget. |
+| **allowed disruptions** | `currentHealthy − desiredHealthy`, floored at 0. The number of Pods the budget lets go now. |
+| **eviction API** | The Pod subresource that `kubectl drain` and node autoscalers call. It checks PDBs before it deletes. |
+| **graceful shutdown** | The termination sequence: `preStop` hook, `SIGTERM`, wait up to the grace period, `SIGKILL`. |
 
 ## Mental model
 
-Resilience is Kubernetes absorbing change so the service doesn't feel it. Three kinds of change hit a running fleet, and each has one control that keeps availability flat while it happens:
+Three kinds of change hit a running fleet. Each has one control that keeps availability flat.
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {
@@ -57,119 +59,163 @@ Resilience is Kubernetes absorbing change so the service doesn't feel it. Three 
 }}}%%
 flowchart LR
     D[Demand<br/>changes] --> H[HPA adjusts<br/>replica count]
-    V[Version<br/>changes] --> R[Rolling update<br/>+ rollback]
-    X[Disruption<br/>drain / node loss] --> P[PDB paces +<br/>graceful shutdown]
-    H --> S[Service stays<br/>Available]
+    V[Version<br/>changes] --> R[Rolling update<br/>and rollback]
+    X[Disruption<br/>drain or node loss] --> P[PDB paces it<br/>graceful shutdown<br/>drains each Pod]
+    H --> S[Service stays<br/>available]
     R --> S
     P --> S
 ```
 
-Two facts make this model pay off. First, **each control has a signature failure that is silent until the change it guards actually arrives.** A broken HPA looks fine until the surge; a bad `minAvailable` looks fine until the drain; a stuck rollout looks fine (the old version serves) until you notice the new one never landed. So you read the control's *own* state — `kubectl get hpa`, `kubectl get pdb`, `kubectl rollout status` — rather than waiting for the downstream page.
+Two facts make this model pay off. First, each control has a signature failure that stays silent until its change arrives. A broken HPA looks fine until the surge. A bad budget looks fine until the drain. A stalled rollout looks fine because the old version still serves. So read the control's own state: `kubectl get hpa`, `kubectl get pdb`, `kubectl rollout status`.
 
-Second, **these controls compose, and they share their inputs with the scheduler.** A rolling update terminates Pods; a PDB paces how many terminate at once during a drain; graceful shutdown makes each termination lossless. And the **request** you set for the scheduler in M06 is the same number the HPA treats as 100% — so one field, wrong, breaks placement *and* autoscaling. Resilience isn't a separate subsystem bolted on; it's the same primitives (replicas, requests, ReplicaSets, the reconciliation loop) driven by controllers that watch for change.
+Second, the controls share inputs with the scheduler. One request field sets placement and sets the HPA's 100%. A rolling update terminates Pods, a PDB paces how many go at once during a drain, and graceful shutdown decides whether each termination drops traffic. They are the same primitives (replicas, requests, ReplicaSets, reconciliation) under different controllers.
 
 ## Concept walkthrough
 
-### Autoscaling: matching capacity to demand
+### Autoscaling: replica count follows load
 
-The **HorizontalPodAutoscaler** is a control loop, and reading it as one demystifies every failure. About every 15 seconds it reads a metric for the target workload, computes `desiredReplicas = ceil(currentReplicas × currentMetricValue ÷ targetValue)`, and clamps the result between `minReplicas` and `maxReplicas`<sup><a href="https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/">[1]</a></sup>. Then it sets the Deployment's replica count — which rolls out through the ordinary ReplicaSet machinery. The HPA doesn't create Pods; it moves the same replica dial you'd move by hand.
+**Rule.** The HPA changes a workload's replica count to hold the average metric per Pod near a target. It never creates Pods. It writes the replica field, and the ReplicaSet does the rest.
 
-The subtlety that causes most HPA incidents is what "50% CPU" actually means. The HPA doesn't scale on raw CPU — it scales on **utilization**, defined as usage divided by the container's **request**<sup><a href="https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/">[1]</a></sup>. The request is the denominator. metrics-server supplies the numerator (live usage, scraped per Pod), the HPA divides, and gets a percentage. Pull out the request and the arithmetic has no denominator: the HPA can't compute utilization, reports the metric as `<unknown>`, sets `ScalingActive=False`, and freezes at the current replica count. This is the single most common reason an HPA silently doesn't scale, and it's entirely on the *target* side — the metrics pipeline can be perfectly healthy. It's the same lesson as M06 from the other direction: the request is load-bearing twice over, once as the scheduler's reservation and once as the autoscaler's yardstick.
+About every 15 seconds (the default sync period) the HPA reads the metric, computes the desired count, and clamps it between `minReplicas` and `maxReplicas`<sup><a href="https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/">[1]</a></sup>:
 
-The HPA scales replicas, but that's only one of four axes you can autoscale, and confusing them wastes an incident.
+```text
+desiredReplicas = ceil( currentReplicas × currentMetricValue ÷ desiredMetricValue )
+```
+
+Four Pods at 80% CPU against a 50% target give ceil(4 × 80 ÷ 50) = 7. Three damping rules keep the count calm. The HPA skips a change when the ratio sits within a tolerance of 1.0 (0.1 by default), so 52% against 50% does nothing. Scale-down waits out a 5-minute stabilization window, while scale-up has none. On scale-up the HPA counts Pods that are not yet Ready as using 0% of the request, which prevents a runaway when new Pods start slowly.
+
+**Utilization is usage divided by the request.** metrics-server supplies the numerator, and the container's `resources.requests` supplies the denominator. With no CPU request on a container, "CPU utilization for the Pod will not be defined and the autoscaler will not take any action for that metric"<sup><a href="https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/">[1]</a></sup>. The HPA reports `<unknown>`, sets `ScalingActive=False`, and holds the current count. In v1.30 the condition message names the gap: `missing request for cpu in container app of Pod <name>`. The metrics pipeline can be healthy while this happens. The same request is the scheduler's reservation (M06) and the autoscaler's yardstick, so a request set too low makes the workload look busy and over-scales it.
+
+**A desired count is not a running count.** The HPA writes replicas and moves on. Between that number and a serving Pod sit the ReplicaSet, admission, the scheduler, and a node. A ResourceQuota can refuse the Pod at admission, so the ReplicaSet reports `FailedCreate` and the Deployment holds fewer Ready Pods than the HPA wants<sup><a href="https://kubernetes.io/docs/concepts/policy/resource-quotas/">[2]</a></sup>. A full node leaves Pods `Pending` with `FailedScheduling`. The HPA looks healthy in both cases: `describe hpa` shows ScalingActive and a desired count above the current one. When `get deploy` is short of that count, walk down the chain.
+
+Two operational rules close the section. Remove `spec.replicas` from any manifest an HPA manages, or the next `kubectl apply` or GitOps sync resets the count the HPA chose. And `<unknown>` has a second cause: no Running Pod, so no metrics to read.
 
 <details>
-<summary>📖 Going deeper: the four autoscalers and which axis each moves<sup><a href="https://kubernetes.io/docs/concepts/cluster-administration/node-autoscaling/">[7]</a></sup></summary>
+<summary>📖 Going deeper: the four autoscalers and the axis each moves<sup><a href="https://kubernetes.io/docs/concepts/cluster-administration/node-autoscaling/">[3]</a></sup></summary>
 
-Four autoscalers, four different questions — reaching for the wrong one is a common misstep:
+The axes are orthogonal, and reaching for the wrong one wastes an incident.
 
-- **HPA — "more replicas."** Horizontal: keep a per-Pod metric near target by changing the *count*. The default for stateless request-serving workloads. Needs a request for resource metrics.
-- **VPA — "bigger replicas."** Vertical: adjust the *requests and limits* of the Pods from observed usage, right-sizing rather than multiplying<sup><a href="https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler">[8]</a></sup>. Historically it recreated Pods to apply a change; recent versions can update some resources in place (leaning on the in-place resize from M06). **Don't run VPA and HPA on the same resource** (both on CPU) — they fight, one growing Pods while the other multiplies them. VPA suits workloads you can't shard: a single big consumer, a stateful process.
-- **Cluster Autoscaler / Karpenter — "more nodes."** When Pods are `Pending` for lack of room, these add nodes; when nodes sit underused, they drain and remove them (via the eviction API, so PDBs apply)<sup><a href="https://kubernetes.io/docs/concepts/cluster-administration/node-autoscaling/">[7]</a></sup>. They scale the *cluster*, and pair with the HPA: HPA asks for more Pods, CA provides nodes to put them on.
-- **KEDA — "scale on events, including to zero."** HPA's resource metrics can't see a queue backlog or a Kafka lag. KEDA scales on external/event signals and can scale a workload **to zero** when idle, spinning it back up on the first event<sup><a href="https://keda.sh/docs/latest/concepts/">[9]</a></sup>. Under the hood it manages an HPA. The right tool for queue consumers and bursty, event-driven work.
-
-The axes are orthogonal: HPA × count, VPA × size, CA × nodes, KEDA × event-driven count. A real platform often runs HPA + CA together (and KEDA for the event-driven tier); VPA sits alongside for the workloads that can't scale horizontally.
+- **HPA adds replicas.** It suits stateless request-serving workloads and needs a request for resource metrics.
+- **VPA resizes Pods.** It adjusts requests and limits from observed usage<sup><a href="https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler">[4]</a></sup>. Older update modes recreate Pods to apply a change. Current VPA releases can resize in place first and recreate only as a fallback. Do not run VPA and HPA on the same resource: one grows the Pods while the other multiplies them. VPA fits workloads you cannot shard.
+- **Cluster Autoscaler and Karpenter add nodes.** They react to `Pending` Pods that no node can fit, and they remove underused nodes through the eviction API, so PDBs apply. They pair with the HPA: the HPA asks for Pods and the node autoscaler supplies room.
+- **KEDA scales on events, including to zero.** Resource metrics cannot see a queue backlog. KEDA scales on external signals and manages an HPA underneath<sup><a href="https://keda.sh/docs/latest/concepts/">[5]</a></sup>. It suits queue consumers and bursty work.
 
 </details>
 
 ### Rolling updates and rollback: changing versions without downtime
 
-When you change a Deployment's Pod template, the default `RollingUpdate` strategy replaces Pods a few at a time, bounded by two knobs: **`maxSurge`** (how many *extra* Pods may exist during the update) and **`maxUnavailable`** (how many may be *down*), both defaulting to 25%<sup><a href="https://kubernetes.io/docs/concepts/workloads/controllers/deployment/">[2]</a></sup>. Mechanically it's a handoff between two ReplicaSets: the Deployment scales up a new ReplicaSet (the new version) while scaling down the old, respecting those bounds at every step, so most of the fleet is always serving. Each such update is a numbered **revision**, and Kubernetes keeps recent ones (`revisionHistoryLimit`) so you can rewind.
+**Rule.** During a rolling update the Deployment keeps at least `replicas − maxUnavailable` Pods available and creates at most `replicas + maxSurge` Pods.
 
-The load-bearing behavior for an SRE is what happens when the new version is broken. The rolling update is deliberately *careful*: it will not retire an old Pod until a new one is Ready. So a bad release — an image that won't pull, a container that crashes, a readiness probe that never passes — doesn't take the service down; it **stalls**. The old ReplicaSet keeps serving, the new one sits with unready Pods, and the rollout hangs partway. After `progressDeadlineSeconds` of no progress, the Deployment reports `Progressing=False` with reason `ProgressDeadlineExceeded`<sup><a href="https://kubernetes.io/docs/concepts/workloads/controllers/deployment/">[2]</a></sup> — but that is a *report*, not an action. **Kubernetes does not auto-roll-back.** The rollout stays wedged until a human or a pipeline intervenes.
+Both settings default to 25%<sup><a href="https://kubernetes.io/docs/concepts/workloads/controllers/deployment/">[6]</a></sup>. `maxSurge` rounds up and `maxUnavailable` rounds down. With 2 replicas that gives a surge of 1 and an unavailable count of 0. The Deployment scales a new ReplicaSet up and the old one down, within those bounds at every step. A new Pod counts as available once it is Ready. Each template change is a numbered **revision**, and `revisionHistoryLimit` (default 10) bounds how many the Deployment keeps.
 
-Recovery is `kubectl rollout undo`, which re-applies the previous revision's template and rolls forward to it — a rollback is just a rolling update aimed at an older revision. `rollout status` is how you know a release landed (it blocks until Ready, then returns success); `rollout history` shows the revisions; `rollout undo --to-revision=N` targets a specific one. The instinct to build: a stuck rollout is diagnosed on the Deployment's conditions and the *new* ReplicaSet's Pods (why aren't they Ready?), and recovered with a rollback while you fix the release out of the hot path. (`Recreate` is the other strategy — kill all old Pods, then start new ones — which trades a downtime gap for a clean cutover; use it only when two versions can't run at once.)
+**A bad release stalls instead of crashing the service.** An image that will not pull, a crash loop, or a readiness probe that never passes leaves the new Pods unready. The Deployment cannot retire more old Pods than `maxUnavailable` allows, so it stops. With `maxUnavailable` of 0 every old Pod keeps serving. With a larger fleet the controller first retires up to `maxUnavailable` old Pods, so capacity drops by that amount before the stall. Read the stall on the Deployment (`UP-TO-DATE` below `READY`, `rollout status` waiting) and on the new ReplicaSet's Pods.
 
-### Disruption budgets and graceful shutdown: staying up while the platform changes
+After `progressDeadlineSeconds` the Deployment reports `Progressing=False` with reason `ProgressDeadlineExceeded`. That is a report only: "Kubernetes takes no action on a stalled Deployment" beyond the status condition<sup><a href="https://kubernetes.io/docs/concepts/workloads/controllers/deployment/">[6]</a></sup>. A person or a pipeline must act.
 
-Nodes don't stay put. They get drained for kernel patches, removed by the Cluster Autoscaler, or simply die. Kubernetes splits these into **voluntary** disruptions (ones you initiate — a drain, an upgrade, a scale-down) and **involuntary** ones (a node crash, a kernel OOM)<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/disruptions/">[3]</a></sup>. A **PodDisruptionBudget** constrains the *voluntary* kind: it declares how many replicas of a workload must stay available, as `minAvailable` (at least N up) or `maxUnavailable` (at most N down)<sup><a href="https://kubernetes.io/docs/tasks/run-application/configure-pdb/">[4]</a></sup>.
+**Recovery is `kubectl rollout undo`.** It re-applies the previous revision's Pod template and rolls forward to it, so a rollback is a rolling update aimed at an older revision. Only the template is restored. A replica count set by an HPA or by `kubectl scale` stays. `rollout status` blocks until the rollout lands. `rollout history` lists revisions, and `rollout undo --to-revision=N` picks one. `Recreate` is the other strategy: it stops all old Pods before it starts new ones, so use it only when two versions cannot run together.
 
-The number that governs everything is **allowed disruptions**: `currentHealthy − desiredHealthy`, floored at 0. With 2 healthy replicas and `minAvailable: 1`, that's `1` — the budget will let one Pod go at a time. The enforcement point is the **eviction API**: `kubectl drain` doesn't delete Pods, it *evicts* them, and the eviction API checks every relevant PDB and refuses an eviction that would breach the budget<sup><a href="https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/">[5]</a></sup>. That's what makes a rolling node drain safe: evict one replica, wait for the Deployment to bring a fresh one up elsewhere (restoring the budget), then evict the next. The trap is setting `minAvailable` equal to the replica count (or `maxUnavailable: 0`): allowed disruptions is then permanently `0`, no eviction is ever permitted, and a drain blocks *forever* — a budget that protects nothing because it protects everything.
+### Disruption budgets: pacing voluntary disruption
 
-Where the PDB paces *how many* Pods go down, **graceful shutdown** governs *how* each one goes. When a Pod is terminated, four things happen<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/">[6]</a></sup>: it's removed from its Service's Endpoints (new traffic stops arriving); its `preStop` hook runs if it has one; the container gets **`SIGTERM`** (a well-behaved app stops taking new work and drains in-flight requests); and if it's still alive when `terminationGracePeriodSeconds` (default 30) elapses, it gets **`SIGKILL`**<sup><a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">[10]</a></sup>. The grace period is the app's budget to finish cleanly; too short, or an app that ignores `SIGTERM`, and in-flight work is cut off mid-request. (M01's `prestop-truncation` is exactly this failure at the hook level.)
+**Rule.** A PodDisruptionBudget limits how many Pods of a workload voluntary disruption may take down at once. It binds only callers that use the eviction API.
 
-These three compose into lossless change: a rolling update terminates Pods a batch at a time, a PDB caps how many terminate at once during a drain, and graceful shutdown drains each terminating Pod. Get all three right and you patch nodes and ship releases without dropping a call. Get one wrong — a too-tight budget, a too-short grace period — and the same operation drops traffic.
+You set `minAvailable` (a floor) or `maxUnavailable` (a ceiling), as an integer or a percentage<sup><a href="https://kubernetes.io/docs/tasks/run-application/configure-pdb/">[8]</a></sup>. Percentages round up. `maxUnavailable` works only for workloads with a controller that exposes a scale subresource, such as a Deployment or StatefulSet. The disruption controller turns the setting into status:
+
+```text
+allowed disruptions = currentHealthy − desiredHealthy   (floored at 0)
+```
+
+`currentHealthy` counts Ready Pods. `desiredHealthy` is `minAvailable`, or `expectedPods − maxUnavailable`. With 2 healthy replicas and `minAvailable: 1`, the budget allows 1. `kubectl get pdb` shows `ALLOWED DISRUPTIONS`, and `kubectl describe pdb` shows the inputs as `Current`, `Desired`, and `Total` (the status fields `currentHealthy`, `desiredHealthy`, and `expectedPods`).
+
+**The eviction API enforces the budget.** `kubectl drain` evicts Pods, and the API refuses an eviction that would breach a budget<sup><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/api-eviction/">[9]</a></sup>. The refusal is HTTP 429 with the message `Cannot evict pod as it would violate the pod's disruption budget`. The drain retries until the budget opens<sup><a href="https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/">[10]</a></sup>. A safe rolling drain therefore evicts one Pod, waits for its replacement to become Ready elsewhere, and evicts the next. That needs spare capacity. When the drained node is the only schedulable one, the replacement stays `Pending` and the second eviction waits.
+
+**Allowed disruptions is zero for four reasons.** Test them in this order:
+
+1. **The floor equals the replica count.** `minAvailable: 2` on 2 replicas, or `maxUnavailable: 0`. The budget is the bug.
+2. **Fewer Pods are healthy than expected.** A replica that is unready, crash-looping, `Pending`, or blocked by a ResourceQuota lowers `currentHealthy`. The budget is sane and the workload is the bug. Lowering the budget hides the fault.
+3. **The default policy refuses to evict an unready Pod from an unhealthy budget.** Under `unhealthyPodEvictionPolicy: IfHealthyBudget` (the default), an unready Pod is evictable only while `currentHealthy ≥ desiredHealthy`. A fully broken workload therefore blocks the drain of its own broken Pods. `AlwaysAllow` lets the eviction API remove unready Pods regardless. The field is beta and on by default since v1.27, so it exists on a v1.30 cluster. Fix the workload first and treat the policy as a safety net.
+4. **Two PDBs select one Pod.** The eviction API returns HTTP 500 and refuses, because it does not support overlap.
 
 <details>
-<summary>📖 Going deeper: what a PodDisruptionBudget does and does not protect<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/disruptions/">[3]</a></sup></summary>
+<summary>📖 Going deeper: what a PodDisruptionBudget does not protect<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/disruptions/">[7]</a></sup></summary>
 
-A PDB is narrower than most people assume, and the gaps are where it bites:
+A PDB is narrower than most teams assume.
 
-- **It guards the eviction API only.** `kubectl drain` and the Cluster Autoscaler's scale-down evict, so they respect it. A plain `kubectl delete pod` does **not** go through eviction — it deletes regardless of budget. So a PDB will not stop a careless `delete`, only a well-behaved drain.
-- **It does not touch rolling updates.** A Deployment rollout is bounded by `maxUnavailable`, *not* by the PDB — the two are separate systems. A PDB set for drains won't slow or block a rollout, and a rollout can briefly take more replicas down than the PDB would allow an eviction to. Conflating "PDB" with "how many Pods my rollout takes down" is a classic mistake.
-- **It cannot help against involuntary disruption.** A node that crashes takes its Pods with it; there's no eviction to check the budget against. PDBs bound the disruptions you *cause*, not the ones that happen to you — for those you need enough replicas (and spread, M06) to survive the loss.
-- **It can starve maintenance.** Because the eviction API strictly honors it, an over-tight PDB (allowed disruptions `0`) turns a routine drain into an indefinite hang. A blocked drain is more often a bad PDB than a bad node.
+- **It guards the eviction API only.** The docs state that "deleting deployments or pods bypasses Pod Disruption Budgets." A `kubectl delete pod` removes the Pod at once, whatever the budget says.
+- **It does not slow rolling updates.** "workload resources (such as Deployment and StatefulSet) are not limited by PDBs when doing rolling upgrades." `maxUnavailable` on the Deployment bounds a rollout. Unavailable Pods from a rollout still count against the budget afterward.
+- **It cannot prevent involuntary loss.** A crashed node takes its Pods with no eviction to check. Survive that with enough replicas and spread (M06).
+- **It can starve maintenance.** A budget with zero allowed disruptions turns a routine drain into an indefinite hang. A blocked drain is more often a bad budget or an unhealthy workload than a bad node.
 
-Rule of thumb: express the budget as `maxUnavailable` when an HPA moves the replica count (a fixed `minAvailable` silently drifts between "block everything" and "protect nothing" as replicas scale), and always leave room for at least one Pod to go.
+Express the budget as `maxUnavailable` when an HPA moves the replica count. A fixed `minAvailable` drifts between "block everything" and "protect nothing" as replicas scale.
 
 </details>
 
+### Graceful shutdown: each termination without dropped calls
+
+**Rule.** When a Pod is deleted, the kubelet starts shutdown, and the control plane concurrently starts removing the Pod from its EndpointSlices<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/">[11]</a></sup>. These two paths race. Traffic can still arrive for a moment after shutdown begins.
+
+The kubelet then runs the `preStop` hook, sends `SIGTERM` to each container's main process, and waits. If any process is alive when `terminationGracePeriodSeconds` (default 30) expires, the runtime sends `SIGKILL`<sup><a href="https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/">[12]</a></sup>. The grace period is a single budget that starts at deletion. It covers the `preStop` hook and the `SIGTERM` drain together. A hook that outlasts the budget gets a one-time 2-second extension, then the kill arrives.
+
+A well-behaved app catches `SIGTERM`, stops taking new work, finishes in-flight requests, and exits. A short `preStop` sleep covers the endpoint-removal race, so late requests still find a live process.
+
+**An app with no `SIGTERM` handler never exits early.** PID 1 in a container receives `SIGTERM` only if it installed a handler, and a shell wrapper that does not forward the signal has the same effect. The Pod then sits in `Terminating` for the full grace period and dies on `SIGKILL` (exit code 137). The symptom is slow change, not an error. Each drain and each `kubectl delete pod` waits out the whole grace period, and every Pod a rollout replaces lingers in `Terminating` for that long. In-flight work is still cut off at the end. Read it as a duration: time a delete, and compare it with the grace period.
+
+Rolling updates, budgets, and shutdown compose. A rollout terminates Pods in batches, a PDB caps how many go during a drain, and graceful shutdown makes each exit clean. Get one wrong and the same operation drops traffic.
+
 ## Hands-on
 
-Four steps in the baseline, three break/fix scenarios — all on the full Polyphone fleet on a 2-node cluster (one tainted control-plane, one worker). The baseline tours the healthy machinery; each break/fix breaks exactly one piece of it.
+The baseline has five steps and the module has six break/fix scenarios, all on the full Polyphone fleet on a 2-node cluster (one tainted control-plane node, one worker).
 
-- **`baseline/`** — the healthy controls end to end: a Deployment's rolling-update strategy, revision history, and `rollout undo`; a working HPA reading CPU utilization off metrics-server; a PDB with one disruption's worth of headroom; and the graceful-termination lifecycle. What "resilient" looks like before it breaks.
-- **`breakfix-01-pdb-blocks-drain`** — a node drain that hangs: a PDB with `minAvailable` equal to the replica count, so `ALLOWED DISRUPTIONS` is `0` and the eviction API refuses every eviction. Tests reading a PDB's status and the allowed-disruptions math, and demonstrates the refusal against the real eviction API.
-- **`breakfix-02-hpa-no-requests`** — an HPA stuck at `<unknown>/50%` that never scales: the target has no CPU request, so there's no denominator for utilization. Tests reading an HPA's `ScalingActive`/`FailedGetResourceMetric` condition and connecting it to the missing request.
-- **`breakfix-03-rollout-stuck`** — a rolling update wedged half-done on a bad image: the new ReplicaSet's Pods `ImagePullBackOff`, the old version still serving, `ProgressDeadlineExceeded`. Tests diagnosing a stuck rollout on the Deployment's conditions and the new ReplicaSet, and recovering with `rollout undo`.
+- **`baseline/`**: the healthy controls end to end. A rolling update and `rollout undo`, an HPA read and then pushed past its target by load, a PDB with one disruption of headroom and the eviction API enforcing it, and graceful termination with a delete that bypasses the budget.
+- **`breakfix-01-pdb-blocks-drain`**: a drain that hangs because `minAvailable` equals the replica count. Drills reading allowed disruptions and the eviction refusal, and what the fix does and does not unblock.
+- **`breakfix-02-hpa-no-requests`**: an HPA stuck at `<unknown>/50%` because the target has no CPU request. Drills the HPA condition and the request-as-denominator rule.
+- **`breakfix-03-rollout-stuck`**: a rollout wedged on a bad image, old version serving, `ProgressDeadlineExceeded`. Drills the stall signature and `rollout undo`.
+- **`breakfix-04-pdb-unready-pods`**: a drain that hangs on a sane budget because no replica is Ready. Drills allowed disruptions as a function of workload health, and the unhealthy-Pod eviction policy.
+- **`breakfix-05-sigterm-ignored`**: a Pod that stays `Terminating` for the full grace period. Drills shutdown as a duration, and a `SIGTERM` handler as the fix.
+- **`breakfix-06-hpa-quota-capped`**: an HPA that asks for 4 replicas while 2 exist. Drills the chain from desired count to running Pod, and ResourceQuota as a link in it.
 
-Each break/fix breaks one control from the baseline; check yourself against `ANSWER-KEY.md` after each.
+Check each result against `ANSWER-KEY.md`.
 
 ## Common failure modes
 
 | Symptom | Likely cause | Where to look |
 |---------|--------------|---------------|
-| HPA `TARGETS <unknown>/…`, never scales | Target container has no request for the metric's resource (usually CPU) | `kubectl describe hpa` Conditions (`ScalingActive False`, `FailedGetResourceMetric`); the target's `resources.requests` |
-| HPA `<unknown>` but requests are set | metrics-server missing/unhealthy, or `kubectl top` also fails | `kubectl top pods`; metrics-server Deployment in `kube-system` |
-| HPA scales but wildly over/under | Request far from real usage (wrong denominator), or a too-tight target | compare `requests.cpu` to `kubectl top pod`; the HPA's `averageUtilization` |
-| `kubectl drain` hangs; eviction refused | PDB with allowed disruptions `0` (`minAvailable` == replicas, or `maxUnavailable: 0`) | `kubectl get pdb` ALLOWED DISRUPTIONS; the PDB's `minAvailable`/`maxUnavailable` vs. replica count |
-| Rollout never finishes; `rollout status` hangs | New ReplicaSet's Pods not Ready (bad image, crash, failing readiness) | `kubectl get rs`; `kubectl describe pod` on the new Pods; Deployment `Progressing`/`ProgressDeadlineExceeded` |
-| New version shows partial (`UP-TO-DATE` < replicas) | Stalled rolling update holding the old ReplicaSet up until the new is Ready | `kubectl rollout status`; `kubectl get rs` (old still at count, new not Ready) |
-| Dropped connections on every deploy/drain | Grace period too short, or app ignores `SIGTERM` (no clean drain) | Pod `terminationGracePeriodSeconds`; whether the app handles `SIGTERM`/has a `preStop` (M01) |
+| HPA `TARGETS <unknown>/…`, never scales | Target container has no CPU request | `describe hpa` Conditions (`ScalingActive False`, `FailedGetResourceMetric`); the target's `resources.requests` |
+| HPA `<unknown>`, requests set | metrics-server unhealthy, or no Pod is Running | `kubectl top pods`; `get pods` on the target |
+| HPA healthy, Deployment short of the desired count | ResourceQuota refusal, or Pods `Pending` | `describe hpa` (`Deployment pods: N current / M desired`); `get events` (`FailedCreate`); `describe resourcequota`; `FailedScheduling` on a Pending Pod |
+| HPA scales far over or under | Request far from real usage, or a tight target | `requests.cpu` against `kubectl top pod`; `averageUtilization` |
+| HPA overrides itself after each deploy | `spec.replicas` still in the applied manifest | The manifest in Git; the Deployment's replica history |
+| `kubectl drain` hangs, eviction refused | PDB with allowed disruptions 0 | `get pdb`; `describe pdb` (`Current`, `Desired`, `Total`) |
+| Drain hangs and the PDB floor is below replicas | Replicas not Ready, so `currentHealthy` is low | `get pods` READY column; `describe pod` readiness events |
+| Eviction returns 500 | Two PDBs select the same Pod | `get pdb -A` selectors |
+| Rollout never finishes | New ReplicaSet's Pods are not Ready | `get rs`; `describe pod` on a new Pod; Deployment `Progressing` |
+| Every delete or rollout step is slow | App ignores `SIGTERM`, so the grace period runs out | Time `delete pod`; Pod `terminationGracePeriodSeconds`; the app's signal handling |
+| Dropped connections on deploy | Endpoint-removal race, or grace period too short | `preStop` sleep; `terminationGracePeriodSeconds` against drain time |
 
 ## Recap
 
-- **Resilience is the response to three kinds of change — demand, version, disruption — each with one control (HPA / rolling update + rollback / PDB + graceful shutdown), and each with a signature failure that is silent until that change arrives.** Read the control's own state, don't wait for the downstream page.
-- **An HPA scales on utilization = usage ÷ request.** No request on the target, no denominator, no percentage — it reads `<unknown>` and freezes. The autoscaler family splits by axis: HPA (count), VPA (size), CA/Karpenter (nodes), KEDA (events).
-- **A rolling update fails safe: a bad release stalls, it doesn't crash the service.** The old ReplicaSet serves until the new is Ready; `ProgressDeadlineExceeded` flags the stall but Kubernetes never auto-rolls-back. `rollout undo` is the recovery.
-- **A PDB paces voluntary disruption via the eviction API; allowed disruptions = currentHealthy − desiredHealthy.** Set `minAvailable` at the replica count and it's `0` — the budget blocks maintenance instead of protecting the service. It does nothing for rollouts or involuntary loss.
-- **Graceful shutdown makes each termination lossless — endpoints out, `preStop`, `SIGTERM`, grace, `SIGKILL`.** Rolling updates, PDBs, and graceful shutdown compose; one misconfigured piece turns routine change into dropped traffic.
+- **Resilience answers three kinds of change with three controls, and each fails silently until its change arrives.** Read the control's own status: HPA, rollout, or PDB.
+- **An HPA scales on usage ÷ request, and a desired count is not a running count.** No request means `<unknown>` and a frozen count. A short quota, an unschedulable Pod, or a missing node leaves the Deployment below the desired count.
+- **A rolling update keeps `replicas − maxUnavailable` Pods available, so a bad release stalls instead of crashing.** `ProgressDeadlineExceeded` reports the stall and never rolls back. `rollout undo` recovers.
+- **A PDB paces eviction, and allowed disruptions is `currentHealthy − desiredHealthy`.** Zero means a high floor, unhealthy replicas, the unhealthy-Pod policy, or overlapping budgets. Delete, rolling updates, and node crashes ignore it.
+- **Graceful shutdown is one grace-period budget, and an app that ignores `SIGTERM` spends all of it every time.** Endpoint removal races the shutdown, and `preStop` plus a handler cover the race.
 
 ## Production thinking
 
-- A team fronts a bursty queue-consumer with a CPU-based HPA "to be safe," and it never scales during backlogs because CPU stays flat while the queue grows. What signal should actually drive that autoscaler, which tool provides it, and what does scaling that workload *to zero* between bursts buy you — and cost you?
-- You set `minAvailable: 3` on a 3-replica service so it "never loses capacity." Months later a node needs an urgent security patch and the drain won't budge. Explain exactly why, what you'd change the budget to, and how expressing it as `maxUnavailable` would have behaved differently once an HPA started moving the replica count.
-- A release goes out, the rollout wedges on a failing readiness probe, and the service stays perfectly healthy on the old version — but no alert fires and the bad deploy sits half-rolled for hours. What should have alerted (and on what signal), and what belongs in the pipeline so a rollout that exceeds its progress deadline rolls back on its own instead of waiting for a human?
+- A team puts a CPU-based HPA on a bursty queue consumer, and it never scales during backlogs because CPU stays flat. Which signal should drive it, which tool supplies that signal, and what does scaling to zero between bursts buy and cost?
+- You set `minAvailable: 3` on a 3-replica service so it never loses capacity. Months later an urgent patch needs a drain, and a later outage leaves one replica unready. Explain what each situation does to allowed disruptions, and what you would change.
+- A release wedges on a failing readiness probe, the old version serves fine, and no alert fires for hours. Which signal should have alerted, and what in the pipeline should roll back on a missed progress deadline?
 
 ## References
 
 1. Kubernetes — Horizontal Pod Autoscaling: https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/
-2. Kubernetes — Deployments (rolling update, rollback, progress deadline): https://kubernetes.io/docs/concepts/workloads/controllers/deployment/
-3. Kubernetes — Disruptions (voluntary/involuntary, PDB concepts): https://kubernetes.io/docs/concepts/workloads/pods/disruptions/
-4. Kubernetes — Specifying a Disruption Budget for your Application: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
-5. Kubernetes — Safely Drain a Node: https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/
-6. Kubernetes — Pod Lifecycle (Pod termination): https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/
-7. Kubernetes — Node Autoscaling (Cluster Autoscaler / Karpenter): https://kubernetes.io/docs/concepts/cluster-administration/node-autoscaling/
-8. Kubernetes Autoscaler — Vertical Pod Autoscaler: https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler
-9. KEDA — Concepts: https://keda.sh/docs/latest/concepts/
-10. Kubernetes — Container Lifecycle Hooks (preStop): https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/
+2. Kubernetes — Resource Quotas: https://kubernetes.io/docs/concepts/policy/resource-quotas/
+3. Kubernetes — Node Autoscaling (Cluster Autoscaler, Karpenter): https://kubernetes.io/docs/concepts/cluster-administration/node-autoscaling/
+4. Kubernetes Autoscaler — Vertical Pod Autoscaler: https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler
+5. KEDA — Concepts: https://keda.sh/docs/latest/concepts/
+6. Kubernetes — Deployments (rolling update, rollback, progress deadline): https://kubernetes.io/docs/concepts/workloads/controllers/deployment/
+7. Kubernetes — Disruptions (voluntary, involuntary, PDB scope): https://kubernetes.io/docs/concepts/workloads/pods/disruptions/
+8. Kubernetes — Specifying a Disruption Budget for your Application: https://kubernetes.io/docs/tasks/run-application/configure-pdb/
+9. Kubernetes — API-initiated Eviction: https://kubernetes.io/docs/concepts/scheduling-eviction/api-eviction/
+10. Kubernetes — Safely Drain a Node: https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/
+11. Kubernetes — Pod Lifecycle (Termination of Pods): https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/
+12. Kubernetes — Container Lifecycle Hooks (preStop): https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/

@@ -1,36 +1,29 @@
 # Step 2 — Fix it and verify
 
-The HPA needs a CPU request on the target to compute utilization against. Add one — that's the entire fix.
-
 ## Add a CPU request
 
 ```bash
 kubectl set resources deployment/transcode-scaler -n media --requests=cpu=100m
 ```{{exec}}
 
-This edits the Pod template and triggers a quick rolling update to a Pod that now declares `requests.cpu: 100m`. (`kubectl edit deployment transcode-scaler -n media` and adding the request by hand does the same thing.)
+This edits the Pod template and starts a rolling update to a Pod that declares the request. `kubectl edit deployment transcode-scaler -n media` does the same by hand.
 
 ## Verify the autoscaler recovers
 
-The HPA re-reads on its next loop, and metrics-server needs a sample of the new Pod — give it 15–30 seconds, then look:
+The HPA reads again on its next loop, and metrics-server needs a sample from the new Pod. Wait 30 seconds, then read:
 
 ```bash
 kubectl get hpa transcode-scaler -n media
+kubectl describe hpa transcode-scaler -n media
 ```{{exec}}
 
-`TARGETS` now shows a real number — something like `1%/50%` — instead of `<unknown>`. The autoscaler is computing utilization again. Confirm its condition flipped:
-
-```bash
-kubectl describe hpa transcode-scaler -n media | grep -A5 Conditions
-```{{exec}}
-
-`ScalingActive True` — the HPA is live. With idle load it holds at `minReplicas` (1); drive CPU past 50% of the request and it would scale toward `maxReplicas` (5).
+TARGETS now shows a real percentage, for example 1%/50%. In `Conditions:`, `ScalingActive` is `True`. At idle load the HPA holds the minimum of 1 replica. Above 50% of the request it would scale toward 5.
 
 ## Why a request, not a limit
 
-The percentage is measured against the **request**, not the limit — the request is the "expected" size the autoscaler treats as 100%. That's why the memory *limit* the container already had didn't help: it's the wrong resource and the wrong field. Two things to carry forward:
+The percentage is measured against the request. The memory limit the container already had was the wrong resource and the wrong field. Two rules to keep:
 
-- **CPU-utilization HPAs require a CPU request on every container in the Pod.** No request is the single most common reason an HPA reads `<unknown>`. Enforce requests with a `LimitRange` or admission policy (M20) so an autoscaled workload can't ship without one.
-- **Size the request honestly.** The target percentage is relative to the request, so a too-small request makes the workload look busier than it is (HPA over-scales); a too-large one hides real load (HPA under-scales). The request is both the scheduler's reservation (M06) *and* the autoscaler's yardstick.
+- **Every container in the Pod needs the request** for a CPU-utilization HPA. A missing request is the most common cause of `<unknown>`. Enforce requests with a `LimitRange` or an admission policy (M20).
+- **Size the request honestly.** A request that is too small makes the workload look busy, and the HPA over-scales. One that is too large hides load, and the HPA under-scales.
 
-For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m09-resilience-autoscaling/ANSWER-KEY.md). You're done — see `finish.md`.
+See [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m09-resilience-autoscaling/ANSWER-KEY.md) for self-grading, then `finish.md`.

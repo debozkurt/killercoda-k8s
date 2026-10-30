@@ -1,11 +1,11 @@
 # M09 — Break/fix 03: Stuck Rollout
 
-> Pre-req: the baseline tour. You saw a rolling update complete cleanly and `rollout undo` rewind one. This is a rollout that won't complete.
+> Pre-req: the baseline tour. You saw a rolling update finish and `rollout undo` rewind one. This rollout does not finish.
 
-Someone shipped a new `portal-web` release to `admin-portal` a while ago, and the deploy pipeline is still waiting on it — `kubectl rollout status` never returns. The odd part: users aren't complaining. The admin UI is up and serving. But the new version isn't taking, and the rollout is stuck in limbo.
+A new `portal-web` release shipped to `admin-portal` a while ago, and the deploy pipeline still waits on it. `kubectl rollout status` never returns. Users do not complain, because the admin UI is up and serving. The new version has not landed.
 
-This is the good news and the bad news of a rolling update. The Deployment is *careful* — it won't tear down the old version until the new one is healthy, so a broken release doesn't take the service down. But it also won't give up on its own timeline, so the rollout just sits there, half-done, until someone intervenes.
+A rolling update is careful. It keeps the old version serving until the new one is Ready, so a broken release does not take the service down. It also does not give up, so the rollout sits half-done until someone acts.
 
-Your job: read what state the rollout is wedged in, find why the new Pods won't come up, and get the Deployment back to a fully rolled-out, healthy state.
+Your job: read the state the rollout is stuck in, find why the new Pods will not start, and return the Deployment to a healthy, fully rolled-out state.
 
 The cluster takes 60–120 seconds to come up. Click **Start** when ready.

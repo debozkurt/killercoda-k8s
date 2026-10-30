@@ -1,0 +1,28 @@
+{
+  "title": "M09 — Break/fix 04: PDB With No Ready Pods",
+  "description": "A drain of the worker hangs on trunk-monitor. Its PodDisruptionBudget looks sane (minAvailable 1 of 2), yet allowed disruptions is 0. Find out which input is wrong.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      {
+        "title": "Diagnose the refused eviction",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
+    ],
+    "finish": {
+      "text": "finish.md"
+    }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

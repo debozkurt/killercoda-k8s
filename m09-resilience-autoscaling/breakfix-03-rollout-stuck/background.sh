@@ -707,8 +707,8 @@ done
 #     rounds down to 0 for 2 replicas) the two old Pods keep serving, so the app stays
 #     Available while the rollout hangs and, after progressDeadlineSeconds (60), reports
 #     Progressing=False / ProgressDeadlineExceeded. Kubernetes does NOT auto-roll-back.
-#     Hardened: apply, wait for rev 1, set the bad image, read back, fail loudly if the
-#     update didn't register.
+#     Hardened: apply, wait for rev 1, apply rev 2 with the bad image, read back, fail loudly
+#     if the update didn't register.
 #     Fix = kubectl rollout undo (return to the last good revision).
 cat <<'EOF' | kubectl apply -f -
 apiVersion: apps/v1
@@ -739,10 +739,32 @@ EOF
 # "last good revision" exists for rollout undo to land on.
 kubectl rollout status deployment/portal-web -n admin-portal --timeout=90s >/dev/null 2>&1
 
-# MUTATED (baseline: image stays nginx:1.25) — push revision 2 to a non-existent tag.
-kubectl set image deployment/portal-web app=nginx:1.25-doesnotexist -n admin-portal >/dev/null 2>&1
-kubectl annotate deployment/portal-web -n admin-portal \
-  kubernetes.io/change-cause="rev2: nginx:1.25-doesnotexist (bad tag - stuck rollout)" --overwrite >/dev/null 2>&1
+# MUTATED (baseline: image stays nginx:1.25) - apply revision 2 with a non-existent tag.
+cat <<'EOF' | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal-web
+  namespace: admin-portal
+  labels: { app: portal-web, plane: admin, tier: lab }
+  annotations:
+    kubernetes.io/change-cause: "rev2: nginx:1.25-doesnotexist (bad tag - stuck rollout)"
+spec:
+  replicas: 2
+  progressDeadlineSeconds: 60
+  selector: { matchLabels: { app: portal-web } }
+  template:
+    metadata:
+      labels: { app: portal-web, plane: admin, tier: lab }
+    spec:
+      containers:
+        - name: app
+          image: nginx:1.25-doesnotexist
+          ports: [{ containerPort: 80 }]
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits:   { cpu: 100m, memory: 64Mi }
+EOF
 IMG=$(kubectl get deployment portal-web -n admin-portal -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)
 if [ "$IMG" != "nginx:1.25-doesnotexist" ]; then
   echo "FATAL: portal-web bad rollout did not register (image is '$IMG')." >&2

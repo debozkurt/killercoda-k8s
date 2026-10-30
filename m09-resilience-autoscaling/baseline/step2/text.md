@@ -1,6 +1,6 @@
 # Step 2 — The Horizontal Pod Autoscaler
 
-Rolling updates change *which version* runs. The **Horizontal Pod Autoscaler (HPA)** changes *how many* run — it watches a metric and adjusts the Deployment's replica count to keep that metric near a target. The baseline ships one on `sip-router`.
+A **HorizontalPodAutoscaler** (HPA) watches a metric and changes a Deployment's replica count to hold the metric near a target. The baseline ships one on `sip-router`.
 
 ## Read the autoscaler
 
@@ -8,20 +8,24 @@ Rolling updates change *which version* runs. The **Horizontal Pod Autoscaler (HP
 kubectl get hpa -n signaling
 ```{{exec}}
 
-The `TARGETS` column reads something like `3%/50%` — current CPU utilization over the target. `MINPODS`/`MAXPODS` are `2`/`6`, and `REPLICAS` is the count the HPA currently wants. If `TARGETS` shows `<unknown>` right after boot, metrics-server hasn't reported its first sample yet — wait 15–30s and re-run. (An autoscaler stuck at `<unknown>` for a *different* reason is breakfix-02.)
+`TARGETS` reads current CPU utilization over the target, for example 3%/50%. `MINPODS` and `MAXPODS` are 2 and 6. If `TARGETS` reads `<unknown>` right after boot, metrics-server has not reported its first sample. Wait 30 seconds and run the command again.
 
-## How it computes that percentage
-
-CPU utilization isn't raw CPU — it's usage as a fraction of the **request**. The pipeline: metrics-server scrapes each Pod's live usage, the HPA reads it from the metrics API, and divides by the container's CPU *request* to get a percentage. `sip-router` requests `25m`; at a few milli-cores of idle load, that's a few percent. `describe` shows the whole calculation and the decisions:
+## Read the calculation
 
 ```bash
 kubectl describe hpa sip-router -n signaling
 ```{{exec}}
 
-Read the `Conditions` block: `AbleToScale True`, `ScalingActive True`, `ScalingLimited`. `ScalingActive True` means the HPA is successfully reading the metric and computing a desired replica count. The `Metrics` line shows `resource cpu on pods (as a percentage of request)` — note *as a percentage of request*. That denominator is the whole game: no CPU request, no percentage, no scaling.
+Read two blocks. The `Metrics:` line says resource cpu on pods (as a percentage of request). Utilization is usage divided by the container's CPU **request**, the amount it reserves. `sip-router` requests 25m, so a few milli-cores of idle load is a few percent.
 
-## The control loop
+The `Conditions:` block shows `ScalingActive True`. The HPA can read the metric and compute a replica count. With no CPU request, there is no percentage to compute, and this condition turns `False`.
 
-The HPA runs a loop (about every 15 seconds): read the metric, compute `desiredReplicas = ceil(currentReplicas × currentMetric ÷ targetMetric)`, and clamp it between `minReplicas` and `maxReplicas`. Push real load through `sip-router` and this number climbs; remove it and the HPA scales back down (after a stabilization window, so it doesn't flap).
+## The loop
 
-The HPA sets the Deployment's replica count — which then rolls out through the same ReplicaSet mechanics from step 1. Autoscaling and rolling updates aren't separate systems; the autoscaler just drives the same replica field you'd set by hand. Next: protecting those replicas during a disruption.
+About every 15 seconds the HPA reads the metric and computes:
+
+```text
+desiredReplicas = ceil( currentReplicas × currentMetric ÷ target )
+```
+
+It clamps the result between the minimum and the maximum, then writes the Deployment's replica field. The ReplicaSet does the rest. Next: push the HPA past its target.

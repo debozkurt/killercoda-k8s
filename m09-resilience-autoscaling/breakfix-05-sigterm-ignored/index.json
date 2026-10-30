@@ -1,0 +1,28 @@
+{
+  "title": "M09 — Break/fix 05: SIGTERM Ignored",
+  "description": "Every rollout and drain of announce-player takes 45 seconds per Pod. Nothing errors. Find why the Pods linger in Terminating and make them exit cleanly.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      {
+        "title": "Time a Pod termination",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
+    ],
+    "finish": {
+      "text": "finish.md"
+    }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

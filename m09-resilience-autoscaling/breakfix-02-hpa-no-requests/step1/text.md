@@ -1,14 +1,15 @@
 # Step 1 — Diagnose the dead autoscaler
 
-An HPA that won't scale tells you why in its own status. Read it before touching anything else.
+An HPA that does not scale states why in its own status. Read it before you touch anything.
 
 ## See the unknown target
 
 ```bash
 kubectl get hpa -n media
+kubectl top pods -n media
 ```{{exec}}
 
-`transcode-scaler` shows `TARGETS <unknown>/50%` and `REPLICAS 1`. `<unknown>` means the HPA could not get the metric it needs — it isn't "0% load," it's "I have no number at all." An HPA that can't read its metric doesn't scale; it freezes at the current replica count.
+`transcode-scaler` shows TARGETS `<unknown>` over 50% and REPLICAS 1. Unknown means the HPA has no number at all. It does not mean 0% load. `kubectl top` returns CPU for the Pod, so metrics-server works.
 
 ## Read the autoscaler's status
 
@@ -16,26 +17,24 @@ kubectl get hpa -n media
 kubectl describe hpa transcode-scaler -n media
 ```{{exec}}
 
-Read the `Conditions`. `AbleToScale True` (the HPA can act), but **`ScalingActive False`** with reason **`FailedGetResourceMetric`**, and a message like:
+Read `Conditions:`. `AbleToScale` is `True`. `ScalingActive` is `False` with reason `FailedGetResourceMetric`. The message ends:
 
 ```text
-failed to get cpu utilization: missing request for cpu in container app
+failed to get cpu utilization: missing request for cpu in container app of Pod transcode-scaler-...
 ```
 
-That's the diagnosis in one line. The HPA targets CPU *utilization*, which it computes as `usage ÷ request`. There's no request, so there's no denominator — the calculation is undefined and the HPA reports `<unknown>`. (You may also see `FailedComputeMetricsReplicas` events, which is the same cause one step downstream.)
+The HPA computes utilization as usage divided by the request. This container has no CPU request, so the division has no denominator.
 
-## Confirm the target has no CPU request
-
-```bash
-kubectl get deployment transcode-scaler -n media \
-  -o jsonpath='{.spec.template.spec.containers[0].resources}'; echo
-```{{exec}}
-
-`{"limits":{"memory":"128Mi"}}` — a memory limit, and nothing else. No `requests.cpu`. Contrast with the workload behind the baseline's *working* HPA, which requests CPU:
+## Confirm on the target
 
 ```bash
-kubectl get deployment sip-router -n signaling \
-  -o jsonpath='{.spec.template.spec.containers[0].resources.requests}'; echo
+kubectl describe deployment transcode-scaler -n media
 ```{{exec}}
 
-`sip-router` requests `cpu: 25m` — a denominator — which is exactly why the baseline's HPA on it reads a real percentage; `transcode-scaler` has none, so its HPA here can't. metrics-server is scraping the Pod fine; the missing piece is the request the percentage is measured against. Add it next.
+In the Pod template, find `Limits:`. It lists memory 128Mi and no CPU. There is no `Requests:` block. Compare the workload behind the baseline's working HPA:
+
+```bash
+kubectl describe deployment sip-router -n signaling
+```{{exec}}
+
+`sip-router` has a `Requests:` block with cpu 25m. That is the denominator. Add one to `transcode-scaler` next.

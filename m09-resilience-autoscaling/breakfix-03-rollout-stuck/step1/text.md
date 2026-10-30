@@ -1,46 +1,41 @@
 # Step 1 — Diagnose the stuck rollout
 
-The service is up but the rollout is wedged. Read the Deployment's own view of the rollout before looking at Pods.
+The service is up and the rollout is wedged. Read the Deployment's view of the rollout before you read any Pod.
 
-## The rollout hasn't finished
+## The rollout has not finished
 
 ```bash
 kubectl get deployment portal-web -n admin-portal
-```{{exec}}
-
-`READY 2/2`, `AVAILABLE 2` — but `UP-TO-DATE 1`. Two Pods are ready, yet only one is the *new* version. The old version is still carrying the service; the new one hasn't landed. Ask `rollout status` (with a short timeout so it returns instead of hanging):
-
-```bash
 kubectl rollout status deployment/portal-web -n admin-portal --timeout=10s
 ```{{exec}}
+
+READY reads 2/2 and AVAILABLE reads 2, but UP-TO-DATE reads 1. Only one Pod runs the new version. The status command waits and then times out with:
 
 ```text
 Waiting for deployment "portal-web" rollout to finish: 1 out of 2 new replicas have been updated...
 ```
 
-It's stuck partway — the new ReplicaSet came up but never became fully ready.
+The timeout is the expected result.
 
-## Two ReplicaSets, one of them broken
+## Two ReplicaSets, one broken
 
 ```bash
 kubectl get rs -n admin-portal -l app=portal-web
 kubectl get pods -n admin-portal -l app=portal-web
 ```{{exec}}
 
-The old ReplicaSet still has its Pods `Running` (that's why users are fine). The new ReplicaSet has a Pod stuck in **`ImagePullBackOff`**. The rolling update surged up one new Pod, it failed to start, and — because the default `maxUnavailable` rounds down to `0` for 2 replicas — the Deployment refuses to retire an old Pod until the new one is Ready. So it waits.
+The old ReplicaSet keeps 2 Pods Running, which is why users are fine. The new ReplicaSet has a Pod in `ImagePullBackOff`. With 2 replicas, `maxUnavailable` rounds down to 0. The Deployment cannot retire an old Pod until the new one is Ready, so it waits.
 
-## Why it's stuck, in the Deployment's conditions
+## Read the Deployment
 
 ```bash
-kubectl describe deployment portal-web -n admin-portal | grep -A8 Conditions
+kubectl describe deployment portal-web -n admin-portal
 ```{{exec}}
 
-`Available True` (old version serving) but `Progressing False` with reason **`ProgressDeadlineExceeded`** — the rollout blew past its deadline without becoming healthy. That's Kubernetes flagging "this release is not going to make it," but note it does **not** automatically roll back. Now the root cause — the image:
+Read three places. In the Pod template, `Image:` reads nginx:1.25-doesnotexist. In `Conditions:`, `Available` is `True` and `Progressing` is `False` with reason `ProgressDeadlineExceeded`. The `NewReplicaSet:` line names the broken set. Kubernetes reports the stall and takes no action.
 
 ```bash
-kubectl get deployment portal-web -n admin-portal \
-  -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
 kubectl rollout history deployment/portal-web -n admin-portal
 ```{{exec}}
 
-The current image is `nginx:1.25-doesnotexist` — a tag that isn't in the registry, so every pull fails. The history shows two revisions: a good `nginx:1.25` (revision 1) and this bad one (revision 2). A good revision to return to exists. On to the fix.
+Two revisions: a good one and this one. A known-good revision exists to return to. Next: roll back.

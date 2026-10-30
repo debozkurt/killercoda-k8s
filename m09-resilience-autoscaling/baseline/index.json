@@ -1,6 +1,6 @@
 {
   "title": "M09 — Resilience & Autoscaling — Baseline",
-  "description": "Tour how Polyphone stays available across change: the Deployment rolling-update strategy and rollout history, a working HorizontalPodAutoscaler, a PodDisruptionBudget's allowed disruptions, and the graceful-shutdown lifecycle.",
+  "description": "Tour how Polyphone stays available across change: a rolling update and rollback, an HPA that scales out under load, a PodDisruptionBudget enforced by the eviction API, and graceful shutdown.",
   "details": {
     "intro": {
       "text": "intro.md",
@@ -8,12 +8,35 @@
       "foreground": "foreground.sh"
     },
     "steps": [
-      { "title": "Rolling updates and rollback", "text": "step1/text.md", "verify": "step1/verify.sh" },
-      { "title": "The Horizontal Pod Autoscaler", "text": "step2/text.md", "verify": "step2/verify.sh" },
-      { "title": "PodDisruptionBudgets", "text": "step3/text.md", "verify": "step3/verify.sh" },
-      { "title": "Graceful shutdown", "text": "step4/text.md", "verify": "step4/verify.sh" }
+      {
+        "title": "Rolling updates and rollback",
+        "text": "step1/text.md",
+        "verify": "step1/verify.sh"
+      },
+      {
+        "title": "The Horizontal Pod Autoscaler",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      },
+      {
+        "title": "Push the HPA past its target",
+        "text": "step3/text.md",
+        "verify": "step3/verify.sh"
+      },
+      {
+        "title": "PodDisruptionBudgets",
+        "text": "step4/text.md",
+        "verify": "step4/verify.sh"
+      },
+      {
+        "title": "Graceful shutdown",
+        "text": "step5/text.md",
+        "verify": "step5/verify.sh"
+      }
     ],
-    "finish": { "text": "finish.md" }
+    "finish": {
+      "text": "finish.md"
+    }
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"
