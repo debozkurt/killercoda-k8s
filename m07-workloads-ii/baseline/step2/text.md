@@ -1,37 +1,37 @@
 # Step 2 — StatefulSet identity: ordinals and per-Pod DNS
 
-A stable name is only useful if peers can *reach* that name. That's what the headless Service does.
+A stable name helps only if peers can resolve it. A **headless Service** (a Service with no virtual IP) publishes that name.
 
-## The governing Service is headless
+## The governing Service
 
-Every StatefulSet names a governing Service in `spec.serviceName`:
-
-```bash
-kubectl get statefulset media-engine -n media -o jsonpath='{.spec.serviceName}'; echo
-```{{exec}}
-
-`media-engine`. Now look at that Service — its `CLUSTER-IP`:
+Every StatefulSet names its **governing Service** in `serviceName`:
 
 ```bash
-kubectl get svc media-engine -n media
+kubectl get statefulset media-engine -n media -o yaml | grep serviceName
 ```{{exec}}
 
-`CLUSTER-IP` is `None` — a **headless** Service. It has no virtual IP; instead, cluster DNS publishes one A record per Pod. That's what turns an ordinal name into an address.
+The line reads `serviceName: media-engine`. Describe the Service with that name:
+
+```bash
+kubectl describe svc media-engine -n media
+```{{exec}}
+
+Read the `IP:` line. It reads `None`, so the Service is headless. The `Endpoints:` line lists one address per Pod. With no virtual IP, cluster DNS answers with those Pod addresses and publishes one record per Pod.
 
 ## Each ordinal resolves to itself
 
-Spin up a throwaway client and resolve a specific member by its per-Pod DNS name, `<pod>.<service>.<ns>.svc.cluster.local`:
+Resolve one member by its per-Pod DNS name, `<pod>.<service>.<namespace>.svc.cluster.local`:
 
 ```bash
 kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
   nslookup media-engine-0.media-engine.media.svc.cluster.local
 ```{{exec}}
 
-It resolves to `media-engine-0`'s Pod IP. Try the other ordinal:
+The answer is the Pod IP of `media-engine-0`. Resolve the other ordinal:
 
 ```bash
 kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
   nslookup media-engine-1.media-engine.media.svc.cluster.local
 ```{{exec}}
 
-A different IP — `media-engine-1`'s. This is the guarantee: `media-engine-0` is addressable *as a specific peer*, not load-balanced across replicas. Delete and recreate the Pod and the name still points at the ordinal. Stateful systems (leader election, replication) need exactly this. Next: the storage that follows each ordinal the same way.
+A different IP. A peer can address one specific member, and no virtual IP balances the traffic. Next: the disk that follows each ordinal.

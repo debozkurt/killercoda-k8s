@@ -1,32 +1,31 @@
 # Step 1 — Diagnose the coverage gap
 
-There's no failure to chase here — no crash, no `Pending`. The bug is an *absence*. Find the uncovered node, then the reason it was never a candidate.
+No failure exists to chase here. The bug is an absence. Find the uncovered node, then find why it was never a candidate.
 
-## DESIRED is the coverage number — and it's short
+## DESIRED is the coverage number, and it is short
 
 ```bash
 kubectl get daemonset -n edge
 ```{{exec}}
 
-`sbc-edge` shows `DESIRED 2`; `rtp-probe` shows `DESIRED 1`. For a DaemonSet, `DESIRED` isn't a replica count you chose — it's the number of nodes the controller found *eligible* to run the Pod. On a 2-node cluster, `1` means one node was ruled out. See which node each covers:
+`sbc-edge` shows `DESIRED` 2, and `rtp-probe` shows `DESIRED` 1. A DaemonSet's `DESIRED` is the number of nodes the controller found **eligible**. On a 2-node cluster, 1 means the controller ruled out one node. See which node each DaemonSet covers:
 
 ```bash
 kubectl get pods -n edge -o wide
 ```{{exec}}
 
-Both `sbc-edge` Pods are there — one on the worker, one on the control-plane. `rtp-probe` has a single Pod, on the **worker**. The control-plane node has an `sbc-edge` Pod but no `rtp-probe`. So the difference between these two DaemonSets is whatever lets one onto the control-plane node and not the other.
+Read the `NODE` column. Both `sbc-edge` Pods exist, one per node. `rtp-probe` has one Pod, on the worker. The control-plane node has no `rtp-probe` Pod. Whatever lets `sbc-edge` onto that node, `rtp-probe` lacks.
 
-## The control-plane node is tainted; only sbc-edge tolerates it
-
-```bash
-kubectl describe node -l node-role.kubernetes.io/control-plane | grep -A2 Taints
-```{{exec}}
-
-`node-role.kubernetes.io/control-plane:NoSchedule` — the taint that keeps ordinary workloads off. A DaemonSet Pod is only eligible for a node whose taints it tolerates, so a Pod without this toleration makes the control-plane node ineligible — which is why it isn't counted in `rtp-probe`'s `DESIRED`. Compare the two DaemonSets' tolerations:
+## The control-plane node is tainted, and only sbc-edge tolerates it
 
 ```bash
-kubectl get ds sbc-edge -n edge -o jsonpath='{.spec.template.spec.tolerations}'; echo
-kubectl get ds rtp-probe -n edge -o jsonpath='{.spec.template.spec.tolerations}'; echo
+kubectl describe nodes | grep -E '^Name:|^Taints:'
 ```{{exec}}
 
-`sbc-edge` tolerates `node-role.kubernetes.io/control-plane`; `rtp-probe` tolerates nothing. That's the entire bug — no error emitted, just a node the DaemonSet decided it couldn't run on and therefore didn't. The fix is the missing toleration.
+The control-plane node carries `node-role.kubernetes.io/control-plane:NoSchedule`. A DaemonSet Pod is eligible for a node only if it tolerates the node's taints. Compare the two templates:
+
+```bash
+kubectl describe daemonset sbc-edge rtp-probe -n edge | grep -E '^Name:|Tolerations:'
+```{{exec}}
+
+The `Tolerations:` line for `sbc-edge` names `node-role.kubernetes.io/control-plane`. The line for `rtp-probe` shows none. Without the toleration, the control-plane node is ineligible. The controller did not try to place a Pod there, so no `Pending` Pod and no event exist. Next: add the toleration.

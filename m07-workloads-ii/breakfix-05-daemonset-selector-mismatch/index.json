@@ -1,0 +1,28 @@
+{
+  "title": "M07 — Break/fix 05: DaemonSet Selector Mismatch",
+  "description": "disk-exporter rolled out clean and has no Pod anywhere: DESIRED 0. Its nodeSelector names a label no node carries, so no node is eligible and nothing is Pending. Read the selector, read the nodes, fix the selector.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      {
+        "title": "Diagnose the empty DaemonSet",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
+    ],
+    "finish": {
+      "text": "finish.md"
+    }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

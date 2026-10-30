@@ -1,32 +1,27 @@
 # Step 1 — Diagnose the stalled rollout
 
-Two facts to establish: only Pod-0 exists, and Pod-0 isn't Ready. The second explains the first.
+Establish two facts: only ordinal 0 exists, and ordinal 0 is not Ready. The second explains the first.
 
-## Only one Pod, and the set is 0/3
+## One Pod, and the set reads 0/3
 
 ```bash
 kubectl get statefulset session-store -n app-services
 kubectl get pods -n app-services -l app=session-store
 ```{{exec}}
 
-`READY 0/3`, and a single Pod — `session-store-0` — `Running` but `0/1` ready. No `session-store-1`, no `session-store-2`. They weren't deleted; they were never created. That's the tell of an `OrderedReady` StatefulSet: the controller creates ordinals one at a time and won't start Pod-1 until Pod-0 is **Ready**. Pod-0 isn't, so the sequence is stuck at the gate.
+`READY 0/3`, and one Pod that is `Running` and `0/1`. The missing Pods were never created. Under the default `OrderedReady` policy, the controller creates ordinal 1 only after ordinal 0 is Running and Ready. Ordinal 0 never became Ready, so the controller waits at that gate.
 
-## Why isn't Pod-0 Ready?
-
-```bash
-kubectl describe pod session-store-0 -n app-services | grep -A8 Conditions
-kubectl describe pod session-store-0 -n app-services | grep -A6 Events
-```{{exec}}
-
-`Ready: False`, and the events show the readiness probe failing — `Readiness probe failed: ... connection refused`. The container is up, but the probe can't get a passing response, so the kubelet never marks the Pod Ready.
-
-## Read the probe and the port it targets
+## Why is ordinal 0 not Ready?
 
 ```bash
-kubectl get statefulset session-store -n app-services \
-  -o jsonpath='{.spec.template.spec.containers[0].readinessProbe.httpGet}'; echo
-kubectl get statefulset session-store -n app-services \
-  -o jsonpath='{.spec.template.spec.containers[0].ports}'; echo
+kubectl describe pod session-store-0 -n app-services
 ```{{exec}}
 
-The readiness probe does an HTTP GET on **port 8080** — but the container's only port is **80**. Nothing is listening on 8080, so every probe is refused, the Pod stays `0/1`, and `OrderedReady` holds the rest of the set behind it. The fix is to point the probe at the port the container actually serves.
+Read four places in the output:
+
+- `Ready` under `Conditions:` is `False`.
+- The `Readiness:` line shows an HTTP check on port 8080.
+- The `Port:` line under the container shows that it serves port 80.
+- The `Events:` block ends with `Readiness probe failed ... connection refused`.
+
+The container is up, and the kubelet cannot get a passing answer from its probe, so it never marks the Pod Ready. The probe checks 8080, and nothing listens there. Every probe is refused, and `OrderedReady` holds the rest of the set behind ordinal 0. Next: fix the port, and watch what the controller does.

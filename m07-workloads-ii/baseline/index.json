@@ -1,6 +1,6 @@
 {
   "title": "M07 — Workloads II — Baseline",
-  "description": "Tour the two non-Deployment controllers the Polyphone fleet already runs: the StatefulSets (ordinal names, headless-Service per-Pod DNS, sticky per-ordinal PVCs) and the sbc-edge DaemonSet (one Pod per node, reaching the tainted control-plane via a toleration).",
+  "description": "Read the two non-Deployment controllers the Polyphone fleet runs. StatefulSets give each Pod an ordinal name, a per-Pod DNS name and its own claim, and keep them when you delete the Pod. The sbc-edge DaemonSet runs one Pod per eligible node.",
   "details": {
     "intro": {
       "text": "intro.md",
@@ -8,12 +8,35 @@
       "foreground": "foreground.sh"
     },
     "steps": [
-      { "title": "Two controllers a Deployment can't replace", "text": "step1/text.md", "verify": "step1/verify.sh" },
-      { "title": "StatefulSet identity: ordinals and per-Pod DNS", "text": "step2/text.md", "verify": "step2/verify.sh" },
-      { "title": "StatefulSet storage: sticky per-ordinal PVCs", "text": "step3/text.md", "verify": "step3/verify.sh" },
-      { "title": "DaemonSet: one Pod per node", "text": "step4/text.md", "verify": "step4/verify.sh" }
+      {
+        "title": "Two controllers a Deployment cannot replace",
+        "text": "step1/text.md",
+        "verify": "step1/verify.sh"
+      },
+      {
+        "title": "StatefulSet identity: ordinals and per-Pod DNS",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      },
+      {
+        "title": "StatefulSet storage: one claim per ordinal",
+        "text": "step3/text.md",
+        "verify": "step3/verify.sh"
+      },
+      {
+        "title": "Delete a Pod, keep the identity",
+        "text": "step4/text.md",
+        "verify": "step4/verify.sh"
+      },
+      {
+        "title": "DaemonSet coverage: one Pod per eligible node",
+        "text": "step5/text.md",
+        "verify": "step5/verify.sh"
+      }
     ],
-    "finish": { "text": "finish.md" }
+    "finish": {
+      "text": "finish.md"
+    }
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"

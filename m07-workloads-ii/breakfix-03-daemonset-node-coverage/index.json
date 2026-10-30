@@ -1,6 +1,6 @@
 {
   "title": "M07 — Break/fix 03: DaemonSet Node Coverage",
-  "description": "rtp-probe is meant to run on every node, but on this 2-node cluster it reports DESIRED 1 — the control-plane node has no Pod, no error, no Pending. A missing toleration made that node ineligible. Read the coverage gap and close it.",
+  "description": "rtp-probe should run on every node, but its DaemonSet reports DESIRED 1 on a 2-node cluster. The Pod lacks the control-plane toleration, so that node is never eligible. Find the gap and close it.",
   "details": {
     "intro": {
       "text": "intro.md",
@@ -8,10 +8,19 @@
       "foreground": "foreground.sh"
     },
     "steps": [
-      { "title": "Diagnose the coverage gap", "text": "step1/text.md" },
-      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+      {
+        "title": "Diagnose the coverage gap",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
     ],
-    "finish": { "text": "finish.md" }
+    "finish": {
+      "text": "finish.md"
+    }
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"

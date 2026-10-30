@@ -1,6 +1,6 @@
-# Step 1 — Two controllers a Deployment can't replace
+# Step 1 — Two controllers a Deployment cannot replace
 
-Most of the fleet is Deployments. Find the two controllers that aren't.
+Most of the fleet runs as Deployments. Find the two controllers that are not Deployments.
 
 ## The StatefulSets
 
@@ -8,19 +8,19 @@ Most of the fleet is Deployments. Find the two controllers that aren't.
 kubectl get statefulset -A
 ```{{exec}}
 
-Four: `media-engine` (media), `reg-proxy` (signaling), `presence` (app-services), `pstn-gateway` (edge). These are the stateful tier — each member owns its data and keeps its name. Look at the Pod names they produce:
+Four StatefulSets: `media-engine`, `reg-proxy`, `presence` and `pstn-gateway`. Read the Pod names they produce:
 
 ```bash
 kubectl get pods -n media -l app=media-engine
 ```{{exec}}
 
-`media-engine-0`, `media-engine-1` — **ordinal** names, not the random hash a Deployment gives (`session-broker-7d9f8-abc12`). The name is stable: delete `media-engine-0` and its replacement is *also* `media-engine-0`. Contrast a Deployment's Pods:
+`media-engine-0` and `media-engine-1` are **ordinal** names. The suffix is a number, not a random hash. Compare a Deployment in the same namespace:
 
 ```bash
 kubectl get pods -n media -l app=session-broker
 ```{{exec}}
 
-Random suffix, interchangeable. That difference — a durable ordinal vs. a throwaway hash — is the whole point of a StatefulSet.
+The suffix is random. A Deployment replaces a deleted Pod with a new name. A StatefulSet replaces `media-engine-0` with another `media-engine-0`.
 
 ## The DaemonSet
 
@@ -28,10 +28,10 @@ Random suffix, interchangeable. That difference — a durable ordinal vs. a thro
 kubectl get daemonset -A
 ```{{exec}}
 
-One: `sbc-edge` in `edge`. Note it has no replica count — `DESIRED` is the number of *nodes* it should run on. On this 2-node cluster that's `2`:
+One DaemonSet: `sbc-edge`, in `edge`. It has no replica count. `DESIRED` is the number of nodes it should run on. Check where its Pods landed:
 
 ```bash
 kubectl get pods -n edge -l app=sbc-edge -o wide
 ```{{exec}}
 
-One `sbc-edge` Pod on each node. A DaemonSet's job is coverage — one Pod per node — not a replica count. Next: how a StatefulSet Pod gets a stable identity peers can reach.
+Read the `NODE` column. One Pod runs on each node. Next: how a StatefulSet Pod gets a name that peers can reach.

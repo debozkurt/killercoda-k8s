@@ -1,8 +1,8 @@
 # Step 2 — Fix it and verify
 
-The StatefulSet points `serviceName: session-store` at a Service that doesn't exist. Create it — and it must be **headless** (`clusterIP: None`), because per-Pod DNS records only come from a headless Service selecting the Pods.
+Create the Service with `clusterIP: None`. A Service with a ClusterIP gives the set one virtual IP and still publishes no per-Pod names.
 
-## Create the governing headless Service
+## Create the governing Service
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -19,23 +19,26 @@ spec:
 EOF
 ```{{exec}}
 
-`clusterIP: None` is the load-bearing line — a normal ClusterIP Service would give the *set* one virtual IP but still wouldn't publish the per-Pod names the members need. The `selector` must match the Pods' `app: session-store` label so the Service's EndpointSlice picks them up.
+The `selector` must match the Pods' label `app: session-store`. The Service builds its endpoints from that match.
 
-## Verify the per-Pod names now resolve
-
-Give DNS a couple of seconds to pick up the new Endpoints, then repeat the lookup that failed:
+## Verify
 
 ```bash
-kubectl get svc session-store -n app-services
+kubectl describe svc session-store -n app-services
+```{{exec}}
+
+Read two lines. `IP:` reads `None`, and `Endpoints:` lists three Pod addresses. Repeat the lookup that failed:
+
+```bash
 kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n app-services -- \
   nslookup session-store-0.session-store.app-services.svc.cluster.local
 ```{{exec}}
 
-The Service shows `CLUSTER-IP: None`, and the lookup now resolves to `session-store-0`'s Pod IP. Confirm the other ordinals too:
+The name resolves to the Pod IP of `session-store-0`. If it still fails, wait a few seconds and run it again, because CoreDNS may briefly cache the earlier failure. Check another ordinal:
 
 ```bash
 kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n app-services -- \
   nslookup session-store-1.session-store.app-services.svc.cluster.local
 ```{{exec}}
 
-Each ordinal resolves to its own Pod. The Pods never changed — you didn't restart or reschedule anything. All that was missing was the Service that turns their stable names into DNS records. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m07-workloads-ii/ANSWER-KEY.md). You're done — see `finish.md`.
+Each ordinal resolves to its own Pod. You restarted nothing. The only missing object was the Service. See [`ANSWER-KEY.md`](../ANSWER-KEY.md) for self-grading, then `finish.md`.

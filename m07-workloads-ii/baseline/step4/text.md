@@ -1,33 +1,55 @@
-# Step 4 — DaemonSet: one Pod per node
+# Step 4 — Delete a Pod, keep the identity
 
-A DaemonSet has no replica count. Its size *is* the node set — one Pod per eligible node. See how `sbc-edge` covers this cluster.
+Two statements need proof: the replacement Pod keeps its claim and its data, and a scale-down keeps the claim.
 
-## Desired = eligible nodes, not a replica number
+## Write data, then delete the Pod
 
-```bash
-kubectl get daemonset sbc-edge -n edge
-```{{exec}}
-
-`DESIRED 2  CURRENT 2  READY 2` — one Pod per node, both up. That `2` is computed from the node list, not set by you:
+Write a marker file into the volume of `media-engine-0`, and note the Pod's IP:
 
 ```bash
-kubectl get pods -n edge -l app=sbc-edge -o wide
+kubectl exec media-engine-0 -n media -- sh -c 'echo seed-node > /var/state/role; cat /var/state/role'
+kubectl get pod media-engine-0 -n media -o wide
 ```{{exec}}
 
-One Pod on the worker, one on the control-plane node. But the control-plane is tainted to keep ordinary workloads off — so how does `sbc-edge` land there?
-
-## The toleration that reaches the control-plane
+Delete the Pod. The StatefulSet controller creates a replacement:
 
 ```bash
-kubectl get ds sbc-edge -n edge -o jsonpath='{.spec.template.spec.tolerations}'; echo
+kubectl delete pod media-engine-0 -n media
 ```{{exec}}
 
-It tolerates `node-role.kubernetes.io/control-plane`. That's the exception that lets a "one per node" agent onto the tainted node. Read the taint it's matching:
+Wait until the replacement is Ready, then compare:
 
 ```bash
-kubectl describe node -l node-role.kubernetes.io/control-plane | grep -A2 Taints
+kubectl wait --for=condition=Ready pod/media-engine-0 -n media --timeout=90s
+kubectl get pod media-engine-0 -n media -o wide
+kubectl exec media-engine-0 -n media -- cat /var/state/role
 ```{{exec}}
 
-`node-role.kubernetes.io/control-plane:NoSchedule`. Without the matching toleration, the control-plane node wouldn't be *eligible*, and `DESIRED` would be `1` — the node silently uncovered, no error. That coverage number is the DaemonSet's health check: `DESIRED` should equal the count of nodes the agent belongs on.
+The name is the same. `AGE` is new, and the IP is usually new. The file survives, because the replacement mounted `state-media-engine-0` again. Resolve the per-Pod name:
 
-That's the healthy shape of both controllers. Read `LESSON.md` for the *why*, then break each guarantee in the three scenarios.
+```bash
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  nslookup media-engine-0.media-engine.media.svc.cluster.local
+```{{exec}}
+
+The record points at the new IP. The name followed the ordinal.
+
+## Scale down, then up
+
+Write a marker into ordinal 1, then scale the set to one replica:
+
+```bash
+kubectl exec media-engine-1 -n media -- sh -c 'echo replica > /var/state/role'
+kubectl scale statefulset media-engine -n media --replicas=1
+kubectl get pods,pvc -n media
+```{{exec}}
+
+`media-engine-1` is gone, but `state-media-engine-1` is still `Bound`. The controller keeps the claim. Scale back to two and read the marker:
+
+```bash
+kubectl scale statefulset media-engine -n media --replicas=2
+kubectl wait --for=condition=Ready pod/media-engine-1 -n media --timeout=90s
+kubectl exec media-engine-1 -n media -- cat /var/state/role
+```{{exec}}
+
+The marker is still there. Next: the other controller.

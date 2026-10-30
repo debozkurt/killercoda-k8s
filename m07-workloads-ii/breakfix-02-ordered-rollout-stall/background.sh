@@ -706,8 +706,12 @@ done
 #     ordinal N is Running AND Ready — so session-store-0 comes up 0/1 Ready and session-store-1
 #     and -2 are NEVER created. Symptom: `get statefulset` shows READY 0/3 with only one Pod.
 #     Layered after the fleet wait so its stall doesn't gate the healthy fleet.
-#     Fix = point the readiness probe at the port the container actually serves (80); Pod-0
-#     goes Ready and the controller unblocks and creates -1 then -2.
+#     Fix = point the readiness probe at the port the container actually serves (80), THEN
+#     delete session-store-0. Patching the template alone does not replace Pod-0: under
+#     OrderedReady the controller returns before its update loop while any created Pod is not
+#     Running and Ready (pkg/controller/statefulset/stateful_set_control.go, processReplica;
+#     the docs call this "Forced rollback"). The new Pod-0 goes Ready and the controller then
+#     creates -1 and -2.
 cat <<'EOF' | kubectl apply -f -
 apiVersion: v1
 kind: Service

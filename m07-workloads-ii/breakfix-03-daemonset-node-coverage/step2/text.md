@@ -1,6 +1,6 @@
 # Step 2 — Fix it and verify
 
-Give `rtp-probe` the same control-plane toleration `sbc-edge` carries. The moment the Pod tolerates the taint, the control-plane node becomes eligible and the DaemonSet places a Pod there.
+Give `rtp-probe` the toleration that `sbc-edge` carries. When the Pod tolerates the taint, the control-plane node becomes eligible and the controller creates a Pod there.
 
 ## Add the control-plane toleration
 
@@ -9,7 +9,7 @@ kubectl patch daemonset rtp-probe -n edge --type=json -p \
   '[{"op":"add","path":"/spec/template/spec/tolerations","value":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}]}]'
 ```{{exec}}
 
-`operator: Exists` tolerates the taint regardless of value — the same form `sbc-edge` uses. This edits the DaemonSet's Pod template; the controller re-evaluates every node against the new tolerations.
+The operator `Exists` tolerates the taint whatever its value, the same form `sbc-edge` uses. The patch edits the Pod template, and the controller evaluates every node again.
 
 Or by hand:
 
@@ -24,7 +24,7 @@ kubectl edit daemonset rtp-probe -n edge
 
 ```bash
 kubectl get daemonset rtp-probe -n edge
-kubectl get pods -n edge -o wide -l app=rtp-probe
+kubectl get pods -n edge -l app=rtp-probe -o wide
 ```{{exec}}
 
-`DESIRED 2  CURRENT 2  READY 2`, and a second `rtp-probe` Pod now runs on the control-plane node alongside the worker's. The control-plane node didn't change — its taint is still there. What changed is that `rtp-probe` now tolerates it, so the controller counts it as an eligible node and covers it. `DESIRED` matching the node count is the signal that coverage is complete. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m07-workloads-ii/ANSWER-KEY.md). You're done — see `finish.md`.
+`DESIRED`, `CURRENT` and `READY` all read 2, and a second Pod now runs on the control-plane node. The node did not change, and its taint is still there. The Pod now tolerates it. `DESIRED` equal to the node count is the sign that coverage is complete. See [`ANSWER-KEY.md`](../ANSWER-KEY.md) for self-grading, then `finish.md`.
