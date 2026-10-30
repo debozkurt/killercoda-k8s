@@ -46,8 +46,8 @@ The choice of workload controller encodes an assumption about the workload. Here
 | **Deployment** | Pods are stateless and interchangeable; any replica can serve any request. | Random suffix, anonymous, fungible. | `sip-router`, `portal-ui` |
 | **StatefulSet** | Pods need a stable name + their own **PVC** (a Pod's request for persistent storage), and must start/stop in order. | `name-0`, `name-1`, … — sticky. | `media-engine`, `reg-proxy`, `presence`, `pstn-gateway` |
 | **DaemonSet** | You need exactly one Pod per (matching) node — typically a host-level agent. | One per node. | `sbc-edge` (per-node edge proxy) |
-| **Job** | Run-to-completion batch work; success means the Pod exited 0. | Throwaway. | (covered in M07) |
-| **CronJob** | A Job, on a schedule. | Throwaway. | (covered in M07) |
+| **Job** | Run-to-completion batch work; success means the Pod exited 0. | Throwaway. | (covered in M01b) |
+| **CronJob** | A Job, on a schedule. | Throwaway. | (covered in M01b) |
 
 > `ReplicaSet` is what a Deployment creates and manages internally to track desired replica count. You almost never write one yourself — you write a Deployment, and the Deployment controller manages its ReplicaSets across rolling updates.
 

@@ -276,6 +276,33 @@
     </div>
   </section>
 
+  <!-- 3b — STATEFULSET OR DEPLOYMENT WITH A CLAIM -->
+  <section class="slide">
+    <div class="wrap">
+      <h2>A claim alone does not require a StatefulSet</h2>
+      <div class="grid-2 tight">
+        <div class="card good">
+          <h3>Deployment with one claim</h3>
+          <ul>
+            <li>One replica, one volume, no per-Pod identity.</li>
+            <li>All replicas roll out in parallel, with no ordering gate.</li>
+            <li>Example: a single-replica directory service.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>StatefulSet</h3>
+          <p>Choose it when the workload needs at least one of:</p>
+          <ul>
+            <li>A stable name that peers address.</li>
+            <li>Storage per replica that follows the replica. N replicas that share one <code>ReadWriteOnce</code> claim cannot schedule past the first node.</li>
+            <li>An ordered rollout.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="note" style="margin-top:1.3rem"><p>Each StatefulSet adds a cost: slower rollouts, the forced-rollback rule, and storage you must track.</p></div>
+    </div>
+  </section>
+
   <!-- 4 — STATEFULSET IDENTITY -->
   <section class="slide">
     <div class="wrap">
@@ -297,7 +324,7 @@
       </div>
       <ul style="margin-top:1.2rem">
         <li>A deleted Pod returns with the same name, the same claim, and the same DNS name.</li>
-        <li>The controller owns the Pods. The claims follow the ordinal, and you create the Service.</li>
+        <li>The controller creates each claim from <code>volumeClaimTemplates</code>, and the claim follows the ordinal. You create the Service.</li>
       </ul>
     </div>
   </section>
