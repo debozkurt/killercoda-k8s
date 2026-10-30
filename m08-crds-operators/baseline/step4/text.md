@@ -1,26 +1,25 @@
 # Step 4 — Owner references: the chain cascading deletion follows
 
-The operator didn't just create `orion-media` — it stamped an **ownerReference** on it pointing back to the `orion` MediaTenant. That link is what lets Kubernetes clean up automatically.
+The operator also stamped an **ownerReference** on each child. It points back at the MediaTenant, and the garbage collector reads it.
 
-## The child points at its parent
-
-```bash
-kubectl get deployment orion-media -n media -o jsonpath='{.metadata.ownerReferences[0]}'; echo
-```{{exec}}
-
-`kind: MediaTenant, name: orion, controller: true` — plus the tenant's `uid`. `controller: true` marks the MediaTenant as the managing owner. The child names its parent by identity (name **and** uid), not just by name.
-
-## The full ownership chain
+## The child names its parent
 
 ```bash
-kubectl get mediatenant orion -n media -o jsonpath='{.metadata.uid}'; echo
-kubectl get deployment orion-media -n media -o jsonpath='{.metadata.ownerReferences[0].uid}'; echo
+kubectl get deployment orion-media -n media -o yaml | head -n 30
 ```{{exec}}
 
-The two uids match — the Deployment's owner *is* this MediaTenant. And the Deployment owns its ReplicaSet, which owns the Pods (the M01 chain), so the whole tree hangs off the CR:
+In `metadata`, read `ownerReferences`: `kind: MediaTenant`, `name: orion`, `controller: true`, and a `uid`. The `controller: true` field marks the single managing owner. The reference names the owner by identity, name and uid, so a new object that reuses the name does not match.
 
-`MediaTenant orion → Deployment orion-media → ReplicaSet → Pods`
+## Compare the uid
 
-## Why it matters
+```bash
+kubectl get mediatenant orion -n media -o yaml | head -n 20
+```{{exec}}
 
-Delete the MediaTenant and the **garbage collector** walks that chain and removes everything under it — you don't clean up the child by hand. (Don't delete anything now; break/fix 03 is what happens when the ownerReference is missing.) The ownerReference is the thread cascading deletion pulls; no thread, no cleanup. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m08-crds-operators/ANSWER-KEY.md). You're done — see `finish.md`.
+The `uid` in `metadata` equals the `uid` in the Deployment's `ownerReferences`. The Deployment owns its ReplicaSet, which owns the Pods (the M01 chain), so the whole tree hangs from the custom resource:
+
+```
+MediaTenant orion -> Deployment orion-media -> ReplicaSet -> Pods
+```
+
+Step 5 deletes a tenant and shows the tree go. No ownerReference means no thread for the garbage collector to follow.

@@ -1,57 +1,58 @@
 # M08 — CRDs & Operators
 
-> The API server ships with a fixed vocabulary — Pods, Deployments, Services. A CustomResourceDefinition adds your own words to it; an operator is the program that makes those words mean something. Together they're how every capability above the built-ins — databases, certificates, mesh config — gets delivered, and how it quietly fails.
+> The API server ships with a fixed vocabulary: Pods, Deployments, Services. A CustomResourceDefinition adds your own types to it. An operator is the program that gives those types meaning. Everything above the built-ins arrives this way, and it fails without a crash.
 
 ## What you'll learn
 
-- Explain what a **CRD** does: it registers a new resource *type* (schema and all) with the API server, so a custom resource is first-class — `kubectl get/describe/explain`, RBAC, and admission validation all work on it — not a YAML blob you parse yourself.
-- Read the anatomy of a **custom resource**: `.spec` (desired state, which you declare) vs. `.status` (observed state, which the controller writes on a separate subresource) — and why that split is the contract every operator follows.
-- Describe the **controller/operator pattern**: a level-triggered **reconcile loop** that compares desired to observed and acts to close the gap — and see that an operator is just a CRD **plus** a controller.
-- Read **operator-managed state** during an incident from the three surfaces that reveal it: the CR's `.status`/conditions, the child resources the operator created, and the operator's own logs.
-- Diagnose **stuck reconciliation** — an operator that's `Running` but making no progress — and tell the causes apart: the controller is down, its RBAC forbids the action, or it watches a CRD version that isn't served.
-- Trace **owner references**: how operator-created children point back to their CR, how cascading garbage collection follows that link, and how a missing or stale ownerReference produces orphans (and a finalizer, a stuck deletion).
+- Explain what a **CRD** does: it registers a new resource type, with a schema, so a custom resource gets `kubectl`, RBAC and admission validation like a built-in
+- Read a **custom resource**: `.spec` is the state you declare, and `.status` is the state a controller writes through a separate subresource
+- Describe the **controller** and **operator** pattern: a level-triggered reconcile loop, and an operator as a custom controller plus its CRD
+- Read operator-managed state during an incident from three places: the custom resource's `.status`, its child objects and the operator's logs
+- Tell the causes of **stuck reconciliation** apart: the controller is down, its RBAC forbids the write, or it reads a CRD version the API no longer serves
+- Trace **owner references** and **finalizers**: how the garbage collector deletes a tree, how a missing reference leaves an orphan, and how a finalizer holds an object in `Terminating`
 
 ## Why it matters
 
-Everything above the built-in resource types on a real cluster is delivered by an operator. Cert-manager issues TLS certificates from a `Certificate`; the Prometheus operator turns a `ServiceMonitor` into scrape config; External Secrets syncs a `Secret` from a vault. Each is the same shape: a CRD that adds a type, and a controller that watches instances of it and makes the cluster match. You'll operate far more operators than you ever write, so the skill that matters is *reading* one under pressure — not building one.
+Every capability above the built-in types arrives as an operator. Cert-manager issues certificates from a `Certificate` object. The Prometheus operator turns a `ServiceMonitor` into scrape configuration. External Secrets copies a secret from a vault. Each one pairs a CRD that adds a type with a controller that makes the cluster match it. You will run many operators and write few, so the skill that matters is reading one under pressure.
 
-At Polyphone the platform team ships an operator so product teams don't hand-write infrastructure. A team needing media capacity creates a **MediaTenant** — a custom resource declaring a tier and a replica count — and the **tenant-operator** turns that intent into a correctly-sized Deployment, linked back to the tenant, with progress in the tenant's `.status`. Self-service in, capacity out — a small version of exactly how the big operators work.
+At Polyphone the platform team ships an operator so product teams do not write infrastructure by hand. A team that needs media capacity creates a **MediaTenant**, a custom resource that declares a tier and a replica count. The **tenant-operator** creates a correctly sized Deployment, links it to the tenant and reports progress in the tenant's `.status`. Intent goes in and capacity comes out.
 
-The reason this earns a lesson is that operators fail in ways built-in controllers don't, and they fail *quietly*: a stuck operator's Pod stays `Running` while nothing it manages progresses; a schema-invalid resource is rejected before the operator ever sees it; an un-owned child survives the cleanup that should have removed it. None shows up as a red status. You catch them by knowing the pattern — type, controller, reconcile, owner reference — and checking that each link held.
+Operators fail in ways that built-in controllers do not, and they fail quietly. A stalled operator's Pod stays `Running` while nothing it manages progresses. The API server rejects a schema-invalid resource before any controller sees it. A child survives the cleanup that should have removed it, and a delete hangs forever. None of these turns a status red. You catch them by checking that each link of the chain held: type, loop, version, owner reference and finalizer.
 
 ## Scope
 
-**Covers:** the **CustomResourceDefinition** — how it registers a type (group/version/kind, plural, scope), the structural OpenAPI **schema** the API server validates every custom resource against, the `Established` condition, and `served`/`storage` versions; the **custom resource** — the `.spec`/`.status` split and the status **subresource**; the **controller/operator pattern** — level-triggered reconciliation, desired vs. observed state, reading operator-managed state, and the diagnostic signatures of **stuck reconciliation**; and **owner references** — controller references, cascading **garbage collection**, orphans, and (in a deep dive) finalizers.
+**Covers:** the **CustomResourceDefinition** (group, version and kind, plural and scope, the structural **schema**, **pruning**, the `Established` condition, `served` and `storage` versions); the **custom resource** (the `.spec` and `.status` split, the status subresource); the **controller** and **operator** pattern (level-triggered reconciliation, reading operator-managed state, the three causes of stuck reconciliation); **owner references** (controller references, cascading deletion policies, orphans); and **finalizers**.
 
-**Doesn't cover:** *writing* an operator — Go, controller-runtime, Kubebuilder/Operator SDK, watches, and work queues are a development topic, not this one; the goal here is reading operators, not building them. Admission **webhooks** (validating/mutating) and CEL validation rules beyond basic schema → out of scope here. **Aggregated API servers**, the heavier alternative to CRDs for extending the API → out of scope. The full **RBAC** model an operator's ServiceAccount relies on → M10; this module defines just enough to diagnose a permission-denied reconcile. Packaging operators with Helm/Kustomize → M16–M17. Specific ecosystem operators live with their topics: Prometheus operator → M13, cert-manager → M12, External Secrets → M11.
+**Doesn't cover:** writing an operator (Go, controller-runtime, Kubebuilder, work queues) because this module teaches reading one; admission **webhooks**, **CEL** validation rules and conversion webhooks beyond a mention; aggregated API servers; the full **RBAC** model → M10; Helm or Kustomize packaging → M16, M17; specific operators: Prometheus → M13, cert-manager → M12, External Secrets → M11.
 
-**Assumes:** M00 (every object is `spec` + `status`; group/version/kind; namespaces; `kubectl get/describe/explain`), and M01 (a controller — not you — creates Pods, and a Deployment owns its ReplicaSet which owns its Pods; built-in controllers already reconcile). ServiceAccounts and RBAC are introduced here on first use and treated in full in M10.
+**Assumes:** M00 (every object has `spec` and `status`; group, version and kind; `kubectl get`, `describe` and `explain`) and M01 (a Deployment owns a ReplicaSet, which owns Pods; built-in controllers reconcile). ServiceAccounts and RBAC appear here on first use and get full treatment in M10.
 
 ## Vocabulary
 
 | Term | Definition |
 |------|------------|
-| **CustomResourceDefinition (CRD)** | An object (`kind: CustomResourceDefinition`) that registers a new resource *type* with the API server. Its name is always `<plural>.<group>` (e.g. `mediatenants.polyphone.example`). Once it exists, the API server serves that type like a built-in. |
-| **custom resource (CR)** | An instance of the type a CRD defines — e.g. a `MediaTenant` named `orion`. Stored, validated, and served by the API server exactly like a Pod or Deployment. |
-| **group / version / kind (GVK)** | The three-part identity of a resource type. A CRD declares its `group` (`polyphone.example`), `versions` (`v1`), and `kind` (`MediaTenant`) — the same scheme built-ins use (`apps/v1` `Deployment`). |
-| **structural schema** | The OpenAPI v3 schema in a CRD (`openAPIV3Schema`) constraining a CR's fields — types, enums, `required`, min/max. The API server validates every CR against it at admission, so a bad field is rejected, not stored. |
-| **`Established`** | A CRD condition that flips `True` once the API server has registered the type and will serve it. Until then, `kubectl get <kind>` fails with "the server doesn't have a resource type." |
-| **served / storage version** | Per-version flags. `served: true` means the API accepts that version; exactly one version is `storage: true`, the form persisted to etcd. Multiple served versions let consumers migrate gradually. |
-| **controller** | A program running a control loop that watches a resource type and drives the cluster toward each object's declared state. Built-in controllers (Deployment, Job) ship in the control plane; a custom one you run yourself. |
-| **reconcile loop / reconciliation** | The controller's core action: read desired state (`.spec`), observe actual state, take steps to close the gap — then repeat, forever. |
-| **level-triggered** | The loop acts on the *current* desired-vs-observed difference, not a one-time event. A missed event is harmless — the next pass re-checks and corrects. This is why an unblocked operator recovers without a restart. |
-| **operator** | A controller paired with one or more CRDs, encoding operational knowledge for a specific application. An operator = CRD(s) + controller. |
-| **`.status` subresource** | A separate write path for `status` (enabled by `subresources: {status: {}}`). The controller updates `.status` through `/status`; a normal `apply` of `.spec` can't touch it — enforcing "you own spec, the controller owns status." |
-| **owner reference** | A field in a child's `metadata.ownerReferences` naming an owner by kind, name, and **uid** — recording that the child belongs to that owner. With `controller: true` it's the single managing owner (a *controller reference*). |
-| **garbage collection / cascading deletion** | The control-plane process that deletes an object's dependents when the owner is deleted, by finding every object whose `ownerReferences` names it. No ownerReference, no cascade. |
-| **finalizer** | A key in `metadata.finalizers` that blocks hard deletion: the API server marks the object `Terminating` and waits until the responsible controller cleans up and removes the key. A finalizer whose controller is gone wedges the object in `Terminating`. |
-| **ServiceAccount** | The in-cluster identity a Pod authenticates as. An operator runs as one and can only do what that identity's RBAC grants (full treatment: M10). |
+| **CustomResourceDefinition (CRD)** | An object that registers a new resource type with the API server. Its name is `<plural>.<group>`, such as `mediatenants.polyphone.example`. After registration the API server serves the type like a built-in. |
+| **custom resource (CR)** | The docs: "an extension of the Kubernetes API that is not necessarily available in a default Kubernetes installation." In practice, one object of the type a CRD defines. |
+| **group / version / kind** | The three-part identity of a resource type, as in `apps/v1` `Deployment`. A CRD declares its own group, its versions and its kind. |
+| **structural schema** | The OpenAPI v3 schema in a CRD. The API server validates every custom resource against it before it stores the object. |
+| **pruning** | The API server removes fields that the schema does not list, before it stores the object. |
+| **`Established`** | A CRD condition. When it is `True`, the API server serves the type. |
+| **served / storage version** | `served: true` means the API accepts requests at that version. Exactly one version has `storage: true`: the form the API server writes to etcd. |
+| **controller** | A control loop that watches a resource type and moves the cluster toward each object's declared state. |
+| **operator** | The docs: "software extensions to Kubernetes that make use of custom resources to manage applications and their components." In short, a custom controller plus its CRDs. |
+| **reconcile loop** | The controller's repeated cycle: read `.spec`, observe the cluster, act to close the gap, report in `.status`. |
+| **level-triggered** | The loop acts on the current difference between desired and observed state, not on a one-time event. A missed event heals on the next pass. |
+| **status subresource** | A separate write path, `/status`, enabled in the CRD. The controller writes `.status` there, and a normal `apply` of the object cannot change it. |
+| **owner reference** | A `metadata.ownerReferences` entry on a child (the docs say *dependent*). It names the owner by kind, name and **uid**. With `controller: true` it marks the one managing owner. |
+| **garbage collector** | The control-plane process that deletes objects whose owners are gone. |
+| **orphan** | A child whose owner is gone and which still exists. It has no owner reference, or the deletion used the orphan policy. |
+| **finalizer** | A key in `metadata.finalizers`. The API server does not remove an object while its list holds a key. It sets `deletionTimestamp` and waits for a controller to remove the key. |
 
 ## Mental model
 
-Two pieces, one idea. A **CRD teaches the API server a new noun** — register `MediaTenant` and the server stores, validates, versions, and serves them, with RBAC and `kubectl` treating them like any built-in. But a noun with no verb is inert: creating a MediaTenant changes nothing on its own, just as a Deployment object would do nothing with no Deployment controller running. The **operator is the verb** — a control loop that watches MediaTenants and makes each one *mean* a running, correctly-sized Deployment.
+A **CRD teaches the API server a new noun.** Register `MediaTenant`, and the server stores, validates, versions and serves tenants, with RBAC and `kubectl` treating them like built-ins. A noun alone does nothing. Creating a tenant changes no cluster state, just as a Deployment would do nothing with no Deployment controller running. The **operator is the verb**: a control loop that makes each tenant mean a running Deployment.
 
-The loop is **level-triggered**<sup><a href="https://kubernetes.io/docs/concepts/architecture/controller/">[4]</a></sup>. It doesn't handle "a MediaTenant was created" as a one-shot event; it repeatedly asks "for every MediaTenant that exists, does reality match its `.spec`?" and closes whatever gap it finds. That's why a healthy operator is self-correcting — delete a child it manages and the next pass recreates it — and why an unblocked operator recovers on its own, no restart needed.
+The loop is **level-triggered**<sup><a href="https://kubernetes.io/docs/concepts/architecture/controller/">[4]</a></sup>. It does not handle "a tenant was created" as an event. On each pass it asks whether reality matches every tenant's `.spec`, and it closes the gap it finds. A healthy operator therefore repairs drift. Delete a child, and the next pass recreates it.
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {
@@ -61,105 +62,114 @@ The loop is **level-triggered**<sup><a href="https://kubernetes.io/docs/concepts
   'background':'#0f0f0f'
 }}}%%
 flowchart LR
-    CR["MediaTenant orion<br/>spec: tier, replicas<br/>status: phase, ready"]
+    CR["MediaTenant<br/>spec: tier, replicas<br/>status: phase, ready"]
     OP["tenant-operator<br/>reconcile loop"]
-    DEP["Deployment orion-media<br/>ownerRef → MediaTenant"]
+    DEP["Deployment<br/>ownerReference to tenant"]
     RS["ReplicaSet"]
     POD["Pods"]
-    CR -. "1 watch / read .spec" .-> OP
-    OP -- "2 create / update" --> DEP
+    CR -. "1 read .spec" .-> OP
+    OP -- "2 create or update" --> DEP
     OP -. "3 write .status" .-> CR
     DEP --> RS --> POD
 ```
 
-Read it as one turn of the loop: the operator reads each MediaTenant's `.spec` (1), creates or updates the child Deployment to match (2), and writes what it observed back into `.status` (3). The Deployment owns its ReplicaSet, which owns its Pods — the built-in chain from M01 — so the whole tree hangs off the CR. That's literal: the child carries an **ownerReference** back to the MediaTenant, and that single link lets cascading deletion tear the tree down when the tenant is deleted. Read the other direction, it's your debugging aid — from any child find the CR that owns it, from a CR find everything it spawned.
+One turn of the loop has three steps. The operator reads each tenant's `.spec` (1). It creates or updates the child Deployment to match (2). It writes what it observed into `.status` (3). The Deployment owns its ReplicaSet and the ReplicaSet owns the Pods, so the whole tree hangs from the custom resource. The ownerReference is the link that makes cascading deletion work. Read it in the other direction and it is a map: from any child, find its owner.
 
-Three failure surfaces fall out of this picture, one per link you'll break: the **type** can reject a CR (schema), the **loop** can stall (operator down, forbidden, or watching the wrong version), and the **owner link** can be missing (an orphan survives cleanup). Different link, different symptom, different place to look.
+Five links can fail, and each leaves a different signature. The **type** can reject a resource. The **loop** can stall because the controller is down or forbidden. The **version** the loop reads can be unserved. The **owner link** can be missing, which leaves an orphan. A **finalizer** can hold a delete. Check the links in that order, because each check is cheap and each failure looks like a healthy cluster.
 
 ## Concept walkthrough
 
-### Extending the API with CRDs
+### The type: CRDs, schemas and versions
 
-A **CustomResourceDefinition** is an object you apply like any other, but applying it has an unusual effect: the API server gains a new endpoint and starts serving a new type<sup><a href="https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/">[1]</a></sup>. The CRD declares the type's identity — `group`, `versions`, `kind`, the `plural`/`singular`/`shortNames` you'll type — and its `scope` (`Namespaced` or `Cluster`). Its name is mechanical: always `<plural>.<group>`, here `mediatenants.polyphone.example`.
+A **CustomResourceDefinition** is an object you apply like any other, and applying it makes the API server serve a new type<sup><a href="https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/">[1]</a></sup>. The CRD declares the group, the versions, the kind, the plural and short names, and the `scope` (`Namespaced` or `Cluster`). The name must be `<plural>.<group>`<sup><a href="https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/">[2]</a></sup>.
 
-Registration isn't instant. When the type is ready to serve, the API server sets the `Established` condition `True`<sup><a href="https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/">[2]</a></sup>. Before that flips, `kubectl get mediatenants` fails with "the server doesn't have a resource type" — the same error as a typo. So the first question when a custom type "doesn't exist" is: is the CRD installed, and `Established`?
+Registration takes a moment. The API server sets the `Established` condition to `True` when it serves the type. Before then, `kubectl get mediatenants` fails with "the server doesn't have a resource type", the same message as a typo. When a custom type "does not exist", check that the CRD is installed and `Established`.
 
-What makes a custom resource *first-class* rather than a free-form blob is the **structural schema** — an OpenAPI v3 document embedded in the CRD's version<sup><a href="https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/">[2]</a></sup>. It declares each field's type and constraints: `spec.tier` a string restricted to the enum `gold`/`silver`/`bronze`, `spec.replicas` an integer 1–5, both `required`. The API server validates every CR against it at admission, exactly as it validates a built-in — a MediaTenant with `tier: platinum` or a missing `replicas` is **rejected and never stored**. Operationally: "my custom resource won't apply" is almost always a schema mismatch, and the rejection message names the offending field. `kubectl explain mediatenant.spec` reads the same schema back, because `explain` is generated from it.
+The **structural schema** makes a custom resource more than free-form data. The schema lists each field's type and limits: `spec.tier` is a string from the enum `gold`, `silver`, `bronze`, and `spec.replicas` is an integer from 1 to 5. The API server validates every object against the schema at admission. The API server rejects a value outside the enum, never stores the object, and names the field in the error. `kubectl explain` reads the same schema, so it shows what a valid object looks like.
 
-A CRD can serve more than one **version** at once. Each version flags whether it's `served` (the API accepts it) and which single one is `storage` (the form written to etcd)<sup><a href="https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/">[2]</a></sup> — the machinery of schema migration, and a quiet source of operator breakage (see the deep dive).
+The schema also controls **pruning**. The docs: "if you specify a field that the API server does not recognize, the unknown field is pruned (removed) before being persisted."<sup><a href="https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/#field-pruning">[2]</a></sup> A misspelled or mis-nested optional field is dropped without an error. Recent `kubectl` versions reject unknown fields by default, but a GitOps controller or a client library may not request that check. If a setting "has no effect", compare the stored object with the manifest.
+
+A CRD can serve several **versions** at once. Each version sets `served`, and exactly one sets `storage`<sup><a href="https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definition-versioning/">[8]</a></sup>. A request at a version that is not served fails, whatever the stored data holds. The docs' procedure for retiring a version says to migrate every client first, because "if any clients are still unexpectedly using the old version they may begin reporting errors." An operator that reads `v1` while a release serves only `v2` fails on every list call. The Pod stays `Running` and the RBAC is correct. Compare the version in the operator's logs with the `Served:` lines in `kubectl describe crd`. Upgrade an operator and its CRD together, and keep serving a version until no consumer uses it. The immediate repair is to serve the old version again.
 
 <details>
-<summary>📖 Going deeper: CRD versions, served vs. storage, and the version-skew trap<sup><a href="https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/">[2]</a></sup></summary>
+<summary>📖 Going deeper: deleting a CRD, and storage versions<sup><a href="https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/">[2]</a></sup></summary>
 
-A type evolves. You ship `MediaTenant` at `v1alpha1`, then add fields and want `v1`. A CRD lets both versions be `served` at once so consumers migrate on their own schedule, while exactly one is `storage: true` — every object is persisted in the storage version and converted on read to whatever version the client asked for. Schema-compatible changes convert automatically; structural changes need a **conversion webhook**.
+Deleting a CRD is destructive. The docs: "When you delete a CustomResourceDefinition, the server will uninstall the RESTful API endpoint and delete all custom objects stored in it." Every tenant, certificate or scrape rule of that type disappears with it. A `helm uninstall` that removes a chart's CRDs does the same. Treat a CRD delete like a database drop, and back up the custom resources first.
 
-The operational trap is **version skew**. Say the operator watches `polyphone.example/v1`, but a CRD change left only `v1alpha1` served (someone dropped `served: true` from `v1`, or a controller upgrade lagged the CRD). The operator's watch now targets a version the API won't serve, so it sees *no* MediaTenants and reconciles nothing — every CR sits untouched. This looks identical to "the operator is asleep." The tell is in the CRD: `kubectl get crd mediatenants.polyphone.example -o jsonpath='{.spec.versions[*].name} {.spec.versions[*].served}'` shows which versions exist and which are served — compare that to the `apiVersion` the operator is built for. When you upgrade an operator, upgrade its CRD in lockstep, and never drop a served version consumers still use.
+The storage version decides how objects sit in etcd. When a CRD changes its storage version, objects written earlier stay in the old form until something rewrites them. `status.storedVersions` on the CRD lists every version that has stored objects. Remove an old version from `spec.versions` only after that list shows the old version is gone, or the API server cannot read those objects. With the default `None` conversion, the server changes only the `apiVersion` of an object, which is safe while the schemas match. A schema change between versions needs a conversion webhook.
 
 </details>
 
-### The controller pattern: reconciliation
+### The controller pattern: reconciliation and stalls
 
-A **controller** watches a resource type and drives the cluster toward each object's declared state<sup><a href="https://kubernetes.io/docs/concepts/architecture/controller/">[4]</a></sup>. You already rely on dozens — the Deployment controller reconciles Deployments into ReplicaSets, the Job controller runs Pods to completion. An **operator** is the same idea aimed at a *custom* type: a controller paired with a CRD, packaging the knowledge of running some specific thing<sup><a href="https://kubernetes.io/docs/concepts/extend-kubernetes/operator/">[3]</a></sup>. There's no magic ingredient — "operator" is just "custom controller + its CRD(s)."
+A **controller** watches a resource type and moves the cluster toward each object's declared state<sup><a href="https://kubernetes.io/docs/concepts/architecture/controller/">[4]</a></sup>. You already depend on dozens: the Deployment controller turns Deployments into ReplicaSets, and the Job controller runs Pods to completion. An **operator** applies the same idea to a custom type<sup><a href="https://kubernetes.io/docs/concepts/extend-kubernetes/operator/">[3]</a></sup>. The pattern has no extra part. An operator is a custom controller and its CRD.
 
-The loop's discipline is **reconciliation**: read `.spec` (desired), observe what exists, take the steps that make reality match — then repeat, forever. Because it's **level-triggered**, it reasons about the current difference rather than a stream of events, so a dropped notification, a restart, or an API blip all self-heal on the next pass. The tenant-operator's loop is small enough to read in one breath — for each MediaTenant, ensure a child Deployment at the right replica count, stamp the ownerReference, write `.status` — but it has the full shape: observe, act, report.
+Each pass repeats the three steps in the diagram: read `.spec` and observe the cluster, act, and report. The report step is where an operator talks back. A well-behaved controller writes `.status` through the status subresource<sup><a href="https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/#status-subresource">[2]</a></sup>. You write the desired half, and the controller writes the observed half. Neither overwrites the other. Reading **operator-managed state** means reading three places together: the `.status` (what the operator claims), the child objects (what exists) and the operator's **logs** (what it tried, and what stopped it). When they agree, the operator is healthy. A gap shows where the fault is.
 
-That last step, **report**, is where operators talk back. A well-behaved controller writes what it observed into the CR's `.status` — here `phase` (`Provisioning` → `Ready`) and `readyReplicas` — through the **status subresource**<sup><a href="https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/">[2]</a></sup>, which splits the halves at the API: you write `.spec`, the controller writes `.status`, neither clobbers the other. So **reading operator-managed state** means reading three surfaces together: the CR's `.status`/conditions (what the operator claims), the child resources (what exists), and the operator's **logs** (what it tried and what stopped it). Agreement means healthy; a gap localizes the fault.
+**Stuck reconciliation** is the failure that misleads people. The operator Pod is `Running` with no restarts, and the controller makes no progress. Pod status says the program is alive. It says nothing about the loop. Work through three causes:
 
-Which raises the failure mode that trips people: **stuck reconciliation**. An operator can be a healthy *process* — Pod `Running`, no restarts — and a stalled *controller*; the Pod's status only says the program is alive, not that its loop progresses. When custom resources sit un-advanced, suspect three things: the controller is **down** (crashlooping, scaled to zero) — visible in `get pods`; it's **forbidden** — it runs as a ServiceAccount, and if that identity's RBAC lacks a verb the loop needs, every attempt is denied `403` (in the logs, and via `kubectl auth can-i --as=<the operator's SA>`), the most common cause; or it watches an unserved **CRD version** (the skew above). Same symptom, three surfaces — and the logs usually name which.
+1. **The controller is down.** A crash loop or a scale to zero shows in `kubectl get pods`. Custom resources keep their last-written `.status`, so the data looks plausible while nothing updates it.
+2. **The controller is forbidden.** It runs as a ServiceAccount, the identity a Pod uses to call the API. If that identity's role lacks a verb, every attempt returns a `403`. The tenants stay `Provisioning`, the logs repeat `Forbidden`, and `kubectl auth can-i --as=system:serviceaccount:<ns>:<name>` returns `no`.
+3. **The controller reads a version the API does not serve.** The tenants show blank `.status`, the logs repeat a list error that names the version, and `auth can-i` returns `yes`. The CRD's `Served:` flags explain it.
+
+The `auth can-i` check separates causes 2 and 3 in one command, and the logs name the cause in both.
 
 ### Owner references and the object graph
 
-When the operator creates `orion-media`, it sets an **ownerReference** on it pointing back to the `orion` MediaTenant<sup><a href="https://kubernetes.io/docs/concepts/overview/working-with-objects/owners-dependents/">[5]</a></sup>. The reference names the owner by kind, name, and **uid** — the uid pins it to *this specific* MediaTenant, not something that merely shares the name — and with `controller: true` it marks the single managing owner, which is how a controller finds "its" objects and how the control plane identifies who's in charge.
+When the operator creates a child, it sets an **ownerReference** on the child that points at the custom resource<sup><a href="https://kubernetes.io/docs/concepts/overview/working-with-objects/owners-dependents/">[5]</a></sup>. The reference holds the owner's kind, name and **uid**. The uid pins it to that one object, so a new object that reuses the name does not match. The field `controller: true` marks the single managing owner. The docs state that a namespaced owner "must exist in the same namespace as the dependent", and that "cross-namespace owner references are disallowed by design." A cluster-scoped owner may have namespaced dependents.
 
-Its headline job is **cascading deletion**. The **garbage collector** watches for deleted owners; delete a MediaTenant and it finds every object whose `ownerReferences` names it (by uid) and deletes those too<sup><a href="https://kubernetes.io/docs/concepts/architecture/garbage-collection/">[6]</a></sup>. That's why you never hand-delete an operator's children — remove the CR and the whole tree under it goes, each link a thread the collector follows. Read the reference the other way and it's a debugging map: from any child you find its parent, from a CR you enumerate what it spawned.
+The main job of an owner reference is **cascading deletion**. When you delete an owner, the **garbage collector** finds every object whose `ownerReferences` names it, and deletes those objects<sup><a href="https://kubernetes.io/docs/concepts/architecture/garbage-collection/">[6]</a></sup>. You do not delete an operator's children by hand. You delete the custom resource, and the tree goes with it. By default Kubernetes uses background cascading deletion: the owner goes first and the collector removes dependents afterwards. `--cascade=foreground` removes the dependents that block deletion before the owner, and `--cascade=orphan` leaves them behind on purpose<sup><a href="https://kubernetes.io/docs/tasks/administer-cluster/use-cascading-deletion/">[9]</a></sup>.
 
-The failure is the absence. A child created **without** an ownerReference — by hand, or by an older operator that didn't stamp one — has no thread tying it to an owner. Delete its logical parent and the garbage collector has nothing to follow, so the child isn't collected: it becomes a silent **orphan**, running on, holding resources for something gone. Nothing errors; it just persists. You find orphans by comparing a suspect child's `ownerReferences` to a properly-managed sibling's, and by noticing children whose named owner no longer exists. The stale-uid variant bites from the other side: a reference to a uid that no longer exists marks the child for deletion, so a recreated parent (new uid) can leave old children pointing at a ghost.
+The failure is a missing reference. A child created without an ownerReference, by hand or by an older operator, gives the collector nothing to follow. Delete the child's logical owner and the child stays, as a silent **orphan** that holds resources for something that no longer exists. Nothing errors. You find orphans by comparing a suspect child's `ownerReferences` with a managed sibling's, and by looking for children whose named owner is gone. The reverse case is a reference to a uid that no longer exists. The docs say the dependent "is subject to deletion once all owners are verified absent", so a child that points at a deleted owner's old uid is deleted too.
 
-<details>
-<summary>📖 Going deeper: finalizers and the stuck-Terminating resource<sup><a href="https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers/">[7]</a></sup></summary>
+### Finalizers: deletes that wait
 
-Owner references handle *cascade*; **finalizers** handle *cleanup that must happen before* an object may disappear. A finalizer is a key in `metadata.finalizers`. Delete an object that has one and the API server doesn't remove it — it sets `metadata.deletionTimestamp`, moves the object to `Terminating`, and waits. The controller responsible notices the deletionTimestamp, does its external cleanup (deregister a load balancer, drain a volume, delete a cloud resource the CR represented), then removes its key. Only when the last finalizer is gone does the API server actually delete the object.
+Owner references handle cascade. **Finalizers** handle cleanup that must finish before an object may disappear<sup><a href="https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers/">[7]</a></sup>. A finalizer is a key in `metadata.finalizers`. When you delete an object that has one, the API server sets `metadata.deletionTimestamp`, keeps the object and returns `202 Accepted`. The controller that manages the key notices the timestamp, does its cleanup, such as deregistering an external load balancer, and removes the key. The API server deletes the object when the last key is gone.
 
-This is why `kubectl delete` sometimes hangs forever, stuck `Terminating`. The classic cause: the finalizer's controller is gone — you uninstalled the operator, or it crashed — so nobody removes the key. It's also why deleting a *namespace* can wedge: it won't finish while it holds objects with finalizers whose controllers are absent. The safe fix is to make the controller healthy again so it completes cleanup. Force-removing the finalizer by hand (`kubectl patch ... -p '{"metadata":{"finalizers":[]}}'`) is a **last resort** — it deletes the object immediately while skipping whatever external cleanup the finalizer guarded, potentially leaking the real resource it represented. Reach for it only when you're sure cleanup is already done or no longer matters.
+That is why `kubectl delete` sometimes hangs, and the object reads `Terminating`. The usual cause is a controller that no longer runs: someone uninstalled the operator, scaled it to zero or crashed it, and nobody removes the key. A namespace delete wedges the same way while the namespace holds such an object. During the hang the object's children keep running, because cascading deletion starts only when the owner is gone.
 
-</details>
+Diagnose it with `kubectl describe`: read `Deletion Timestamp:` and `Finalizers:` in the metadata, then find the controller that owns that key. The safe fix restores that controller, so it runs its cleanup and removes its own key. You can also remove the key by hand with `kubectl patch`. The docs warn against it: "avoid manually removing finalizers to allow deletion to continue." It deletes the object at once and skips whatever the finalizer guarded, so an external resource can leak. Use it only when you know the cleanup is done another way.
 
 ## Hands-on
 
-Four baseline steps, three break/fix scenarios — all on the full Polyphone fleet on a 2-node cluster (one tainted control-plane, one worker), plus the `MediaTenant` CRD and the `tenant-operator`. The baseline tours a healthy operator; each break/fix snaps one link in the chain.
+Five baseline steps and five break/fix scenarios run on the full Polyphone fleet on a 2-node cluster: one tainted control-plane node and one worker. They add the `MediaTenant` CRD, the `tenant-operator` and two tenants. The baseline tours a healthy operator, and each break/fix breaks one link.
 
-- **`baseline/`** — the CRD as a registered type, two MediaTenants (`orion`, `lyra`) with the `.spec`/`.status` split, the operator reconciling them into child Deployments, and the ownerReferences cascading deletion follows. What "healthy" looks like across all three surfaces.
-- **`breakfix-01-cr-schema-rejected`** — a new tenant never appears because its custom resource violates the CRD's enum and admission refuses it. Tests that a CRD's schema is real, API-server-enforced validation, and that a rejected resource fails silently downstream.
-- **`breakfix-02-reconcile-stuck-rbac`** — the operator is `Running`, but every tenant sits `Provisioning` with no children: its ServiceAccount can't create Deployments, so reconciliation stalls at the first write. Tests reading `.status` + logs over Pod status, and RBAC as the usual cause.
-- **`breakfix-03-orphaned-owner-reference`** — an offboarded tenant's child Deployment still runs because it carries no ownerReference, so cascading deletion never reached it. Tests owner references as the thread the garbage collector follows, and spotting an orphan by comparison.
+- **`baseline/`** — the CRD as a registered type, the two tenants with the `.spec` and `.status` split, the operator and its children, the owner references, and a tour of self-healing and cascading deletion.
+- **`breakfix-01-cr-schema-rejected/`** — a new tenant never appears, because its tier is outside the CRD's enum and admission rejects it.
+- **`breakfix-02-reconcile-stuck-rbac/`** — the operator is `Running` and every tenant stays `Provisioning`, because its ServiceAccount cannot create Deployments.
+- **`breakfix-03-unserved-crd-version/`** — the operator is `Running` and the tenants have blank status, because it reads a CRD version that a release stopped serving.
+- **`breakfix-04-orphaned-owner-reference/`** — an offboarded tenant's Deployment still runs, because it carries no ownerReference.
+- **`breakfix-05-finalizer-stuck-terminating/`** — a deleted tenant never disappears, because its finalizer's controller is scaled to zero.
 
-Work them in order; the baseline makes each broken link obvious. Check yourself against `ANSWER-KEY.md` after each.
+Check yourself against `ANSWER-KEY.md` after each.
 
 ## Common failure modes
 
 | Symptom | Likely cause | Where to look |
 |---------|--------------|---------------|
-| `kubectl get <kind>` → "the server doesn't have a resource type" | CRD not installed, not yet `Established`, or wrong plural/group | `kubectl get crd`; `kubectl api-resources \| grep <group>`; the CRD's `Established` condition |
-| A custom resource won't apply — validation error | CR violates the structural schema (bad enum/type, missing `required` field) | the admission error message; `kubectl explain <kind>.spec`; the CRD's `openAPIV3Schema` |
-| CR created, but `.status` stays empty and no child resources appear | Reconciliation stuck — operator down, RBAC-forbidden, or watching an unserved CRD version | `kubectl get pods -n <op-ns>`; operator **logs**; `kubectl auth can-i --as=<op SA>`; CRD served versions |
-| CR `.status` shows an error/stuck condition | Operator reconciled but the desired state is unachievable (bad spec, missing dependency) | `kubectl describe <kind> <cr>` (conditions/events); operator logs |
-| Deleted a CR, but its child resources keep running | Children lack an ownerReference to the CR (created out-of-band or by an older operator) | the child's `metadata.ownerReferences`; compare to a healthy CR's child |
-| `kubectl delete <kind> <cr>` hangs in `Terminating` | A finalizer whose controller isn't removing it (operator gone/crashed) | the CR's `metadata.finalizers`; the controller that owns that finalizer |
-| A child keeps getting deleted right after creation | Stale ownerReference — points at an owner uid that no longer exists | the child's `ownerReferences[].uid` vs. the current owner's `metadata.uid` |
+| `kubectl get <kind>` returns "the server doesn't have a resource type" | The CRD is missing, not `Established`, or you typed the wrong plural or group | `kubectl get crd`; `kubectl api-resources`; the CRD's conditions |
+| A custom resource will not apply: validation error | The object violates the schema: enum, type or a missing `required` field | The error message; `kubectl explain <kind>.spec`; the CRD's schema |
+| The object applies, and a field has no effect | Pruning dropped a field that the schema does not list | `kubectl get <kind> -o yaml` against your manifest; the CRD's schema |
+| Custom resources sit at `Provisioning`, no children, logs repeat `Forbidden` | The operator's role lacks a verb | Operator logs; `kubectl auth can-i --as=`; `kubectl describe clusterrole` |
+| Custom resources have blank `.status`, no children, logs repeat a list error | The operator reads a version the CRD does not serve | Operator logs; `Served:` lines in `kubectl describe crd` |
+| Custom resources keep an old `.status` and nothing updates it | The operator is down or scaled to zero | `kubectl get pods`; `kubectl get deployment` in the operator's namespace |
+| A child keeps running after its custom resource was deleted | The child has no ownerReference, or the delete used `--cascade=orphan` | The child's `metadata.ownerReferences`; compare with a managed sibling |
+| `kubectl delete` hangs; the object reads `Terminating` | A finalizer whose controller does not run | `Deletion Timestamp:` and `Finalizers:` in `kubectl describe`; the controller that owns the key |
+| A child disappears soon after creation | A stale ownerReference: the uid names an owner that no longer exists | The child's `ownerReferences[].uid` against the owner's `metadata.uid` |
 
 ## Recap
 
-- **A CRD adds a type; an operator gives it meaning.** The CRD registers a first-class resource (schema-validated, RBAC-governed, `kubectl`-native); the controller is a level-triggered reconcile loop that makes instances of it *do* something. An operator is nothing more than a CRD plus a controller.
-- **A CR's schema is real, API-server-enforced validation.** A custom resource that violates the CRD's structural schema is rejected at admission and never stored, so "it won't apply" is a schema mismatch you read from the error — not an operator problem.
-- **An operator's Pod status is not its reconciliation status.** A `Running` operator can be making zero progress. When custom resources sit un-advanced, read the three surfaces — `.status`, child resources, and the operator's logs — and check the usual suspects: the controller is down, forbidden by RBAC, or watching an unserved version.
-- **Owner references are the thread cascading deletion follows.** Operator-created children point back at their CR by name and uid; the garbage collector deletes dependents when the owner goes. A missing ownerReference orphans a child; a stale one can delete it prematurely; a finalizer can wedge deletion in `Terminating`.
-- **Operators fail quietly.** No crash in the schema, stuck-reconcile, or orphan cases — the failure is a resource that never appeared, never progressed, or never left. You catch it by verifying each link held, not by waiting for something to go red.
+- **A CRD adds a type, and an operator gives it meaning.** The CRD registers a type that the API server validates and `kubectl` serves. The controller is a level-triggered loop that makes instances of the type do something. An operator is a custom controller plus its CRD.
+- **A schema is real validation, and it also prunes.** Admission rejects an invalid object and never stores it. A field that the schema does not list is dropped without an error.
+- **An operator's Pod status is not its reconciliation status.** A `Running` operator can make no progress. Read the `.status`, the child objects and the logs, then separate the three causes: down, forbidden or reading an unserved version.
+- **Owner references are the thread cascading deletion follows.** The garbage collector deletes dependents when the owner goes. A missing reference leaves an orphan, and a stale uid can delete a child early.
+- **A finalizer is a promise of cleanup.** A delete that hangs points at the controller that owns the key. Restore that controller, and use a hand patch only when you know the cleanup is done.
 
 ## Production thinking
 
-- An operator you didn't write has a custom resource stuck `Provisioning` for an hour. Lay out your diagnosis order and why: `.status`/conditions, then events, then the operator's logs, then its ServiceAccount's RBAC (`auth can-i --as=`), then whether the CRD version it watches is still `served`. Which does a "the Pod is Running, so it's fine" instinct skip, and why is that instinct wrong for controllers?
-- You're deleting a namespace and it hangs `Terminating` for an hour on a single custom resource with a finalizer — and the operator that owned that finalizer was uninstalled last week. Explain what's blocking deletion, why the namespace can't finish, the *safe* way to unblock it, and why force-removing the finalizer is a last resort, not the first move.
-- You're deciding whether a new platform capability should be a CRD + operator or just a Helm chart of built-in objects. What does an operator buy you that a chart doesn't (continuous reconciliation, drift correction, encoded day-2 knowledge, a typed API), and what does it cost (a controller to run and upgrade, its RBAC, CRD/version discipline)? Give one case where it's clearly worth it and one where it's over-engineering.
+- An operator you did not write has left a custom resource at `Provisioning` for an hour. Order your checks and say why: `.status` and conditions, then events, then the operator's logs, then its ServiceAccount's permissions, then the CRD's served versions. Which check does the instinct "the Pod is Running, so it is fine" skip?
+- A namespace has hung in `Terminating` for an hour on one custom resource with a finalizer, and the operator that owned the key was uninstalled last week. What blocks the delete, why can the namespace not finish, what is the safe fix, and what does a hand patch of the finalizer cost?
+- A new platform capability could be a CRD with an operator, or a Helm chart of built-in objects. What does an operator add (continuous reconciliation, drift repair, encoded day-2 knowledge, a typed API), and what does it cost (a controller to run and upgrade, its RBAC, version discipline for the CRD)? Name one case where it is clearly worth it and one where it is over-engineering.
 
 ## References
 
@@ -170,3 +180,5 @@ Work them in order; the baseline makes each broken link obvious. Check yourself 
 5. Kubernetes — Owners and Dependents: https://kubernetes.io/docs/concepts/overview/working-with-objects/owners-dependents/
 6. Kubernetes — Garbage Collection: https://kubernetes.io/docs/concepts/architecture/garbage-collection/
 7. Kubernetes — Finalizers: https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers/
+8. Kubernetes — Versions in CustomResourceDefinitions: https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definition-versioning/
+9. Kubernetes — Use Cascading Deletion in a Cluster: https://kubernetes.io/docs/tasks/administer-cluster/use-cascading-deletion/

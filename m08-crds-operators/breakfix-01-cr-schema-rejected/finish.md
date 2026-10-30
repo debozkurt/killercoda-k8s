@@ -1,11 +1,11 @@
 # Done
 
-The tenant "didn't get created" for the most literal reason: the API server refused it. The CRD carries an OpenAPI schema — `spec.tier` is an enum of `gold`/`silver`/`bronze` — and every custom resource is validated against it at admission, exactly like a built-in. `tier: platinum` failed the enum, so nothing was persisted, the operator never saw a `vega`, and no child Deployment was built. Correcting the tier to a valid value made the resource conform; the API server accepted it and the healthy operator provisioned it on its next pass.
+A CRD's schema is real validation. The API server checked the custom resource against the schema, found `platinum` outside the enum, and refused to store it. The operator was healthy and never saw the resource, so no downstream object failed. The error message named the field, the bad value and the allowed values.
 
-Two things worth keeping: **a CRD's schema is real validation, enforced by the API server, not the operator** — so "my custom resource won't apply" is almost always a schema mismatch you can read straight from the error message (`kubectl explain <kind>` and the CRD's `openAPIV3Schema` show the rules); and **a rejected resource fails silently downstream** — there's no crash and no operator log, because the object never existed, so you diagnose it by trying the apply and reading admission's response.
+Keep two points. A rejected custom resource leaves no trace except the error you saw at apply time, so a pipeline that discards `kubectl apply` output hides it. And `kubectl explain` shows the schema you must satisfy.
 
 **Next:**
 
 - Check your path against [`ANSWER-KEY.md`](../ANSWER-KEY.md).
-- For the *why*, see [`LESSON.md`](../LESSON.md) § Extending the API with CRDs.
-- Continue to **`breakfix-02-reconcile-stuck-rbac`** — the resource is valid this time, but the operator still can't provision it.
+- For the reasoning, see [`LESSON.md`](../LESSON.md) § Extending the API with CRDs.
+- Next scenario: **`breakfix-02-reconcile-stuck-rbac`**. The resources are valid, and the operator still does nothing.

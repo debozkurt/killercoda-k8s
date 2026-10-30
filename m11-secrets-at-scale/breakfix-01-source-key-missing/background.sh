@@ -894,7 +894,7 @@ spec:
       serviceAccountName: secret-operator
       containers:
         - name: operator
-          image: bitnami/kubectl:1.31
+          image: alpine/k8s:1.31.13
           command: ["/bin/sh", "-c"]
           args:
             - |

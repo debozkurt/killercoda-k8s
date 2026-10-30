@@ -1,6 +1,6 @@
 # Step 1 — The CRD: a new type in the API
 
-A **CustomResourceDefinition** registers a new resource type with the API server. Once it's `Established`, that type behaves like any built-in.
+A **CustomResourceDefinition** (CRD) registers a new resource type with the API server. Once the type is `Established`, it behaves like a built-in.
 
 ## The definition
 
@@ -8,24 +8,24 @@ A **CustomResourceDefinition** registers a new resource type with the API server
 kubectl get crd | grep polyphone
 ```{{exec}}
 
-`mediatenants.polyphone.example` — a CRD is itself an object (`kind: CustomResourceDefinition`). Its name is always `<plural>.<group>`. Confirm the API server has fully registered it:
+`mediatenants.polyphone.example`. A CRD is an object too (`kind: CustomResourceDefinition`), and its name is always `<plural>.<group>`. Read its conditions:
 
 ```bash
-kubectl get crd mediatenants.polyphone.example -o jsonpath='{.status.conditions[?(@.type=="Established")].status}'; echo
+kubectl describe crd mediatenants.polyphone.example
 ```{{exec}}
 
-`True` — the type is served. Until a CRD is `Established`, `kubectl get <kind>` fails with "the server doesn't have a resource type."
+Find the `Established` condition under `Status:`. Its `Status` is `True`: the API server serves the type. Before that, `kubectl get <kind>` fails with "the server doesn't have a resource type". Under `Versions:` read the `Name:`, `Served:` and `Storage:` lines. One version, `v1`, is served and stored.
 
-## It's a first-class type now
+## The type behaves like a built-in
 
 ```bash
 kubectl api-resources | grep mediatenant
 ```{{exec}}
 
-`MediaTenant`, short name `mt`, API group `polyphone.example`, `NAMESPACED true` — it sits in `api-resources` next to Pods and Deployments. The same verbs work on it:
+`MediaTenant` has the short name `mt`, the group `polyphone.example`, and NAMESPACED true. It sits in the list next to Pods and Deployments. The same verbs work on it:
 
 ```bash
 kubectl explain mediatenant.spec
 ```{{exec}}
 
-`explain` reads the schema baked into the CRD: `tier` (a string) and `replicas` (an integer). The API server validates every MediaTenant against this schema, exactly as it does a built-in — that's what makes a custom resource first-class, not just a blob of YAML.
+`explain` reads the schema stored in the CRD: `tier` is a string and `replicas` is an integer. The API server validates every MediaTenant against that schema, as it does for a built-in. Step 2 shows the result.

@@ -694,14 +694,15 @@ for ns in media signaling app-services edge; do
   kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=60s >/dev/null 2>&1
 done
 
+
 # ===========================================================================
-# M08 platform additions — CRD + operator + tenant CRs (as in the baseline),
-# EXCEPT the operator's ClusterRole is deliberately missing a verb (see the fence).
+# M08 platform additions: the CRD, operator and tenant CRs this module teaches.
+# The ClusterRole below is deliberately missing verbs (see the fence).
 # ===========================================================================
 
 kubectl create namespace platform --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
-# --- The CustomResourceDefinition (identical to the baseline) ---------------
+# --- The CustomResourceDefinition: teach the API server a new type ----------
 cat <<'EOF' | kubectl apply -f -
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -756,15 +757,15 @@ EOF
 
 kubectl wait --for=condition=Established crd/mediatenants.polyphone.example --timeout=60s >/dev/null 2>&1
 
-# >>> breakfix-02 mutation: the tenant-operator's ClusterRole is missing the create/
-#     update/patch/delete verbs on deployments — it can only get/list/watch them. The
-#     operator Pod starts fine and its reconcile loop runs, but every attempt to CREATE a
-#     tenant's child Deployment is denied 403 Forbidden. So no child Deployment is ever
-#     created and every MediaTenant stays phase=Provisioning, readyReplicas 0. Nothing
-#     crashes — `kubectl get pods -n platform` shows the operator Running. The signal is in
-#     .status (stuck) and the operator's logs (the forbidden error), not the Pod state.
-#     Fix = grant the operator create/update/patch/delete on deployments so reconcile can
-#     make progress.
+# --- Operator RBAC: the ServiceAccount the controller authenticates as, and the
+#     ClusterRole with the verbs its reconcile loop needs: read and finalize
+#     MediaTenants, write their /status, and manage child Deployments.
+# >>> breakfix-02 mutation: the tenant-operator ClusterRole grants only get/list/watch on
+#     deployments. The operator Pod starts and its loop runs, but every attempt to CREATE a
+#     tenant's child Deployment is denied 403 Forbidden. No child is created and every
+#     MediaTenant stays phase=Provisioning with readyReplicas 0. Nothing crashes: the Pod
+#     stays Running. The signal is in .status and in the operator's logs.
+#     Fix = grant create/update/patch/delete on deployments.
 cat <<'EOF' | kubectl apply -f -
 apiVersion: v1
 kind: ServiceAccount
@@ -780,13 +781,13 @@ metadata:
 rules:
   - apiGroups: ["polyphone.example"]
     resources: ["mediatenants"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "patch"]
   - apiGroups: ["polyphone.example"]
     resources: ["mediatenants/status"]
     verbs: ["get", "update", "patch"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "watch"]   # MUTATED (baseline: also "create","update","patch","delete") — operator can read but not create child Deployments, so reconcile is denied and stalls
+    verbs: ["get", "list", "watch"]   # MUTATED (baseline: also "create", "update", "patch", "delete"): the operator can read Deployments but not create them, so every reconcile is denied
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -804,7 +805,11 @@ subjects:
 EOF
 # <<< breakfix-02 mutation ends
 
-# --- The operator (identical to the baseline; it is the RBAC above that is broken) ---
+# --- The operator: a small kubectl reconcile loop, so the pattern stays legible.
+#     It pins the CRD version it reads (v1), adds a finalizer to each tenant,
+#     creates the owner-referenced child Deployment, writes .status, and removes
+#     the finalizer when a tenant is deleted. kubectl in a Pod uses the mounted
+#     ServiceAccount.
 cat <<'EOF' | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -820,19 +825,35 @@ spec:
       labels: { app: tenant-operator, plane: platform, tier: lab }
     spec:
       serviceAccountName: tenant-operator
+      terminationGracePeriodSeconds: 2
       containers:
         - name: operator
-          image: bitnami/kubectl:1.31
+          image: alpine/k8s:1.31.13
           command: ["/bin/sh", "-c"]
           args:
             - |
-              echo "[tenant-operator] reconcile loop starting"
+              MT=mediatenants.v1.polyphone.example
+              FIN=polyphone.example/media-cleanup
+              echo "[tenant-operator] reconcile loop starting, watching $MT"
               while true; do
-                for row in $(kubectl get mediatenants -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+                if ! list="$(kubectl get $MT -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>&1)"; then
+                  echo "[tenant-operator] cannot list $MT: $list"
+                  sleep 10
+                  continue
+                fi
+                for row in $list; do
                   ns="${row%%/*}"; name="${row##*/}"
                   [ -z "$name" ] && continue
-                  replicas="$(kubectl get mediatenant "$name" -n "$ns" -o jsonpath='{.spec.replicas}' 2>/dev/null)"
-                  uid="$(kubectl get mediatenant "$name" -n "$ns" -o jsonpath='{.metadata.uid}' 2>/dev/null)"
+                  deleting="$(kubectl get $MT "$name" -n "$ns" -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null)"
+                  if [ -n "$deleting" ]; then
+                    kubectl patch $MT "$name" -n "$ns" --type=merge -p '{"metadata":{"finalizers":null}}' >/dev/null 2>&1 \
+                      && echo "[tenant-operator] $ns/$name: cleanup done, finalizer removed"
+                    continue
+                  fi
+                  fins="$(kubectl get $MT "$name" -n "$ns" -o jsonpath='{.metadata.finalizers}' 2>/dev/null)"
+                  [ -z "$fins" ] && kubectl patch $MT "$name" -n "$ns" --type=merge -p "{\"metadata\":{\"finalizers\":[\"$FIN\"]}}" >/dev/null 2>&1
+                  replicas="$(kubectl get $MT "$name" -n "$ns" -o jsonpath='{.spec.replicas}' 2>/dev/null)"
+                  uid="$(kubectl get $MT "$name" -n "$ns" -o jsonpath='{.metadata.uid}' 2>/dev/null)"
                   child="${name}-media"
                   if ! kubectl get deployment "$child" -n "$ns" >/dev/null 2>&1; then
                     echo "[tenant-operator] $ns/$name: creating child deployment $child (replicas=$replicas)"
@@ -844,7 +865,7 @@ spec:
                   ready="$(kubectl get deployment "$child" -n "$ns" -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
                   ready="${ready:-0}"
                   phase="Provisioning"; [ "$ready" = "$replicas" ] && phase="Ready"
-                  kubectl patch mediatenant "$name" -n "$ns" --subresource=status --type=merge -p "{\"status\":{\"phase\":\"$phase\",\"readyReplicas\":$ready}}" >/dev/null 2>&1
+                  kubectl patch $MT "$name" -n "$ns" --subresource=status --type=merge -p "{\"status\":{\"phase\":\"$phase\",\"readyReplicas\":$ready}}" >/dev/null 2>&1
                   echo "[tenant-operator] $ns/$name: phase=$phase readyReplicas=$ready desired=$replicas"
                 done
                 sleep 10
@@ -854,8 +875,7 @@ spec:
             limits:   { cpu: 200m, memory: 128Mi }
 EOF
 
-# --- The tenants: two MediaTenant CRs. With the crippled RBAC above, neither
-#     will get a child Deployment — both stay Provisioning.
+# --- The tenants: two MediaTenant CRs the operator reconciles into capacity.
 cat <<'EOF' | kubectl apply -f -
 apiVersion: polyphone.example/v1
 kind: MediaTenant
@@ -868,9 +888,9 @@ metadata: { name: lyra, namespace: media, labels: { plane: media, tier: lab } }
 spec: { tier: silver, replicas: 1 }
 EOF
 
-# The children never appear (RBAC denies create). Just wait for the operator Pod to be
-# up and give it a couple of reconcile passes so .status reads Provisioning by the time
-# the learner starts — do NOT wait for child Deployments here.
+# The children never appear (RBAC denies create). Wait for the operator Pod, then give it
+# a couple of reconcile passes so .status reads Provisioning when the learner starts.
+# Do NOT wait for child Deployments here.
 kubectl rollout status deployment/tenant-operator -n platform --timeout=90s >/dev/null 2>&1
 sleep 20
 

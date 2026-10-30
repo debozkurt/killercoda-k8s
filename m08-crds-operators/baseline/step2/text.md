@@ -1,6 +1,6 @@
 # Step 2 — Custom resources: spec you set, status the operator writes
 
-A **custom resource** (CR) is an instance of the CRD's type. Like every Kubernetes object it splits into two halves: `.spec` (desired state, which you declare) and `.status` (observed state, which the controller writes).
+A **custom resource** (CR) is an object of the type a CRD defines. Like every Kubernetes object it has two halves: `.spec` (desired state, which you declare) and `.status` (observed state, which a controller writes).
 
 ## The two tenants
 
@@ -8,7 +8,7 @@ A **custom resource** (CR) is an instance of the CRD's type. Like every Kubernet
 kubectl get mediatenants -A
 ```{{exec}}
 
-`orion` (gold, desired 2) and `lyra` (silver, desired 1). Those columns come from the CRD's `additionalPrinterColumns` — `TIER` and `DESIRED` read from `.spec`, `READY` and `PHASE` from `.status`. Both show `PHASE Ready`.
+`orion` (gold, desired 2) and `lyra` (silver, desired 1). The CRD's `additionalPrinterColumns` pick the columns: `TIER` and `DESIRED` come from `.spec`, `READY` and `PHASE` from `.status`. Both tenants show PHASE Ready.
 
 ## Read one closely
 
@@ -16,20 +16,6 @@ kubectl get mediatenants -A
 kubectl get mediatenant orion -n media -o yaml
 ```{{exec}}
 
-Two blocks matter. `spec` is what a product team asked for:
+Read three blocks. `spec` is what a product team asked for: `tier: gold` and `replicas: 2`. `status` is what the operator reported: `phase: Ready` and `readyReplicas: 2`. `metadata.finalizers` holds `polyphone.example/media-cleanup`, a hook the operator adds. Step 5 uses it.
 
-```yaml
-spec:
-  tier: gold
-  replicas: 2
-```
-
-`status` is what the operator reported back after acting:
-
-```yaml
-status:
-  phase: Ready
-  readyReplicas: 2
-```
-
-You wrote `spec`; you never wrote `status`. `status` lives on a separate **subresource** — the operator updates it through `/status`, and a normal `kubectl apply` of the spec can't touch it. That split (you own `spec`, the controller owns `status`) is the contract every operator follows.
+You wrote `spec`. You never wrote `status`. The CRD enables the **status subresource**, a separate write path at `/status`. The operator updates `status` there, and a normal `kubectl apply` of the spec cannot touch it. You own `spec` and the controller owns `status`.

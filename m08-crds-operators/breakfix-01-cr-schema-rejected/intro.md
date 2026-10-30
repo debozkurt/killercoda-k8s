@@ -1,9 +1,9 @@
 # M08 — Break/fix 01: Custom Resource Rejected by Schema
 
-> Pre-req: the baseline tour (CRD, custom resources, the operator). This scenario breaks the first link — a custom resource that never gets created.
+> Pre-req: the baseline. This scenario breaks the first link: a custom resource that is never created.
 
-A product team asked for a new tenant, `vega`, and handed you a manifest to apply. The operator that provisions tenants is healthy — `orion` and `lyra` are `Ready`, their child Deployments running — but `vega` is nowhere: `kubectl get mediatenants -A` lists only the two originals, and there's no `vega-media` Deployment.
+A product team asked for a new tenant, `vega`, and gave you a manifest. The operator is healthy. `orion` and `lyra` are `Ready` and their Deployments run. But `vega` is missing: `kubectl get mediatenants -A` lists two tenants, and no `vega-media` Deployment exists.
 
-There's no crash to chase and no operator error, because the operator never saw `vega` — the custom resource was never created. The manifest the team gave you is at `/root/vega-tenant.yaml`. Your job: apply it, read exactly why the API server refuses it, and get `vega` provisioned.
+Nothing crashed, and the operator logged no error, because the operator never saw `vega`. The manifest is at `/root/vega-tenant.yaml`. Apply it, read why the API server refuses it, and get `vega` provisioned.
 
-The CRD registers a schema for MediaTenants, and the API server validates every custom resource against it. The cluster takes 90–150 seconds to come up. Click **Start** when ready.
+The cluster takes 90–150 seconds to come up. Click **Start** when ready.

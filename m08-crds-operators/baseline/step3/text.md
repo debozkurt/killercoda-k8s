@@ -1,14 +1,14 @@
-# Step 3 — The operator reconciling: reading operator-managed state
+# Step 3 — The operator: reading operator-managed state
 
-The `.status` from the last step didn't fill itself in. A **controller** — the tenant-operator, running as an ordinary Pod — watched the MediaTenants and made the cluster match them.
+Nobody typed the `.status` from step 2. A **controller**, the tenant-operator, watched the tenants and made the cluster match them.
 
-## The operator is just a Pod
+## The operator is a Pod
 
 ```bash
 kubectl get pods -n platform
 ```{{exec}}
 
-`tenant-operator` is `Running`. It authenticates to the API as its own ServiceAccount and runs a **reconcile loop**: read every MediaTenant, ensure a matching child exists, write status, repeat.
+`tenant-operator` is `Running`. It authenticates as its own ServiceAccount, the identity a Pod uses to call the API. Its **reconcile loop** reads every MediaTenant, makes the cluster match, writes `.status`, and repeats every 10 seconds.
 
 ## What it created
 
@@ -16,12 +16,14 @@ kubectl get pods -n platform
 kubectl get deployments -n media -l managed-by=tenant-operator
 ```{{exec}}
 
-`orion-media` (2 replicas) and `lyra-media` (1) — the operator created these from the tenants' `spec.replicas`. You never applied them; the loop did.
+`orion-media` (2 replicas) and `lyra-media` (1). The operator created both from `spec.replicas`. You never applied them.
 
-## Watch it work, in its own logs
+## Its logs
 
 ```bash
 kubectl logs deployment/tenant-operator -n platform --tail=6
 ```{{exec}}
 
-Lines like `orion/orion: phase=Ready readyReplicas=2 desired=2` — one reconcile pass per tenant, every few seconds. When you debug an operator, its **logs** are the primary interface: they show what it observed and what it did. Reading operator-managed state means reading three things together — the CR's `.status`, the child resources, and these logs.
+Each line reads like `media/orion: phase=Ready readyReplicas=2 desired=2`: one pass per tenant. The first line names the CRD version the loop reads, `v1`. The break/fix scenarios return to that line.
+
+When you debug an operator, read three places together: the custom resource's `.status`, the child resources, and the operator's logs. Healthy means all three agree.

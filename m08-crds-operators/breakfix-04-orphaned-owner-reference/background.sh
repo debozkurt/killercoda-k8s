@@ -694,12 +694,10 @@ for ns in media signaling app-services edge; do
   kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=60s >/dev/null 2>&1
 done
 
+
 # ===========================================================================
-# M08 platform additions — the CRD + operator + tenant CRs this module teaches.
-# A CustomResourceDefinition (MediaTenant) extends the API with a new noun; a
-# small controller (tenant-operator) reconciles each MediaTenant into a child
-# media Deployment, stamps an ownerReference back to the CR, and reports progress
-# in .status. Nothing here is broken — this is the healthy reference the tour reads.
+# M08 platform additions: the CRD, operator and tenant CRs this module teaches.
+# Nothing here is broken. This is the healthy reference the tour reads.
 # ===========================================================================
 
 kubectl create namespace platform --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -759,9 +757,9 @@ EOF
 
 kubectl wait --for=condition=Established crd/mediatenants.polyphone.example --timeout=60s >/dev/null 2>&1
 
-# --- Operator RBAC: the ServiceAccount the controller authenticates as, and
-#     the ClusterRole granting exactly the verbs its reconcile loop needs:
-#     read MediaTenants + write their /status, and manage child Deployments.
+# --- Operator RBAC: the ServiceAccount the controller authenticates as, and the
+#     ClusterRole with the verbs its reconcile loop needs: read and finalize
+#     MediaTenants, write their /status, and manage child Deployments.
 cat <<'EOF' | kubectl apply -f -
 apiVersion: v1
 kind: ServiceAccount
@@ -777,7 +775,7 @@ metadata:
 rules:
   - apiGroups: ["polyphone.example"]
     resources: ["mediatenants"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "patch"]
   - apiGroups: ["polyphone.example"]
     resources: ["mediatenants/status"]
     verbs: ["get", "update", "patch"]
@@ -800,10 +798,11 @@ subjects:
     namespace: platform
 EOF
 
-# --- The operator: a control loop that reconciles every MediaTenant into a
-#     child media Deployment (owner-referenced back to the CR) and writes .status.
-#     Deliberately a small kubectl reconcile loop so the pattern is legible, not a
-#     compiled controller. `kubectl` in a Pod uses the mounted ServiceAccount.
+# --- The operator: a small kubectl reconcile loop, so the pattern stays legible.
+#     It pins the CRD version it reads (v1), adds a finalizer to each tenant,
+#     creates the owner-referenced child Deployment, writes .status, and removes
+#     the finalizer when a tenant is deleted. kubectl in a Pod uses the mounted
+#     ServiceAccount.
 cat <<'EOF' | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -819,19 +818,35 @@ spec:
       labels: { app: tenant-operator, plane: platform, tier: lab }
     spec:
       serviceAccountName: tenant-operator
+      terminationGracePeriodSeconds: 2
       containers:
         - name: operator
-          image: bitnami/kubectl:1.31
+          image: alpine/k8s:1.31.13
           command: ["/bin/sh", "-c"]
           args:
             - |
-              echo "[tenant-operator] reconcile loop starting"
+              MT=mediatenants.v1.polyphone.example
+              FIN=polyphone.example/media-cleanup
+              echo "[tenant-operator] reconcile loop starting, watching $MT"
               while true; do
-                for row in $(kubectl get mediatenants -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+                if ! list="$(kubectl get $MT -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>&1)"; then
+                  echo "[tenant-operator] cannot list $MT: $list"
+                  sleep 10
+                  continue
+                fi
+                for row in $list; do
                   ns="${row%%/*}"; name="${row##*/}"
                   [ -z "$name" ] && continue
-                  replicas="$(kubectl get mediatenant "$name" -n "$ns" -o jsonpath='{.spec.replicas}' 2>/dev/null)"
-                  uid="$(kubectl get mediatenant "$name" -n "$ns" -o jsonpath='{.metadata.uid}' 2>/dev/null)"
+                  deleting="$(kubectl get $MT "$name" -n "$ns" -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null)"
+                  if [ -n "$deleting" ]; then
+                    kubectl patch $MT "$name" -n "$ns" --type=merge -p '{"metadata":{"finalizers":null}}' >/dev/null 2>&1 \
+                      && echo "[tenant-operator] $ns/$name: cleanup done, finalizer removed"
+                    continue
+                  fi
+                  fins="$(kubectl get $MT "$name" -n "$ns" -o jsonpath='{.metadata.finalizers}' 2>/dev/null)"
+                  [ -z "$fins" ] && kubectl patch $MT "$name" -n "$ns" --type=merge -p "{\"metadata\":{\"finalizers\":[\"$FIN\"]}}" >/dev/null 2>&1
+                  replicas="$(kubectl get $MT "$name" -n "$ns" -o jsonpath='{.spec.replicas}' 2>/dev/null)"
+                  uid="$(kubectl get $MT "$name" -n "$ns" -o jsonpath='{.metadata.uid}' 2>/dev/null)"
                   child="${name}-media"
                   if ! kubectl get deployment "$child" -n "$ns" >/dev/null 2>&1; then
                     echo "[tenant-operator] $ns/$name: creating child deployment $child (replicas=$replicas)"
@@ -843,7 +858,7 @@ spec:
                   ready="$(kubectl get deployment "$child" -n "$ns" -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
                   ready="${ready:-0}"
                   phase="Provisioning"; [ "$ready" = "$replicas" ] && phase="Ready"
-                  kubectl patch mediatenant "$name" -n "$ns" --subresource=status --type=merge -p "{\"status\":{\"phase\":\"$phase\",\"readyReplicas\":$ready}}" >/dev/null 2>&1
+                  kubectl patch $MT "$name" -n "$ns" --subresource=status --type=merge -p "{\"status\":{\"phase\":\"$phase\",\"readyReplicas\":$ready}}" >/dev/null 2>&1
                   echo "[tenant-operator] $ns/$name: phase=$phase readyReplicas=$ready desired=$replicas"
                 done
                 sleep 10
@@ -875,25 +890,24 @@ done
 kubectl rollout status deployment/orion-media -n media --timeout=90s >/dev/null 2>&1
 kubectl rollout status deployment/lyra-media  -n media --timeout=90s >/dev/null 2>&1
 
-# >>> breakfix-03 mutation: tenant `vega` was offboarded weeks ago — its MediaTenant CR
-#     was deleted. Its child media Deployment, vega-media, should have been cascade-deleted
-#     with it, but it is still Running and holding capacity. The reason: vega-media was
-#     created by an older operator (before owner-reference stamping) and carries NO
-#     ownerReferences, so the garbage collector had no owner link to follow when the CR was
-#     deleted — the child was orphaned, not collected. We reproduce that exact state by
-#     applying vega-media with no ownerReferences and no `vega` MediaTenant. The current
-#     operator only manages Deployments for MediaTenants that EXIST, so it never touches
-#     this orphan. Contrast: orion-media and lyra-media DO carry an ownerReference to their
-#     MediaTenant (the operator stamped it). Fix = delete the orphan to reclaim its capacity.
+# >>> breakfix-04 mutation: tenant `vega` was offboarded weeks ago and its MediaTenant was
+#     deleted. Its child media Deployment, vega-media, should have been cascade-deleted
+#     with it, but it is still Running and holding capacity. vega-media was created by an
+#     older operator that did not stamp owner references, so it carries NO ownerReferences.
+#     The garbage collector found nothing to follow when the CR was deleted. We reproduce
+#     that state by applying vega-media with no ownerReferences and no `vega` MediaTenant.
+#     The current operator manages only children of tenants that EXIST, so it never touches
+#     the orphan. orion-media and lyra-media DO carry an ownerReference to their MediaTenant.
+#     Fix = delete the orphan to reclaim its capacity.
 cat <<'EOF' | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: vega-media
   namespace: media
-  # MUTATED (baseline: a healthy child carries ownerReferences → its MediaTenant, as
-  #   orion-media does) — this orphan has NO ownerReferences and no parent CR, so cascading
-  #   GC never removed it when tenant vega was offboarded.
+  # MUTATED (baseline: a healthy child carries ownerReferences to its MediaTenant, as
+  #   orion-media does): this orphan has NO ownerReferences and no parent CR, so cascading
+  #   garbage collection never removed it when tenant vega was offboarded.
   labels: { app: vega-media, managed-by: tenant-operator, plane: media, tier: lab }
 spec:
   replicas: 2
@@ -911,6 +925,6 @@ spec:
             limits:   { cpu: 100m, memory: 64Mi }
 EOF
 kubectl rollout status deployment/vega-media -n media --timeout=60s >/dev/null 2>&1
-# <<< breakfix-03 mutation ends
+# <<< breakfix-04 mutation ends
 
 touch /tmp/.setup-complete

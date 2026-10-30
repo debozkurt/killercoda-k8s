@@ -1,0 +1,28 @@
+{
+  "title": "M08 — Break/fix 05: Delete Stuck in Terminating (Finalizer)",
+  "description": "A tenant delete never finishes: vega sits in Terminating while its child keeps serving. Find the finalizer that blocks it and the controller that must remove it, and finish the offboarding safely.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      {
+        "title": "Diagnose the stuck deletion",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
+    ],
+    "finish": {
+      "text": "finish.md"
+    }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

@@ -1,44 +1,34 @@
 # Step 1 — Diagnose the rejected resource
 
-The bug is an *absence*: `vega` doesn't exist. Confirm that, then apply its manifest and let the API server tell you why.
+The fault is an absence: `vega` does not exist. Confirm that, then apply the manifest and let the API server explain.
 
-## vega isn't there
+## vega is not there
 
 ```bash
 kubectl get mediatenants -A
 ```{{exec}}
 
-Only `orion` and `lyra`. The operator provisions what exists, and `vega` doesn't — so no `vega-media` Deployment either. This isn't a reconcile problem; the resource was never created.
+Two tenants. The operator provisions what exists, so there is no `vega-media` either. This is not a reconcile problem. The custom resource was never stored.
 
-## Apply the manifest and read the error
+## Apply the manifest, read the error
 
 ```bash
 kubectl apply -f /root/vega-tenant.yaml
 ```{{exec}}
 
-The API server rejects it:
+The API server answers with one line that names the field, the bad value and the allowed values:
 
 ```
 The MediaTenant "vega" is invalid: spec.tier: Unsupported value: "platinum": supported values: "gold", "silver", "bronze"
 ```
 
-That's **admission validation**. The CRD carries an OpenAPI schema, and the API server checks every custom resource against it before persisting — a wrong enum value is refused exactly as a malformed built-in would be. Nothing was written, so nothing downstream (the operator, a child Deployment) ever happened.
+That is **admission validation**. The CRD carries an OpenAPI schema, and the API server checks every custom resource against it before it stores the object. Nothing was written, so the operator never ran for `vega`.
 
-## Read the schema you have to satisfy
+## Read the schema you must satisfy
 
 ```bash
 kubectl explain mediatenant.spec.tier
+cat /root/vega-tenant.yaml
 ```{{exec}}
 
-```bash
-kubectl get crd mediatenants.polyphone.example \
-  -o jsonpath='{.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.tier.enum}'; echo
-```{{exec}}
-
-The allowed tiers are `["gold","silver","bronze"]`. The manifest asked for `platinum` — not in the set. See the offending line:
-
-```bash
-grep tier /root/vega-tenant.yaml
-```{{exec}}
-
-`tier: platinum`. The fix is to make the resource conform to the schema.
+`explain` reads the same schema back and lists the allowed values. The manifest asks for `platinum`, which is not in the list.
