@@ -1,11 +1,10 @@
 #!/bin/bash
-# Checks: the fleet namespace 'media' carries no PodSecurity enforce label, so it
-# runs under the default Privileged standard (the healthy baseline this step
-# contrasts against psa-demo). Defensive; independent of the psa-demo cleanup.
-LABEL=$(kubectl get ns media -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}' 2>/dev/null)
-if [ -n "$LABEL" ]; then
-  echo "namespace media unexpectedly enforces '$LABEL'. The baseline fleet namespaces should carry no enforce label." >&2
+# Checks: session-broker has a running Pod to read a securityContext from.
+# Defensive baseline check.
+READY=$(kubectl get deploy session-broker -n media -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
+if [ "$READY" != "1" ]; then
+  echo "session-broker isn't Available yet (availableReplicas='$READY'). The fleet may still be coming up — wait and retry." >&2
   exit 1
 fi
-echo "✓ media enforces no Pod Security Standard (default Privileged) — the unrestricted baseline"
+echo "✓ session-broker is running — a fleet Pod carrying the permissive default securityContext"
 exit 0

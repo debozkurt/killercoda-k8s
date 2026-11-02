@@ -1,36 +1,35 @@
-# Step 1 — Who the Pods are: ServiceAccounts & identity
+# Step 1 — Who the Pods are: ServiceAccounts
 
-Before "what may this Pod do?" comes "who *is* this Pod?" — its **ServiceAccount**.
+A **ServiceAccount** is a namespaced identity for the processes in a Pod. Every API request a Pod sends carries that identity.
 
-## Every namespace has a default SA
-
-```bash
-kubectl get serviceaccounts -A | grep -v kube-system | head
-```{{exec}}
-
-Kubernetes auto-creates a `default` ServiceAccount in every namespace. Unless you say otherwise, that's who your Pods are.
-
-## Which SA does a fleet Pod run as?
+## Every namespace has a default
 
 ```bash
-kubectl get pod -n media -l app=session-broker \
-  -o jsonpath='{.items[0].spec.serviceAccountName}'; echo
+kubectl get serviceaccounts -n media
 ```{{exec}}
 
-`default` — nobody set `serviceAccountName`, so the Pod adopted the namespace default. Every fleet workload runs this way.
+Kubernetes creates a ServiceAccount named `default` in every namespace. A Pod that does not name one runs as `default`.
 
-## The token is projected into the container
+## Which identity does a fleet Pod use?
+
+```bash
+kubectl describe pod -n media -l app=session-broker | grep -m1 'Service Account'
+```{{exec}}
+
+The line reads `Service Account:  default`. No fleet workload sets `serviceAccountName`, so every fleet Pod runs as its namespace's `default`.
+
+## The token is mounted into the container
 
 ```bash
 kubectl exec -n media deploy/session-broker -- ls /var/run/secrets/kubernetes.io/serviceaccount
 ```{{exec}}
 
-`ca.crt  namespace  token`. That `token` is the **bound service account token** — a short-lived JWT the kubelet projects in and rotates; it's how the Pod authenticates to the API server as `system:serviceaccount:media:default`.
+You see `ca.crt`, `namespace`, and `token`. The kubelet mounts a short-lived token here and rotates it. A client in the container sends this token, and the API server authenticates the caller as `system:serviceaccount:media:default`.
 
-## What can that identity actually do?
+## What may that identity do?
 
 ```bash
-kubectl auth can-i --list --as=system:serviceaccount:media:default -n media | head
+kubectl auth can-i --list -n media --as=system:serviceaccount:media:default
 ```{{exec}}
 
-The `default` SA authenticates fine but is authorized for almost nothing — just self-review endpoints (`selfsubjectreviews`, `selfsubjectaccessreviews`). Identity is step one; a *permission* is a separate thing you grant with RBAC. That's next.
+`kubectl auth can-i` asks the API server's authorizer the question directly, and `--as` tests another identity. The list holds only the self-review resources (`selfsubjectreviews` and similar) and discovery paths such as /api and /healthz. Authentication works. Authorization grants almost nothing. A permission is a separate object, and step 2 reads those objects.

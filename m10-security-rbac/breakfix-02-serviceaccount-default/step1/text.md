@@ -1,46 +1,35 @@
 # Step 1 — Diagnose the Forbidden
 
-Same symptom as break/fix 01 — a reader in `CrashLoopBackOff` with a 403. This time, read *who* the 403 names.
+The symptom matches break/fix 01. Read the identity field first.
 
-## Confirm it's crashing
+## Confirm the crash loop and read the logs
 
 ```bash
 kubectl get pods -n call-routing -l app=route-watcher
-```{{exec}}
-
-`CrashLoopBackOff` again. Read the logs.
-
-## The 403 names a different identity
-
-```bash
 kubectl logs -n call-routing deploy/route-watcher --tail=8
 ```{{exec}}
 
 ```text
-GET /api/v1/namespaces/call-routing/endpoints -> HTTP 403
-{... "message":"endpoints is forbidden: User
-\"system:serviceaccount:call-routing:default\" cannot list resource
-\"endpoints\" in API group \"\" in the namespace \"call-routing\"","reason":"Forbidden", ...}
+endpoints is forbidden: User "system:serviceaccount:call-routing:default"
+cannot list resource "endpoints" in API group "" in the namespace "call-routing"
 ```
 
-The verb (`list`) and resource (`endpoints`) are the same as last time — but the **identity** is `...:default`, the namespace default SA. That's the tell: this workload was supposed to run as a dedicated SA, not `default`.
+The verb, resource, API group, and scope match break/fix 01. The identity is `default`, the namespace's default ServiceAccount, and not a dedicated account.
 
-## The RBAC is fine — it's the Pod's identity that's wrong
-
-Someone did create a ServiceAccount and bind it. Prove the binding is good, and that `default` is the one that's unbound:
+## Test both identities
 
 ```bash
-kubectl auth can-i list endpoints -n call-routing \
-  --as=system:serviceaccount:call-routing:route-watcher      # yes
-kubectl auth can-i list endpoints -n call-routing \
-  --as=system:serviceaccount:call-routing:default            # no
+kubectl get serviceaccounts -n call-routing
+kubectl auth can-i list endpoints -n call-routing --as=system:serviceaccount:call-routing:route-watcher
+kubectl auth can-i list endpoints -n call-routing --as=system:serviceaccount:call-routing:default
 ```{{exec}}
 
-`route-watcher` is authorized; `default` is not. So the grant is correct — the Pod just isn't using it. Confirm which SA the Pod actually runs as:
+A `route-watcher` ServiceAccount exists. It gets yes, and `default` gets no. The grant is correct, and the Pod does not use it.
+
+## Read the Pod's identity
 
 ```bash
-kubectl get deploy route-watcher -n call-routing \
-  -o jsonpath='{.spec.template.spec.serviceAccountName}'; echo
+kubectl describe pod -n call-routing -l app=route-watcher | grep -m1 'Service Account'
 ```{{exec}}
 
-Empty — no `serviceAccountName` is set, so the Pod fell back to `default`. The permission is right; the caller isn't who you think. On to the fix.
+`Service Account:  default`. The Deployment's Pod template sets no `serviceAccountName`, so each Pod falls back to `default`.

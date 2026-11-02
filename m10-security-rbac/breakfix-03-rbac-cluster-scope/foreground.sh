@@ -8,7 +8,7 @@ done
 echo ""
 echo ""
 echo "node-inspector (analytics) is CrashLoopBackOff with a 403. Read the logs, and"
-echo "notice how the Forbidden message ENDS — the last words are the diagnosis:"
+echo "notice how the Forbidden message ENDS. The last words are the diagnosis:"
 echo ""
 echo "  kubectl get pods -n analytics -l app=node-inspector"
 echo "  kubectl logs -n analytics deploy/node-inspector --tail=8"

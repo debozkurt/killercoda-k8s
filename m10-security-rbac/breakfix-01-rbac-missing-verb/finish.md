@@ -1,11 +1,10 @@
 # Done
 
-A `CrashLoopBackOff` that was never an app bug: the container's logs read `403 Forbidden — cannot list resource "endpoints" ... in the namespace "media"`. The identity was right (`system:serviceaccount:media:endpoint-watcher`), so the *permission* was the problem — its Role granted `get` and `watch` on endpoints but not `list`, and a collection read needs `list`. Adding the one verb flipped `kubectl auth can-i` from `no` to `yes`; a `rollout restart` cleared the backoff.
+The crash loop had no application bug. The logs held a 403: `cannot list resource "endpoints" … in the namespace "media"`. The identity was the intended ServiceAccount, so the permission was short. The Role granted `get` and `watch`, and a collection read needs `list`. One verb turned `kubectl auth can-i` from `no` to `yes`.
 
-The reflex: **a CrashLoop whose logs say `Forbidden` is an RBAC problem, not an app problem.** Read the Forbidden as a sentence — identity, verb, resource, scope — and fix whichever one is wrong.
+The reflex: **a crash loop whose logs say `Forbidden` is an RBAC fault.** Read the five fields, prove the denial with `auth can-i`, and change the one object that does not match.
 
 **Next:**
 
 - Check your path against [`ANSWER-KEY.md`](../ANSWER-KEY.md).
-- For the *why*, see [`LESSON.md`](../LESSON.md) § RBAC.
-- Next scenario: **`breakfix-02-serviceaccount-default`** — the same 403, but this time the identity the message names is *wrong*.
+- Next scenario: **`breakfix-02-serviceaccount-default`**. The 403 looks the same, but the identity differs.

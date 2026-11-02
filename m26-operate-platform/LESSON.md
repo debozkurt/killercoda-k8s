@@ -13,7 +13,7 @@ Look back at what every module actually drilled. Each taught the same move in a 
 - `ImagePullBackOff` is a category; the kubelet event message separates never-pull from no-such-host from `401` from digest-mismatch (M02).
 - `connection refused` is a category; the EndpointSlice and the DNS answer say *where* it broke (M04).
 - A `Pending` Pod is a category; the scheduler event separates an untolerated taint from a node-affinity mismatch, insufficient resources, and pod anti-affinity (M06).
-- A `Forbidden` is a four-field sentence — verb, resource, scope, identity (M10).
+- A `Forbidden` is a five-field sentence: identity, verb, resource, API group, scope (M10).
 - `Running` ≠ `Ready` ≠ correct — the headline status lies; the readiness probe, the `.status` subresource, and the container logs carry the truth (M01, M07, M08).
 
 That transferable habit — *don't trust the headline; find the object that carries the evidence* — is the whole job. Operating the platform is running that loop across many objects at once, when more than one thing is broken.

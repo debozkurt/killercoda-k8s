@@ -1,50 +1,53 @@
 # Step 1 — Diagnose the Forbidden
 
-A CrashLoop usually means a broken app. This one is a broken *permission* — the logs say so.
+A crash loop usually means a broken application. Read the logs before you assume that.
 
-## Confirm it's crashing
+## Confirm the crash loop
 
 ```bash
 kubectl get pods -n media -l app=endpoint-watcher
 ```{{exec}}
 
-`CrashLoopBackOff`, restarts climbing. The Pod schedules and starts — not a scheduling or image problem — but its process keeps exiting.
+`CrashLoopBackOff`, with restarts climbing. The Pod was scheduled and its image pulled, so the process starts and then exits.
 
-## Read the logs — it's a 403, not a bug
+## Read the logs
 
 ```bash
 kubectl logs -n media deploy/endpoint-watcher --tail=8
 ```{{exec}}
 
-The container calls the API, prints the response, then exits because the call failed:
+The container calls the API, prints the response, and exits on failure. Find the `message` field:
 
 ```text
-GET /api/v1/namespaces/media/endpoints -> HTTP 403
-{"kind":"Status", ... "message":"endpoints is forbidden: User
-\"system:serviceaccount:media:endpoint-watcher\" cannot list resource
-\"endpoints\" in API group \"\" in the namespace \"media\"","reason":"Forbidden", ...}
+endpoints is forbidden: User "system:serviceaccount:media:endpoint-watcher"
+cannot list resource "endpoints" in API group "" in the namespace "media"
 ```
 
-Read the message like a sentence: the **identity** is `system:serviceaccount:media:endpoint-watcher` (the SA we intended), the **verb** is `list`, the **resource** is `endpoints`, the **scope** is `in the namespace "media"`. The caller is who we meant — so the *permission* is what's short.
+Read it field by field:
 
-## Reproduce it as a yes/no
+- identity: `endpoint-watcher`, the workload's own ServiceAccount
+- verb: `list`
+- resource: `endpoints`, in API group "" (the core group)
+- scope: the namespace `media`
+
+The identity is the intended one, so the permission is short.
+
+## Reproduce it as a yes or no
 
 ```bash
-kubectl auth can-i list endpoints -n media \
-  --as=system:serviceaccount:media:endpoint-watcher
+kubectl auth can-i list endpoints -n media --as=system:serviceaccount:media:endpoint-watcher
 ```{{exec}}
 
-`no`. Now see what the SA *can* do with endpoints:
+The answer is no. Now list everything this identity holds:
 
 ```bash
-kubectl auth can-i --list -n media \
-  --as=system:serviceaccount:media:endpoint-watcher | grep -i endpoints
+kubectl auth can-i --list -n media --as=system:serviceaccount:media:endpoint-watcher
 ```{{exec}}
 
-It holds `get` and `watch` — but not `list`. Read the Role it's bound to:
+Find the `endpoints` row. Its verbs column reads [get watch]. Read the Role behind it:
 
 ```bash
 kubectl describe role endpoint-reader -n media
 ```{{exec}}
 
-`Verbs: [get watch]`. The reader does a `list` (a GET on the endpoints *collection*, which the `list` verb governs) and the Role never granted it. One verb short. On to the fix.
+The rule row for `endpoints` lists [get watch]. The reader sends a GET on the endpoints collection, and the API server maps a collection GET to the `list` verb. The Role never grants `list`.

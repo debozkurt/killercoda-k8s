@@ -1,9 +1,9 @@
 # M10 — Break/fix 04: PodSecurity — a rejected Pod
 
-> Pre-req: break/fix 01–03. Those were authorization (RBAC) denials. This is a different gate: admission.
+> Pre-req: break/fix 01 to 03. Those were authorization denials. This one comes from a different gate: admission.
 
-The security team hardened a new namespace, `payments`, to enforce the **restricted** Pod Security Standard, and a workload — `payments-api` — was rolled out into it. The Deployment reports `0/1` ready. But when you go to debug the Pod, there is no Pod: `kubectl get pods -n payments` comes back empty. No `Pending`, no `CrashLoopBackOff`, nothing to describe.
+The security team created a namespace, `payments`, that enforces the **restricted** Pod Security Standard. A workload, `payments-api`, was rolled out into it. The Deployment reports `0/1` ready. `kubectl get pods -n payments` prints nothing: no `Pending` Pod, no crash loop, nothing to describe.
 
-That's the signature of an *admission* rejection: the Pod was refused before it was ever created, so the failure lives on the controller that tried to create it, not on a Pod. Your job: find the rejection, read which security fields it demands, and write a `securityContext` that satisfies `restricted`.
+Find where the refusal is recorded, read which fields it demands, and give the Pod a `securityContext` that meets `restricted`.
 
 The cluster takes 60–120 seconds to come up. Click **Start** when ready.

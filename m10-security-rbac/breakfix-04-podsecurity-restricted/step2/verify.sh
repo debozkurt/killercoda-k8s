@@ -1,10 +1,22 @@
 #!/bin/bash
-# Checks: payments-api now has an available replica — i.e. its Pod passed PodSecurity
-# admission under enforce=restricted, which it can only do with a compliant securityContext.
-AVAIL=$(kubectl get deploy payments-api -n payments -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
-if [ "$AVAIL" != "1" ]; then
-  echo "payments-api still has no available replica (availableReplicas='$AVAIL'). Its Pods are rejected by PodSecurity 'restricted'. Add a compliant securityContext: pod-level runAsNonRoot=true + runAsUser=1000 + seccompProfile.type=RuntimeDefault, and container-level allowPrivilegeEscalation=false + capabilities.drop=[ALL]." >&2
+# Checks: payments still enforces restricted (the fix must not relax the namespace), and
+# payments-api is Available, which under enforce=restricted proves a compliant Pod template.
+LEVEL=$(kubectl get ns payments -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}' 2>/dev/null)
+if [ "$LEVEL" != "restricted" ]; then
+  echo "Namespace payments no longer enforces restricted (found '${LEVEL:-no label}'). Restore it and fix the workload instead:" >&2
+  echo "  kubectl label ns payments pod-security.kubernetes.io/enforce=restricted --overwrite" >&2
   exit 1
 fi
-echo "✓ payments-api is Available (1/1) — its Pod satisfies the restricted Pod Security Standard"
+for i in 1 2 3 4 5 6; do
+  AVAIL=$(kubectl get deploy payments-api -n payments -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
+  [ "$AVAIL" = "1" ] && break
+  sleep 5
+done
+if [ "$AVAIL" != "1" ]; then
+  echo "payments-api has no available replica. Read the refusal, then add the fields it lists:" >&2
+  echo "  kubectl describe rs -n payments -l app=payments-api" >&2
+  exit 1
+fi
+kubectl get deploy,pods -n payments
+echo "✓ payments-api is Available under enforce=restricted"
 exit 0

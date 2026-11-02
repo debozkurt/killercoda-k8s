@@ -7,9 +7,9 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "payments-api (payments) reports 0/1 ready — but there are no Pods to look at,"
-echo "not even Pending ones. Find out why nothing is being created:"
+echo "payments-api (payments) reports 0/1 ready, and there are no Pods to look at,"
+echo "not even Pending ones. Find out why nothing is created:"
 echo ""
 echo "  kubectl get deploy,rs,pods -n payments"
-echo "  kubectl get events -n payments | grep -i -E 'failed|forbidden'"
+echo "  kubectl describe rs -n payments -l app=payments-api"
 echo ""

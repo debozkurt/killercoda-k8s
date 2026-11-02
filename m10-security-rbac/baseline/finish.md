@@ -1,13 +1,14 @@
 # Done
 
-You read the fleet's security posture top to bottom: the ServiceAccount each Pod runs as (`default`, unless set) and the bound token projected into it, the RBAC Roles and bindings that grant permissions plus `kubectl auth can-i` to prove any decision, the `securityContext` the fleet runs with (the permissive defaults), and PodSecurity admission rejecting a non-compliant Pod while admitting a hardened one. That's the shape of "healthy" — internalize it so each broken gate stands out.
+You read each gate in its healthy state:
+
+- Fleet Pods run as their namespace's `default` ServiceAccount, which holds almost no permissions.
+- RBAC grants by rule, and a RoleBinding to a ClusterRole confines the grant to one namespace.
+- The fleet runs as root with an empty `securityContext`.
+- PodSecurity `enforce` rejects a bare Pod outright, while a bare Deployment gets a warning and then zero Pods.
 
 **Next:**
 
-- For the *why* behind all of it, read [`LESSON.md`](../LESSON.md).
-- Then work the four break/fix scenarios, in order — the first three walk the `Forbidden` differential (one phrase in the message each), the fourth flips to the admission gate:
-  - **`breakfix-01-rbac-missing-verb`** — `403 Forbidden`, `cannot list … in the namespace`: a Role that grants `get` but not `list`.
-  - **`breakfix-02-serviceaccount-default`** — the same 403, naming `…:default`: a Pod that never adopted its intended SA.
-  - **`breakfix-03-rbac-cluster-scope`** — `403 Forbidden … at the cluster scope`: a namespaced binding for a cluster-scoped resource.
-  - **`breakfix-04-podsecurity-restricted`** — a Deployment `0/1` with no Pods at all: an admission rejection under `restricted`.
-- Check your diagnostic path against [`ANSWER-KEY.md`](../ANSWER-KEY.md) after each.
+- Read [`LESSON.md`](../LESSON.md) for the model behind each gate.
+- Work the break/fix scenarios. 01, 02, 03 and 05 each break one field of the Forbidden sentence (verb, identity, scope, API group). 04 and 06 split pod security between admission and the kubelet.
+- Check each path against [`ANSWER-KEY.md`](../ANSWER-KEY.md).

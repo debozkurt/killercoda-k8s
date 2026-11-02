@@ -1,34 +1,38 @@
-# Step 3 — A Pod's security posture: securityContext
+# Step 3 — Grant a permission and prove it
 
-RBAC governs what a Pod's process may *ask the API*. The **securityContext** governs what the Pod itself may *be* on the node — user, privileges, capabilities.
+Give a new identity read access in one namespace, then prove what it can and cannot reach.
 
-## What does the fleet run with?
-
-```bash
-kubectl get pod -n media -l app=session-broker \
-  -o jsonpath='{.items[0].spec.securityContext}'; echo
-kubectl get pod -n media -l app=session-broker \
-  -o jsonpath='{.items[0].spec.containers[0].securityContext}'; echo
-```{{exec}}
-
-Both empty. The fleet runs with the permissive defaults — root user, all default Linux capabilities, privilege escalation allowed. Fine in a lab; a liability in a shared cluster.
-
-## Confirm it's actually root
+## Create the identity
 
 ```bash
-kubectl exec -n media deploy/session-broker -- id -u
+kubectl create serviceaccount config-reader -n media
+kubectl auth can-i list configmaps -n media --as=system:serviceaccount:media:config-reader
 ```{{exec}}
 
-`0` — UID 0, root inside the container. Nothing here stops it.
+The answer is no. The account exists, so authentication works. No binding names it yet.
 
-## The fields that tighten it
+## Bind the built-in view ClusterRole in one namespace
 
-A hardened Pod sets these (you'll write exactly this set in break/fix 04):
+```bash
+kubectl create rolebinding config-reader-view -n media \
+  --clusterrole=view --serviceaccount=media:config-reader
+kubectl describe rolebinding config-reader-view -n media
+```{{exec}}
 
-- `runAsNonRoot: true` — kubelet refuses to start a container that would run as root
-- `runAsUser: 1000` — pin a non-root UID
-- `allowPrivilegeEscalation: false` — block setuid escalation
-- `capabilities: { drop: ["ALL"] }` — start from zero capabilities
-- `seccompProfile: { type: RuntimeDefault }` — apply the runtime's default syscall filter
+Read the `Role:` block: `Kind: ClusterRole` and `Name: view`. Read `Subjects:`: the ServiceAccount `config-reader` in namespace `media`. A RoleBinding that references a ClusterRole grants those rules only in the RoleBinding's own namespace.
 
-Setting these by hand on every workload is error-prone — so Kubernetes bundles them into named **Pod Security Standards** and enforces them per namespace. That's the last gate, next.
+## Prove the decision and its edges
+
+```bash
+kubectl auth can-i list configmaps -n media     --as=system:serviceaccount:media:config-reader
+kubectl auth can-i list configmaps -n signaling --as=system:serviceaccount:media:config-reader
+kubectl auth can-i get secrets     -n media     --as=system:serviceaccount:media:config-reader
+```{{exec}}
+
+Expected: yes, no, no.
+
+- The first is the grant.
+- The second shows the scope: the binding lives in `media`, so `signaling` gets nothing.
+- The third shows the role's content: `view` leaves Secrets out.
+
+RBAC changes take effect on the next request. Nothing restarts. The change is in the binding, and nothing changed in the Pod or the account.

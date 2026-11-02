@@ -1,0 +1,19 @@
+{
+  "title": "M10 — Break/fix 05: RBAC — wrong API group",
+  "description": "release-auditor is in CrashLoopBackOff with a 403 Forbidden, although a Role grants it get, list, and watch on deployments. Read every field of the Forbidden.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the Forbidden", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

@@ -1,240 +1,190 @@
 # M10 — Security I: RBAC & Pod Security — Answer Key
 
-> Self-grading reference. Work each scenario first, then check your diagnostic path against the canonical one here. Instructors running the lab live can read the same sections as a teaching script.
-> Environment: Killercoda `kubernetes-kubeadm-2nodes` with the Polyphone baseline. Each break/fix layers a tiny addition on the fleet — an API-reader Deployment (a `curl` loop that calls the API server with its projected token and prints the HTTP status), plus the RBAC or namespace object that decides whether the call succeeds. Nothing in the base fleet is broken; the mutation is one field in one gate.
+> Self-grading reference. Try each scenario first, then check your diagnostic path against the canonical one.
+> Environment: Killercoda `kubernetes-kubeadm-2nodes` with the Polyphone baseline. Each break/fix layers one small workload onto the fleet. The RBAC scenarios run a `curl` loop that calls the API server with the Pod's projected token, prints the HTTP status, and exits on any failure. The pod-security scenarios run `busybox` in a namespace that enforces `restricted`.
 
 ## Lesson summary
 
-M10 is about the three gates every API request passes — **authentication** (who are you), **authorization** (may you), **admission** (is this object allowed) — and reading which one said no. The `baseline/` tour reads the healthy posture: the `default` ServiceAccount every fleet Pod runs as and the bound token projected into it, the built-in ClusterRoles and `kubectl auth can-i`, the permissive default `securityContext`, and PodSecurity admission rejecting a bad Pod while admitting a hardened one. The four break/fix scenarios each break exactly one gate:
+M10 covers the three gates every API request passes (authentication, authorization, admission) and the kubelet check that runs before a container starts. Four scenarios break one field of the RBAC refusal each. Two split pod security between admission and the kubelet:
 
-- `breakfix-01-rbac-missing-verb` — **`Forbidden … cannot list`**: the Role grants `get`/`watch` on endpoints but not `list`.
-- `breakfix-02-serviceaccount-default` — **`Forbidden` naming `…:default`**: correct RBAC, but the Pod never adopted its SA.
-- `breakfix-03-rbac-cluster-scope` — **`Forbidden … at the cluster scope`**: a namespaced binding for a cluster-scoped resource.
-- `breakfix-04-podsecurity-restricted` — **a Deployment `0/1` with no Pods at all**: admission rejected every Pod under `restricted`.
+- `breakfix-01-rbac-missing-verb`: **`cannot list`**. The Role grants `get` and `watch` but not `list`.
+- `breakfix-02-serviceaccount-default`: **the identity is `…:default`**. The RBAC is correct, and the Pod omits `serviceAccountName`.
+- `breakfix-03-rbac-cluster-scope`: **`at the cluster scope`**. A Role and RoleBinding try to grant `nodes`.
+- `breakfix-04-podsecurity-restricted`: **a Deployment at 0/1 with no Pods**. Admission rejects each Pod.
+- `breakfix-05-rbac-wrong-apigroup`: **`in API group "apps"`**. The Role names `deployments` in the core group.
+- `breakfix-06-runasnonroot-root-image`: **a Pod in `CreateContainerConfigError`**. Admission accepts it, and the kubelet refuses a root image.
 
-The through-line for the first three: **a `Forbidden` is a sentence that names the identity, the verb, the resource, and the scope — read it before you touch anything, because each field is a different fix.** A missing verb is an RBAC edit; the wrong identity is a one-line Pod change; the wrong scope needs a ClusterRole. The fourth flips to admission — a rejection that never produces a Pod, so `get pods` shows nothing and the reason lives on the ReplicaSet. Across all four, `kubectl auth can-i` (with `--as`) is the reproduction tool<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/authorization/">[2]</a></sup>: turn the app's 403 into a yes/no you can iterate on without waiting for a CrashLoop.
+The through-line: **read the refusal before you change anything.** The RBAC message names identity, verb, resource, API group, and scope, and each field maps to one object<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[1]</a></sup>. `kubectl auth can-i --as=…` turns a crash-looping 403 into a `yes` or `no` that you can test in a second<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/authorization/">[2]</a></sup>.
 
 ## Baseline tour reference
 
 No broken state. Expected output per step:
 
-- **Step 1 (ServiceAccounts & identity):** `kubectl get serviceaccounts -A` shows a `default` SA in every namespace. `kubectl get pod -n media -l app=session-broker -o jsonpath='{.items[0].spec.serviceAccountName}'` prints `default` — no fleet workload sets `serviceAccountName`. `kubectl exec … -- ls /var/run/secrets/kubernetes.io/serviceaccount` shows `ca.crt namespace token` (the bound token). `kubectl auth can-i --list --as=system:serviceaccount:media:default -n media` shows the SA authenticates but is authorized for almost nothing — only the self-review endpoints. Teaching point: identity is not permission.
-- **Step 2 (RBAC):** `kubectl get clusterroles | grep -E '^(view|edit|admin|cluster-admin) '` lists the four user-facing built-ins. `kubectl describe clusterrole view` shows rules as `apiGroups × resources × verbs`, with `secrets` absent (reading Secrets is an escalation). `kubectl auth can-i list secrets -n media --as=…:default` and `get pods` both return `no` — deny-by-default: the *absence* of an allow is the denial.
-- **Step 3 (securityContext):** both `.spec.securityContext` and `.spec.containers[0].securityContext` for `session-broker` are empty; `kubectl exec … -- id -u` returns `0` (root). The fleet runs the permissive defaults. The step names the five `restricted` fields the learner will write in break/fix 04.
-- **Step 4 (PodSecurity admission):** `kubectl get ns -L pod-security.kubernetes.io/enforce` shows a blank `ENFORCE` column for every fleet namespace (no label ⇒ Privileged). Labelling a throwaway `psa-demo` namespace `enforce=restricted` and running a plain `busybox` Pod is refused *synchronously* at admission (`violates PodSecurity "restricted:latest": …`), while a Pod that sets the `restricted` fields is admitted and `Running`. The namespace is deleted at the end of the step.
+- **Step 1 (ServiceAccounts):** `get serviceaccounts -n media` lists `default`. `describe pod` for `session-broker` shows `Service Account:  default`. The mounted directory holds `ca.crt`, `namespace`, and `token`. `auth can-i --list` as `media:default` shows only the self-review resources and discovery paths.
+- **Step 2 (RBAC):** `get clusterroles view edit admin cluster-admin` lists the four built-ins. `describe clusterrole view` prints rule rows such as `deployments.apps … [get list watch]`, and no `secrets` row. `auth can-i get pods` as `media:default` returns `no`.
+- **Step 3 (Grant and prove):** after `create serviceaccount config-reader` and `create rolebinding config-reader-view --clusterrole=view`, `describe rolebinding` shows `Kind: ClusterRole`, `Name: view`, and the ServiceAccount subject. `auth can-i` returns `yes` for configmaps in `media`, `no` in `signaling` (the RoleBinding's scope), and `no` for secrets in `media` (the role's content).
+- **Step 4 (securityContext):** the Pod YAML has `securityContext: {}` and no container block. `id -u` prints 0.
+- **Step 5 (PodSecurity):** no fleet namespace has a pod-security label. In `psa-demo` with `enforce=restricted`, `kubectl run bad` fails with `violates PodSecurity "restricted:latest"` and lists four checks. `create deployment bad-deploy` prints `Warning: would violate PodSecurity` and creates a Deployment that stays 0/1 with no Pods. `describe rs` shows `FailedCreate`. The compliant `good` Pod reaches `Running`<sup><a href="https://kubernetes.io/docs/concepts/security/pod-security-admission/">[3]</a></sup>.
 
 ---
 
 ## Break/fix 01 — RBAC: a missing verb
 
-**Symptom:** `endpoint-watcher` in `media` is a discovery reader that lists Service endpoints. Its Pod is in `CrashLoopBackOff` with the restart count climbing. This is not an app crash — the container's own logs show `GET /api/v1/namespaces/media/endpoints -> HTTP 403` and a `Forbidden` Status object, then the process exits non-zero.
+**Symptom:** `endpoint-watcher` in `media` is in `CrashLoopBackOff`. Its logs show `HTTP 403` and a `Forbidden` status, and then the process exits.
 
-**Root cause:** The `endpoint-reader` Role grants `verbs: ["get", "watch"]` on `endpoints` but not `list`. The reader does a `GET` on the endpoints *collection* URL, and a collection GET is governed by the **`list`** verb (a GET on a single named object is `get`). No rule reachable from the SA matches `list endpoints`, so RBAC — which is additive and has no explicit deny — simply fails to allow, and the API server returns 403. The identity, the RoleBinding, and the app are all correct; the Role is one verb too narrow<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[1]</a></sup>.
+**Root cause:** The Role `endpoint-reader` grants `get` and `watch` on `endpoints`, not `list`. The reader sends a GET to the endpoints collection, and the API server maps a collection GET to the `list` verb. No rule matches, so authorization refuses the request<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[1]</a></sup>.
 
-**Diagnostic commands (the canonical path):**
+**Diagnostic commands:**
 
 ```bash
-# 1. It's crashing, but the Pod started — not an image/scheduling problem
-kubectl get pods -n media -l app=endpoint-watcher            # CrashLoopBackOff
-
-# 2. The logs are the diagnosis: read the Forbidden like a sentence
+kubectl get pods -n media -l app=endpoint-watcher           # CrashLoopBackOff
 kubectl logs -n media deploy/endpoint-watcher --tail=8
-#    ... "system:serviceaccount:media:endpoint-watcher" cannot LIST resource
-#        "endpoints" in API group "" in the namespace "media"
-#    identity = the SA we intended | verb = list | resource = endpoints | scope = namespace media
-
-# 3. Reproduce as a yes/no, then see what the SA actually holds
+# User "system:serviceaccount:media:endpoint-watcher" cannot list resource "endpoints"
+# in API group "" in the namespace "media"
+# identity: the workload's own account | verb: list | group: core | scope: media
 kubectl auth can-i list endpoints -n media \
-  --as=system:serviceaccount:media:endpoint-watcher          # no
-kubectl auth can-i --list -n media \
-  --as=system:serviceaccount:media:endpoint-watcher | grep -i endpoints
-#    endpoints … [get watch]   — no list
-
-# 4. Read the Role that identity is bound to
-kubectl describe role endpoint-reader -n media               # Verbs: [get watch]
+  --as=system:serviceaccount:media:endpoint-watcher         # no
+kubectl describe role endpoint-reader -n media              # endpoints  []  []  [get watch]
 ```
 
-The identity in the message is the SA you meant (not `default`), so the caller is right — the permission is what's short. `list` is missing.
-
-**Fix:** Add the `list` verb to the Role (no restart needed for the *authorization* to flip; RBAC changes take effect immediately):
+**Fix:**
 
 ```bash
 kubectl patch role endpoint-reader -n media --type=json \
   -p '[{"op":"replace","path":"/rules/0/verbs","value":["get","list","watch"]}]'
-# or: kubectl edit role endpoint-reader -n media   → verbs: ["get","list","watch"]
 ```
 
 **Verify:**
 
 ```bash
 kubectl auth can-i list endpoints -n media \
-  --as=system:serviceaccount:media:endpoint-watcher          # yes
-# The Pod is still backing off from earlier failures — nudge it rather than wait
-kubectl rollout restart deployment endpoint-watcher -n media
-kubectl rollout status  deployment endpoint-watcher -n media --timeout=60s
-kubectl logs -n media deploy/endpoint-watcher --tail=4       # HTTP 200 with the endpoints list
+  --as=system:serviceaccount:media:endpoint-watcher         # yes
+kubectl rollout restart deployment endpoint-watcher -n media   # skip the backoff wait
+kubectl logs -n media deploy/endpoint-watcher --tail=2      # HTTP 200
 ```
 
-**What this scenario tests:** Parsing a `Forbidden` and reading a Role's `rules`, plus the `get`-vs-`list` distinction. Self-grading questions:
+**What this scenario tests:** reading a 403 as a permission fault, and the `get` versus `list` distinction.
 
-- Did you read the logs and treat the CrashLoop as a *permission* failure, not reach for `--previous`, image, or scheduling checks?
-- Did you notice the verb was `list` (a collection GET), not `get`, and match it against the Role's `Verbs: [get watch]`?
-- Did you fix the Role rather than "solve" it by granting the SA `cluster-admin` or a wildcard verb?
+- Did you treat the crash loop as a permission failure before you checked the image or the code?
+- Did you match the verb in the message against the verbs column of the Role?
+- Did you add one verb, rather than a wildcard or `cluster-admin`?
 
-**Expected time:** 2–4 min once reading the Forbidden is a reflex; 8–15 min the first time (lost time usually goes to re-reading app code that was never wrong, or missing that `list` ≠ `get`).
+**Expected time:** 3–5 min with the reflex; 10–15 min the first time.
 
-**Production thinking:** Near-miss RBAC is the common case — a controller that was granted `get` and then started paging a collection, or `endpoints` vs. `endpointslices` after an API migration. Grant the exact verbs a workload uses (`kubectl auth can-i --list` on the running SA tells you what it exercises), and prefer a built-in ClusterRole like `view` per namespace over hand-written rules where you can, since the built-ins track new resource types and encode escalation boundaries (like excluding Secrets) that are easy to get wrong by hand. A wildcard verb "to make it work" turns a one-verb reader into something that can `delete` and `patch` — the opposite of least privilege.
+**Production thinking:** Near-miss grants are the common case. A controller gets `get`, then a new version starts to list a collection. Grant the verbs the client sends, and test them with `auth can-i` in CI. A wildcard verb turns a reader into something that can delete.
 
 ---
 
 ## Break/fix 02 — ServiceAccount: the default identity
 
-**Symptom:** `route-watcher` in `call-routing` is the same kind of endpoint reader, and it too is in `CrashLoopBackOff` with a 403. Same shape as break/fix 01 — but read *who* the 403 names.
+**Symptom:** `route-watcher` in `call-routing` is in `CrashLoopBackOff` with a 403. A dedicated ServiceAccount, Role, and RoleBinding all exist.
 
-**Root cause:** The RBAC is correct: there is a `route-watcher` ServiceAccount, a `route-endpoint-reader` Role granting `get`/`list`/`watch` on endpoints, and a RoleBinding tying them together. The bug is on the Pod — its template omits `serviceAccountName`, so the Pod runs as the namespace **`default`** SA, which is bound to nothing. The reader authenticates as `system:serviceaccount:call-routing:default` and is denied. The permission is right; the caller isn't who you think<sup><a href="https://kubernetes.io/docs/concepts/security/service-accounts/">[3]</a></sup>.
+**Root cause:** The Pod template has no `serviceAccountName`, so each Pod runs as `call-routing:default`. The RoleBinding grants `route-watcher`, and `default` holds no grant<sup><a href="https://kubernetes.io/docs/concepts/security/service-accounts/">[4]</a></sup>.
 
-**Diagnostic commands (the canonical path):**
+**Diagnostic commands:**
 
 ```bash
-# 1. Crashing again
-kubectl get pods -n call-routing -l app=route-watcher        # CrashLoopBackOff
-
-# 2. Read the identity in the 403 — this is the whole diagnosis
 kubectl logs -n call-routing deploy/route-watcher --tail=8
-#    ... "system:serviceaccount:call-routing:DEFAULT" cannot list resource "endpoints" ...
-#    same verb/resource as bf01, but the identity is :default, not route-watcher
-
-# 3. Prove the RBAC is fine and that default is the unbound one
+# User "system:serviceaccount:call-routing:default" cannot list resource "endpoints" ...
 kubectl auth can-i list endpoints -n call-routing \
-  --as=system:serviceaccount:call-routing:route-watcher      # yes  (the grant works)
+  --as=system:serviceaccount:call-routing:route-watcher     # yes: the grant works
 kubectl auth can-i list endpoints -n call-routing \
-  --as=system:serviceaccount:call-routing:default            # no   (default is bound to nothing)
-
-# 4. Confirm which SA the Pod actually runs as
-kubectl get deploy route-watcher -n call-routing \
-  -o jsonpath='{.spec.template.spec.serviceAccountName}'; echo   # empty → default
+  --as=system:serviceaccount:call-routing:default           # no
+kubectl describe pod -n call-routing -l app=route-watcher | grep -m1 'Service Account'
+# Service Account:  default
 ```
 
-`route-watcher` is authorized and `default` is not, yet the Pod runs as `default` — so the grant is correct and the Pod simply never adopted it.
-
-**Fix:** Point the Pod at its intended SA (this changes the template, so the Deployment rolls a new Pod that authenticates as `route-watcher`):
+**Fix:**
 
 ```bash
 kubectl set serviceaccount deployment route-watcher route-watcher -n call-routing
-# or: kubectl edit deployment route-watcher -n call-routing
-#     under spec.template.spec:  serviceAccountName: route-watcher
 ```
 
 **Verify:**
 
 ```bash
-kubectl get deploy route-watcher -n call-routing \
-  -o jsonpath='{.spec.template.spec.serviceAccountName}'; echo   # route-watcher
 kubectl rollout status deployment route-watcher -n call-routing --timeout=60s
-kubectl logs -n call-routing deploy/route-watcher --tail=4       # HTTP 200
+kubectl describe pod -n call-routing -l app=route-watcher | grep -m1 'Service Account'   # route-watcher
+kubectl logs -n call-routing deploy/route-watcher --tail=2  # HTTP 200
 ```
 
-**What this scenario tests:** Reading *which identity* a Forbidden names, and fixing the Pod instead of the RBAC. Self-grading questions:
+**What this scenario tests:** reading the identity field before the permission fields.
 
-- Did the `…:default` in the message tell you the caller was wrong before you touched the Role or RoleBinding?
-- Did you confirm the Pod's actual `serviceAccountName` was unset, rather than assuming the binding was broken?
-- Critically: did you resist "fixing" it by granting `default` the permission? What would that have handed every *other* Pod in `call-routing` that also runs as `default`?
+- Did you notice `default` in the message before you opened the Role?
+- Did you prove the grant was correct with `auth can-i` on the intended account?
+- Did you change the Pod, and leave `default` with no grant?
 
-**Expected time:** 2–4 min if you read the identity first; 10–20 min if you start editing the (correct) Role and RoleBinding and only later re-read the subject.
+**Expected time:** 3–5 min with the reflex; 10–15 min the first time.
 
-**Production thinking:** Granting `default` a permission is the seductive wrong fix — it clears the error and silently widens access to every unconfigured Pod in the namespace, since they all share `default`. The right pattern is one dedicated SA per workload, named in the Pod template, bound to exactly what it needs. Make it a review rule that any Deployment calling the API sets `serviceAccountName`, and consider `automountServiceAccountToken: false` on workloads that never talk to the API so there's no token to leak in the first place. The `default` SA is best left bound to nothing precisely so a forgotten `serviceAccountName` fails loudly here instead of quietly inheriting privilege.
+**Production thinking:** A grant to `default` reaches every Pod in the namespace that omits `serviceAccountName`, now and in the future. Give each workload that calls the API its own ServiceAccount. Set `automountServiceAccountToken: false` on the `default` account, so a Pod that forgets the field gets no token instead of a borrowed identity. A policy engine (M20) can require the field.
 
 ---
 
 ## Break/fix 03 — RBAC: cluster scope
 
-**Symptom:** `node-inspector` in `analytics` reads the node inventory and is in `CrashLoopBackOff` with a 403. The verb it needs *is* granted and the identity is the one you intended — so read the message to its very last words.
+**Symptom:** `node-inspector` in `analytics` is in `CrashLoopBackOff` with a 403. A Role names `nodes` with get, list, and watch, and a RoleBinding grants it.
 
-**Root cause:** `nodes` are a **cluster-scoped** resource — they don't live in any namespace. The grant was written as a namespaced **Role** + **RoleBinding**, which RBAC accepts as valid YAML, but a namespaced binding only grants within its own namespace and can never reach a resource that lives outside every namespace. So the grant is inert: the request is denied, and the message ends `at the cluster scope` rather than `in the namespace "analytics"`. A cluster-scoped resource can only be granted by a **ClusterRole** through a **ClusterRoleBinding**<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[1]</a></sup>.
+**Root cause:** Nodes are cluster-scoped. A RoleBinding grants only inside its own namespace, so it never reaches a resource that has none. The API server accepts the Role and the Role grants nothing. Only a ClusterRole bound by a ClusterRoleBinding grants a cluster-scoped resource<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[1]</a></sup>.
 
-**Diagnostic commands (the canonical path):**
+**Diagnostic commands:**
 
 ```bash
-# 1. Crashing
-kubectl get pods -n analytics -l app=node-inspector          # CrashLoopBackOff
-
-# 2. The last words of the message are the tell — "at the cluster scope"
 kubectl logs -n analytics deploy/node-inspector --tail=8
-#    ... "system:serviceaccount:analytics:node-inspector" cannot list resource
-#        "nodes" in API group "" AT THE CLUSTER SCOPE
-#    identity right, verb (list) granted — but scope is cluster, not namespace
-
-# 3. Prove the namespaced grant does nothing (no -n: the question is cluster-scoped)
+# cannot list resource "nodes" in API group "" at the cluster scope
+kubectl api-resources --namespaced=false | grep -w nodes
+kubectl get role,rolebinding -n analytics                   # namespaced grant
 kubectl auth can-i list nodes \
-  --as=system:serviceaccount:analytics:node-inspector        # no
-
-# 4. Confirm the grant is namespaced, and that nodes really are cluster-scoped
-kubectl get role,rolebinding -n analytics | grep node        # a Role + a RoleBinding (both namespaced)
-kubectl api-resources --namespaced=false | grep -E 'NAME|nodes'   # nodes → NAMESPACED false
+  --as=system:serviceaccount:analytics:node-inspector       # no (no -n: cluster question)
 ```
 
-The YAML parsed and the objects exist — but a namespaced RoleBinding for a cluster-scoped resource grants nothing. The word `scope` in the error is the whole diagnosis.
-
-**Fix:** Re-grant `list nodes` with a ClusterRole and a ClusterRoleBinding:
+**Fix:**
 
 ```bash
-kubectl create clusterrole node-reader \
-  --verb=get,list,watch --resource=nodes
+kubectl create clusterrole node-reader --verb=get,list,watch --resource=nodes
 kubectl create clusterrolebinding node-inspector \
-  --clusterrole=node-reader \
-  --serviceaccount=analytics:node-inspector
-# the old namespaced Role/RoleBinding are inert — leave them or tidy up:
-kubectl delete role node-reader rolebinding node-inspector-binding -n analytics
+  --clusterrole=node-reader --serviceaccount=analytics:node-inspector
+# remove the inert grant; two kinds in one command need the kind/name form
+kubectl delete role/node-reader rolebinding/node-inspector-binding -n analytics
 ```
 
 **Verify:**
 
 ```bash
-kubectl auth can-i list nodes \
-  --as=system:serviceaccount:analytics:node-inspector        # yes  (no -n — cluster-scoped)
+kubectl auth can-i list nodes --as=system:serviceaccount:analytics:node-inspector   # yes
 kubectl rollout restart deployment node-inspector -n analytics
-kubectl rollout status  deployment node-inspector -n analytics --timeout=60s
-kubectl logs -n analytics deploy/node-inspector --tail=4     # HTTP 200 with the node list
+kubectl logs -n analytics deploy/node-inspector --tail=2    # HTTP 200
 ```
 
-**What this scenario tests:** The scope distinction — that cluster-scoped resources need a ClusterRole + ClusterRoleBinding, and that a namespaced grant for them is silently inert. Self-grading questions:
+**What this scenario tests:** the scope field, and which binding kind reaches which resource.
 
-- Did the `at the cluster scope` ending (vs. `in the namespace …`) point you at scope rather than at the verb, which was already granted?
-- Did you confirm `nodes` is cluster-scoped with `api-resources --namespaced=false` instead of guessing?
-- Did you drop the `-n` when reproducing with `auth can-i`, since the question isn't about a namespace?
+- Did you read the message to its end and see `at the cluster scope`?
+- Did you confirm the resource is cluster-scoped with `api-resources`?
+- Did you run `auth can-i` without `-n` for a cluster-scoped question?
 
-**Expected time:** 3–5 min once the two-word tell is familiar; 10–20 min the first time (lost time goes to adding verbs to the Role that already had them, because the verb was never the problem).
+**Expected time:** 4–6 min with the reflex; 12–20 min the first time.
 
-**Production thinking:** This is the grant that passes review and does nothing — YAML is valid, `kubectl apply` succeeds, and the failure only shows at runtime as a 403. It bites hardest for controllers and monitoring agents that read `nodes`, `persistentvolumes`, `namespaces`, or `storageclasses`. Scope a ClusterRole to exactly the cluster-scoped resources a workload needs, bind it with a ClusterRoleBinding, and remember the reach is cluster-wide — there is no "this ClusterRole but only for one namespace" for a cluster-scoped resource. When you only need a *namespaced* resource across namespaces, a RoleBinding that references a ClusterRole still confines the grant to that one namespace; that trick does not exist for `nodes`.
+**Production thinking:** A ClusterRoleBinding is the widest grant RBAC has. Keep the ClusterRole narrow (one resource, read verbs), and review every ClusterRoleBinding that names a ServiceAccount. A `get` on `nodes/proxy` looks like a read, and it reaches the kubelet API.
 
 ---
 
 ## Break/fix 04 — PodSecurity: restricted admission
 
-**Symptom:** The `payments-api` Deployment in the hardened `payments` namespace sits at `0/1` ready with **no Pods at all** — not `Pending`, not `CrashLoopBackOff`, nothing to describe. A Pod that merely failed to schedule would at least exist as `Pending`; here none was ever created.
+**Symptom:** `payments-api` in `payments` reports 0/1. `kubectl get pods -n payments` prints nothing. No Pod is `Pending` or crashing.
 
-**Root cause:** The `payments` namespace enforces the `restricted` Pod Security Standard (`pod-security.kubernetes.io/enforce=restricted`). The Deployment's Pod template sets no `securityContext`, so every Pod its ReplicaSet tries to create is rejected at **admission** — the gate that runs before a Pod is persisted. Because enforcement rejects at *creation*, the caller the API server refuses is the ReplicaSet controller, not you, and no Pod object is ever written. The Deployment itself was admitted (it isn't a Pod); the failure surfaces as a `FailedCreate` event on the ReplicaSet<sup><a href="https://kubernetes.io/docs/concepts/security/pod-security-admission/">[5]</a></sup>.
+**Root cause:** The namespace has `pod-security.kubernetes.io/enforce=restricted`, and the Pod template has no `securityContext`. `enforce` checks Pods, not Deployments. The ReplicaSet controller asks for each Pod, and admission rejects it before it is stored<sup><a href="https://kubernetes.io/docs/concepts/security/pod-security-admission/">[3]</a></sup>.
 
-**Diagnostic commands (the canonical path):**
+**Diagnostic commands:**
 
 ```bash
-# 1. 0/1, a ReplicaSet wanting 1 with 0 current, and NO Pods — upstream of scheduling
-kubectl get deploy,rs,pods -n payments
-
-# 2. The rejection is a FailedCreate event on the ReplicaSet, and it's a checklist
-kubectl get events -n payments | grep -i -E 'failed|forbidden'
-#    Error creating: pods "payments-api-..." is forbidden: violates PodSecurity
-#    "restricted:latest": allowPrivilegeEscalation != false (...), unrestricted
-#    capabilities (...), runAsNonRoot != true (...), seccompProfile (...)
-
-# 3. Confirm the namespace enforces restricted
-kubectl get ns payments -o jsonpath='{.metadata.labels}'; echo
-#    ... pod-security.kubernetes.io/enforce: restricted ...
+kubectl get deploy,rs,pods -n payments          # 0/1, rs desired 1 current 0, no pods
+kubectl describe rs -n payments -l app=payments-api
+# FailedCreate: pods "payments-api-…" is forbidden: violates PodSecurity "restricted:latest":
+# allowPrivilegeEscalation != false, unrestricted capabilities, runAsNonRoot != true, seccompProfile
+kubectl describe deploy payments-api -n payments # ReplicaFailure True FailedCreate
+kubectl describe ns payments                     # Labels: …/enforce=restricted
 ```
 
-No Pod to `logs` or `describe` is itself the signal: an empty Pod list under a `0/N` Deployment means admission, and the reason lives on the controller<sup><a href="https://kubernetes.io/docs/concepts/security/pod-security-standards/">[4]</a></sup>.
-
-**Fix:** Give the Pod template a `securityContext` that satisfies every line of the violation — exactly the `restricted` fields:
+**Fix:**
 
 ```bash
 kubectl patch deployment payments-api -n payments -p '{
@@ -243,32 +193,141 @@ kubectl patch deployment payments-api -n payments -p '{
     "containers": [{"name": "app", "securityContext": {"allowPrivilegeEscalation": false, "capabilities": {"drop": ["ALL"]}}}]
   }}}
 }'
-# strategic-merge: the containers entry merges into the container named "app" by name,
-# keeping its image/command and only adding the container-level securityContext.
 ```
+
+`runAsUser: 1000` is required because busybox runs as root. Without it, the Pod passes admission and fails at the kubelet (break/fix 06).
 
 **Verify:**
 
 ```bash
 kubectl rollout status deployment payments-api -n payments --timeout=60s
-kubectl get pods  -n payments                                # a Pod now exists and is Running
-kubectl get deploy payments-api -n payments                  # 1/1 available
+kubectl get deploy,pods -n payments              # 1/1, Pod Running
 ```
 
-**What this scenario tests:** Recognizing an admission rejection (zero Pods, not `Pending`) and writing a `restricted`-compliant `securityContext`. Self-grading questions:
+**What this scenario tests:** recognizing an admission rejection by the absence of Pods.
 
-- Did the absence of any Pod — not even `Pending` — tell you this was admission, not scheduling or a crash?
-- Did you find the reason on the ReplicaSet's `FailedCreate` event rather than looking (in vain) for a Pod to describe?
-- Did you set both levels — pod-level `runAsNonRoot`/`runAsUser`/`seccompProfile` and container-level `allowPrivilegeEscalation: false`/`capabilities.drop: [ALL]` — matching every line of the violation?
+- Did you go to the ReplicaSet when `get pods` returned nothing?
+- Did you treat the violation text as the list of fields to set?
+- Did you fix the workload and leave the namespace label alone?
 
-**Expected time:** 3–6 min once "no Pods = admission" is a reflex; 10–20 min the first time (lost time goes to `kubectl describe pod` on a Pod that doesn't exist, or to `kubectl logs` returning nothing).
+**Expected time:** 5–8 min with the reflex; 15–20 min the first time.
 
-**Production thinking:** Enforce gates *creation*, so turning `enforce=restricted` on a namespace that already runs workloads doesn't kill the running Pods — it fails their *next* deploy, which is a latent outage waiting for a rollout. Sequence the rollout: set `warn` and `audit` to `restricted` first to learn what would break without blocking anything, fix each workload's `securityContext`, then flip `enforce`. Bake the `restricted` fields into your base manifests (Kustomize/Helm) so every workload ships compliant and a hardened namespace is a no-op rather than a wall. And read the violation as the checklist it is — the message names the exact standard and every field to set.
+**Production thinking:** `enforce` checks only creation, so the label does not stop running Pods. It stops their next replacement, which may come from a node drain at 03:00. Before you set `enforce`, run `kubectl label --dry-run=server --overwrite ns <name> pod-security.kubernetes.io/enforce=restricted`. The API server lists each existing Pod that would fail<sup><a href="https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/">[5]</a></sup>. Put the `restricted` fields in your base manifests so a new namespace policy changes nothing.
+
+---
+
+## Break/fix 05 — RBAC: wrong API group
+
+**Symptom:** `release-auditor` in `provisioning` is in `CrashLoopBackOff` with a 403. The Role grants get, list, and watch on `deployments`.
+
+**Root cause:** The rule names `deployments` with `apiGroups: [""]`, the core group. Deployments belong to `apps`. RBAC matches the group as an exact string, so the rule matches no real request<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[1]</a></sup>.
+
+**Diagnostic commands:**
+
+```bash
+kubectl logs -n provisioning deploy/release-auditor --tail=8
+# deployments.apps is forbidden: ... cannot list resource "deployments" in API group "apps"
+kubectl describe role release-reader -n provisioning   # deployments  []  []  [get list watch]
+#   no ".apps" suffix: the rule is in the core group
+kubectl api-resources | grep -w deployments            # APIVERSION apps/v1
+kubectl auth can-i list deployments -n provisioning \
+  --as=system:serviceaccount:provisioning:release-auditor   # no
+```
+
+**Fix:**
+
+```bash
+kubectl patch role release-reader -n provisioning --type=json \
+  -p '[{"op":"replace","path":"/rules/0/apiGroups","value":["apps"]}]'
+```
+
+**Verify:**
+
+```bash
+kubectl describe role release-reader -n provisioning   # deployments.apps
+kubectl auth can-i list deployments -n provisioning \
+  --as=system:serviceaccount:provisioning:release-auditor   # yes
+kubectl rollout restart deployment release-auditor -n provisioning
+kubectl logs -n provisioning deploy/release-auditor --tail=2   # HTTP 200
+```
+
+**What this scenario tests:** the API group field, and reading the group suffix in `describe role`.
+
+- Did you compare `in API group "apps"` with the rule's group, not only its verbs?
+- Did you read the missing `.apps` suffix in the `Resources` column?
+- Did you look up the group with `api-resources` rather than guess?
+
+**Expected time:** 3–6 min with the reflex; 10–15 min the first time.
+
+**Production thinking:** Wrong groups appear after API migrations (an `extensions` rule left behind) and in rules typed from memory. `kubectl create role --verb=list --resource=deployments` resolves the group through discovery. Prefer it, or copy the group from `kubectl api-resources`.
+
+<details>
+<summary>📖 Going deeper: auditing who can reach what<sup><a href="https://kubernetes.io/docs/concepts/security/rbac-good-practices/">[6]</a></sup></summary>
+
+During a review, start from the identity, not the YAML. `kubectl auth can-i --list --as=system:serviceaccount:<ns>:<name> -n <ns>` prints the effective rules after every binding is applied. Repeat it without `-n` for cluster-scoped grants.
+
+Then search for the escalation paths in the good-practices guide:
+
+- `create` on `pods` or on a workload resource gives access to every Secret and ServiceAccount in the namespace.
+- `escalate`, `bind`, and `impersonate` bypass RBAC's own escalation checks.
+- `get` on `nodes/proxy` reaches the kubelet API.
+
+The built-in `edit` ClusterRole carries the first path. A team with `edit` can read Secrets and run Pods as any ServiceAccount in its namespace.
+
+</details>
+
+---
+
+## Break/fix 06 — runAsNonRoot: a root image
+
+**Symptom:** `ledger-sync` in `payments` reports 0/1. A Pod exists, and its status is `CreateContainerConfigError`.
+
+**Root cause:** The Pod sets `runAsNonRoot: true` and no `runAsUser`. busybox declares no `USER`, so the container would run as UID 0. Admission passes the Pod, because `restricted` requires `runAsNonRoot` and does not require `runAsUser`. The kubelet then checks the effective user and refuses to create the container<sup><a href="https://kubernetes.io/docs/tasks/configure-pod-container/security-context/">[7]</a></sup>.
+
+**Diagnostic commands:**
+
+```bash
+kubectl get deploy,pods -n payments              # Pod: CreateContainerConfigError
+kubectl describe pod -n payments -l app=ledger-sync
+# Events: Error: container has runAsNonRoot and image will run as root
+kubectl get deploy ledger-sync -n payments -o yaml | grep -A4 'securityContext:'
+# runAsNonRoot: true, no runAsUser
+```
+
+**Fix:**
+
+```bash
+kubectl patch deployment ledger-sync -n payments -p '{
+  "spec": {"template": {"spec": {"securityContext": {"runAsUser": 1000}}}}
+}'
+```
+
+Or use an image that declares a numeric non-root `USER`. A named `USER` fails the same check, because the kubelet cannot prove a name is not root.
+
+**Verify:**
+
+```bash
+kubectl rollout status deployment ledger-sync -n payments --timeout=60s
+kubectl exec -n payments deploy/ledger-sync -- id -u     # 1000
+```
+
+**What this scenario tests:** telling the kubelet's refusal from admission's.
+
+- Did a Pod that exists send you to the Pod's events, not the ReplicaSet's?
+- Did you see that `runAsNonRoot` checks the user and does not set it?
+- Did you keep `runAsNonRoot: true` and add a user, rather than remove the check?
+
+**Expected time:** 3–5 min with the reflex; 10–15 min the first time.
+
+**Production thinking:** `restricted` admission does not prove a Pod will start. Build images with a numeric non-root `USER`, so the image itself passes the kubelet check. Test the hardened manifest in a namespace that enforces `restricted` before the rollout, because the failure appears only at container creation.
+
 
 ## References
 
 1. Kubernetes — Using RBAC Authorization: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
-2. Kubernetes — Authorization Overview (`kubectl auth can-i`): https://kubernetes.io/docs/reference/access-authn-authz/authorization/
-3. Kubernetes — Service Accounts (concept): https://kubernetes.io/docs/concepts/security/service-accounts/
-4. Kubernetes — Pod Security Standards: https://kubernetes.io/docs/concepts/security/pod-security-standards/
-5. Kubernetes — Pod Security Admission: https://kubernetes.io/docs/concepts/security/pod-security-admission/
+2. Kubernetes — Authorization (checking API access): https://kubernetes.io/docs/reference/access-authn-authz/authorization/
+3. Kubernetes — Pod Security Admission: https://kubernetes.io/docs/concepts/security/pod-security-admission/
+4. Kubernetes — Service Accounts: https://kubernetes.io/docs/concepts/security/service-accounts/
+5. Kubernetes — Enforce Pod Security Standards with Namespace Labels: https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/
+6. Kubernetes — Role Based Access Control Good Practices: https://kubernetes.io/docs/concepts/security/rbac-good-practices/
+7. Kubernetes — Configure a Security Context for a Pod or Container: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/

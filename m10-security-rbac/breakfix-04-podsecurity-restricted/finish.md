@@ -1,11 +1,10 @@
 # Done
 
-A Deployment stuck `0/1` with **no Pods at all** — the signature of an *admission* rejection, not a scheduling or runtime one. The `payments` namespace enforces the `restricted` Pod Security Standard, and `payments-api` shipped with no `securityContext`, so every Pod its ReplicaSet tried to create was refused before it existed. The rejection lived where you had to go looking for it: a `FailedCreate` event on the ReplicaSet, quoting `violates PodSecurity "restricted:latest"` and listing each missing field. Setting them — `runAsNonRoot`, a non-root `runAsUser`, `allowPrivilegeEscalation: false`, `capabilities: drop [ALL]`, and a `seccompProfile` — let the Pod through.
+A Deployment at `0/1` with no Pods is the signature of an admission rejection. The `payments` namespace enforces `restricted`, and `payments-api` had no `securityContext`. `enforce` rejected each Pod the ReplicaSet tried to create. The refusal was a `FailedCreate` event on the ReplicaSet and a `ReplicaFailure` condition on the Deployment. It listed each missing field.
 
-The reflex: **a Deployment with zero Pods (not even `Pending`) is an admission problem — look at the ReplicaSet's events and the namespace's `pod-security…/enforce` label.** Fix the Pod to meet the standard; relaxing the namespace is a decision for the security team, not a debugging shortcut.
+The reflex: **no Pods, not even `Pending`, means look upstream of the Pod**: the ReplicaSet's events and the namespace's labels. Fix the workload. A change to the namespace policy is a decision for the security owner, not a debugging step.
 
 **Next:**
 
 - Check your path against [`ANSWER-KEY.md`](../ANSWER-KEY.md).
-- For the *why*, see [`LESSON.md`](../LESSON.md) § securityContext and the Pod Security Standards.
-- You've worked all three gates — authentication (identity), authorization (RBAC), and admission (PodSecurity). Re-open the baseline any time to re-read a healthy one.
+- Next scenario: **`breakfix-05-rbac-wrong-apigroup`**. Back to RBAC, and the one field of the Forbidden sentence not yet broken.

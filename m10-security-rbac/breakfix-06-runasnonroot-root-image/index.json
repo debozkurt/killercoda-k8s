@@ -1,0 +1,19 @@
+{
+  "title": "M10 — Break/fix 06: runAsNonRoot — a root image",
+  "description": "ledger-sync was admitted into a namespace that enforces restricted, and its Pod exists. Its container never starts. Find which component refused it, and why.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the container that never starts", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

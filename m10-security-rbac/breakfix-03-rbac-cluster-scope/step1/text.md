@@ -1,47 +1,34 @@
 # Step 1 — Diagnose the Forbidden
 
-Third 403. The verb is granted and the identity is right — so read the message to its very end.
+The verb is granted and the identity is right. Read the scope.
 
-## Confirm it's crashing
+## Read the logs
 
 ```bash
 kubectl get pods -n analytics -l app=node-inspector
-```{{exec}}
-
-`CrashLoopBackOff`. Read the logs.
-
-## The scope, not the verb, is the tell
-
-```bash
 kubectl logs -n analytics deploy/node-inspector --tail=8
 ```{{exec}}
 
 ```text
-GET /api/v1/nodes -> HTTP 403
-{... "message":"nodes is forbidden: User
-\"system:serviceaccount:analytics:node-inspector\" cannot list resource
-\"nodes\" in API group \"\" at the cluster scope","reason":"Forbidden", ...}
+nodes is forbidden: User "system:serviceaccount:analytics:node-inspector"
+cannot list resource "nodes" in API group "" at the cluster scope
 ```
 
-The identity is right (`node-inspector`) and the verb is `list` — which the Role *does* grant. But the message doesn't end `in the namespace "analytics"` like the last two did; it ends **`at the cluster scope`**. `nodes` are a cluster-scoped resource — they don't live in any namespace — and that changes what kind of grant can reach them.
+The identity is `node-inspector` and the verb is `list`, which the Role grants. The sentence does not end `in the namespace "analytics"`. It ends `at the cluster scope`.
 
-## Prove the namespaced grant does nothing
-
-```bash
-kubectl auth can-i list nodes \
-  --as=system:serviceaccount:analytics:node-inspector          # no
-```{{exec}}
-
-`no`, even though the Role and RoleBinding exist. Look at what kind of objects they are:
+## Confirm that nodes are cluster-scoped
 
 ```bash
-kubectl get role,rolebinding -n analytics | grep node
+kubectl api-resources --namespaced=false | grep -w nodes
 ```{{exec}}
 
-A **Role** and a **RoleBinding** — both namespaced. And confirm `nodes` really is cluster-scoped:
+`nodes` appears in the list of resources that belong to no namespace.
+
+## Read the grant
 
 ```bash
-kubectl api-resources --namespaced=false | grep -E 'NAME|nodes'
+kubectl get role,rolebinding -n analytics
+kubectl auth can-i list nodes --as=system:serviceaccount:analytics:node-inspector
 ```{{exec}}
 
-`nodes` shows `NAMESPACED = false`. A namespaced RoleBinding only grants within its namespace, so it can never reach a resource that lives outside every namespace. The YAML parsed fine; the grant is simply inert. On to the fix.
+The grant is a **Role** and a **RoleBinding**. Both are namespaced. A RoleBinding grants only inside its own namespace, and nodes are in no namespace. The API server accepted the Role, and the Role grants nothing. `auth can-i` has no `-n` because the question is cluster-scoped, and it answers no.

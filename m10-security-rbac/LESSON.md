@@ -1,58 +1,55 @@
 # M10 — Security I: RBAC & Pod Security
 
-> The two questions every request to the API server must pass — *who are you* and *what may you do* — plus the admission gate that decides whether a Pod's security posture is allowed at all, and the handful of ways each one returns `Forbidden`.
+> Every API request passes three checks: who the caller is, what the caller may do, and whether the object is allowed. Then the kubelet runs one more check before a container starts. This module teaches you to read which check said no.
 
 ## What you'll learn
 
-- Trace a request through the API server's three gates — **authentication** (who), **authorization** (may they), **admission** (is this object allowed) — and tell which gate a `Forbidden` came from
-- Read RBAC: a **Role**/**ClusterRole** as a set of rules (`apiGroups` × `resources` × `verbs`), a **RoleBinding**/**ClusterRoleBinding** tying a subject to a role, and the additive/deny-by-default evaluation
-- Use `kubectl auth can-i` (with `--as` and `--list`) to reproduce and prove any authorization decision instead of guessing
-- Understand a **ServiceAccount** as a Pod's API identity — `system:serviceaccount:<ns>:<name>`, the auto-projected short-lived token — and why the `default` SA is bound to nothing
-- Set a container's **securityContext** (`runAsNonRoot`, `allowPrivilegeEscalation`, dropped capabilities, seccomp) and know which fields the `restricted` standard requires
-- Enforce the **Pod Security Standards** with PodSecurity admission's namespace labels (`enforce`/`audit`/`warn`), and recognize an admission rejection — a Deployment with zero Pods and no `Pending` Pod
-- Work the **`Forbidden` differential**: the same 403 from a missing verb vs. the wrong identity vs. the wrong scope — one phrase in the message tells them apart
+- Trace a request through the API server's three gates (**authentication**, **authorization**, **admission**) and name the gate behind a refusal
+- Read an RBAC denial as a five-field sentence (identity, verb, resource, API group, scope) and match each field to the object that fixes it
+- Write RBAC: a **Role** or **ClusterRole** holds rules, a **RoleBinding** or **ClusterRoleBinding** grants them to a subject, and the binding sets the scope
+- Prove any authorization decision with `kubectl auth can-i`, with `--as` to test another identity and `--list` to see everything it holds
+- Identify a Pod's API identity, its **ServiceAccount**, and explain why the `default` ServiceAccount has no useful permissions
+- Set a **securityContext** that meets the `restricted` **Pod Security Standard**, and enforce that standard with **PodSecurity admission** labels
+- Tell an admission rejection (no Pod exists) from a kubelet refusal (the Pod exists and its container never starts)
 
 ## Why it matters
 
-Security failures don't crash — they deny. A Pod that can't reach the API doesn't OOM or sit `Pending`; its app logs one line — `Forbidden` — and stalls, and every reflex from the workload modules (`logs`, `--previous`, restart) returns nothing useful. The signal is a single string from the API server that names the identity, the verb, the resource, and the scope. Read it and the fix is obvious; skim past it and you'll spend an hour editing an app that was never wrong.
+Security failures do not crash a component. They deny a request. A Pod that the API server refuses does not run out of memory or sit `Pending`. Its process logs one `403 Forbidden` and exits or stalls. The usual workload reflexes (`logs --previous`, a restart, a new image) change nothing, because the application has no defect.
 
-At Polyphone the surface is everywhere. A discovery sidecar needs to `list endpoints` and someone granted it `get`. A workload ships without a ServiceAccount, so it authenticates as `default` — bound to nothing — and every API call is denied. A new component wants to read node labels and the RoleBinding that "grants" it silently does nothing, because nodes are cluster-scoped and a namespaced binding can't reach them. The security team enforces the `restricted` standard on a namespace and the next Deployment there creates zero Pods with no error on any Pod, because no Pod was ever admitted. Each is one field, in one of three gates. This module is about reading which gate said no, and why.
+The diagnosis is already in the error. The API server writes a sentence that names the caller, the action, the resource, its API group, and the scope. Read that sentence first. Each field points at one object: the Pod's ServiceAccount, a Role's verbs, a rule's API group, or the kind of binding. Skip the sentence and you edit an application that was never wrong.
+
+Pod security fails in a second, quieter way. A namespace that enforces a standard rejects a non-compliant Pod before the Pod exists. The Deployment shows `0/1` and `kubectl get pods` prints nothing. An engineer who looks only at Pods finds no evidence at all.
 
 ## Scope
 
-**Covers:** the API request pipeline (authentication → authorization → admission) and where each says no; **RBAC** — Roles and ClusterRoles, RoleBindings and ClusterRoleBindings, the rule triple (`apiGroups`/`resources`/`verbs`), namespaced vs. cluster scope, additive/deny-by-default evaluation, and `kubectl auth can-i`; **ServiceAccounts** as Pod identity, the projected bound token, the `default` SA; **securityContext** at Pod and container level; the **Pod Security Standards** (privileged/baseline/restricted) and **PodSecurity admission** (the `enforce`/`audit`/`warn` namespace labels); and the `Forbidden` differential that ties RBAC and admission together.
+**Covers:** the request pipeline (authentication, authorization, admission) and the response each gate returns; RBAC (Roles, ClusterRoles, RoleBindings, ClusterRoleBindings, rule matching, subresources, namespace and cluster scope, the built-in user-facing ClusterRoles, and privilege-escalation paths); `kubectl auth can-i`; ServiceAccounts and the projected token; Pod and container `securityContext`; the Pod Security Standards; PodSecurity admission modes; the kubelet's `runAsNonRoot` check.
 
-**Doesn't cover:** user/group authentication mechanisms — client certs, OIDC, the fact that Kubernetes has no first-class User object — named where they intersect but the identity providers themselves are out; secrets management at scale (External Secrets, Vault, sealed-secrets) → M11; PKI, cert-manager, and mTLS between workloads → M12; NetworkPolicy and traffic isolation → M14; policy-as-code admission webhooks (Kyverno, OPA Gatekeeper) that go beyond built-in PodSecurity → M20–M21; the audit log that records every authorization decision → M13; image provenance (scanning, signing), covered in M02.
+**Doesn't cover:** user authentication mechanisms (client certificates, OIDC, webhook token authentication) beyond the identity they produce; the Node, ABAC, and webhook authorization modes; Secret management at scale → M11; certificates and mTLS → M12; the API audit log → M13; NetworkPolicy → M14; policy engines → M20; admission webhooks and ValidatingAdmissionPolicy → M21; PodSecurity exemptions and cluster-level defaults; AppArmor, SELinux, and Linux kernel constraints; multi-tenancy design.
 
-**Assumes:** M00 (`get → describe → events → logs`, and that a resource's story lives between `spec` and `status`), M01 (Pods, Deployments, ReplicaSets — a *controller*, not you, creates the Pods, which matters for how an admission rejection surfaces), M03 (a ServiceAccount token is mounted into a Pod the same way the projected Secret volumes there already are), and a working idea of an HTTP request carrying an `Authorization` header — because every `kubectl` command is exactly that.
+**Assumes:** M00 (`get → describe → events → logs`; `spec` and `status`), M01 (a ReplicaSet creates a Deployment's Pods, which decides where an admission rejection appears), and M03 (projected and Secret volumes).
 
 ## Vocabulary
 
 | Term | Definition |
 |------|------------|
-| **authentication (authn)** | The API server deciding *who* is calling, from a token or client cert. The result is a username (or `system:serviceaccount:<ns>:<name>`) plus groups. Kubernetes stores no User objects; ServiceAccounts are the only first-class identities. |
-| **authorization (authz)** | Deciding whether that identity may perform this **verb** on this **resource**. RBAC is the authorizer here. Deny-by-default: if no rule allows, the answer is no. |
-| **admission** | The stage *after* authz (writes only) where admission controllers inspect the object and may reject or mutate it. PodSecurity is a built-in admission controller. |
-| **RBAC** | Role-Based Access Control. Permissions are grouped into Roles; Roles are granted to subjects by Bindings. |
-| **Role / ClusterRole** | A named set of **rules**. A **Role** is namespaced (rules apply in one namespace); a **ClusterRole** is cluster-scoped — usable in any namespace, and the only kind that can grant cluster-scoped resources. |
-| **rule** | One line of a Role: `apiGroups` × `resources` × `verbs`, ANDed. A request is allowed if any rule matches all three. RBAC never denies explicitly; it only fails to allow. |
-| **RoleBinding / ClusterRoleBinding** | Ties a **subject** to a Role/ClusterRole. A **RoleBinding** grants within its namespace; a **ClusterRoleBinding** grants cluster-wide. |
-| **subject** | Who a binding grants to. For a Pod: `kind: ServiceAccount` with a `name` and `namespace`. |
-| **verb** | The action: `get`, `list`, `watch`, `create`, `update`, `patch`, `delete`. Reading one named object is `get`; reading a collection is `list`. |
-| **ServiceAccount (SA)** | A namespaced identity for processes in Pods. Every Pod runs as exactly one SA (`default` if unset) and authenticates as `system:serviceaccount:<ns>:<name>`. |
-| **bound service account token** | The short-lived, audience- and Pod-bound JWT the kubelet projects into every Pod at `/var/run/secrets/kubernetes.io/serviceaccount/token`. Auto-rotated; invalid once the Pod is gone. Replaced the old permanent Secret-based tokens. |
-| **securityContext** | Pod- and container-level fields setting the process's security posture: `runAsNonRoot`, `runAsUser`, `allowPrivilegeEscalation`, `capabilities`, `seccompProfile`, `readOnlyRootFilesystem`. |
-| **Pod Security Standards** | Three named policies: **Privileged** (unrestricted), **Baseline** (blocks known escalations), **Restricted** (hardened best practice). |
-| **PodSecurity admission** | The built-in controller that enforces a Standard per namespace via labels `pod-security.kubernetes.io/<mode>: <level>`, where mode is `enforce` (reject), `audit` (log), or `warn` (warn). |
-| **capability** | A slice of root's power (e.g. `NET_BIND_SERVICE`). Dropping `ALL` and adding back only what's needed is the hardening default. |
+| **authentication** | The API server establishes who sent the request, from a client certificate or a bearer token. The result is a username and groups. A request with no credential becomes `system:anonymous` when anonymous access is on<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/authentication/">[1]</a></sup>. |
+| **authorization** | The API server decides whether that identity may perform the verb on the resource. With RBAC, a request is denied unless a rule allows it. |
+| **admission** | "Admission controllers act on requests that create, modify, delete, or connect to (proxy) an object"<sup><a href="https://kubernetes.io/docs/concepts/security/controlling-access/">[2]</a></sup>. They never see reads. |
+| **RBAC** | "A method of regulating access to computer or network resources based on the roles of individual users"<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[3]</a></sup>. |
+| **Role / ClusterRole** | A set of rules. A Role lives in one namespace. A ClusterRole is cluster-scoped and is the only kind that can describe cluster-scoped resources such as `nodes`. |
+| **RoleBinding / ClusterRoleBinding** | Grants a Role or ClusterRole to subjects. A RoleBinding grants inside its own namespace. A ClusterRoleBinding grants across the cluster. |
+| **rule** | `apiGroups` × `resources` × `verbs`. A request matches a rule only when all three lists contain its values. |
+| **subject** | The identity a binding names: a user, a group, or a ServiceAccount with its namespace. |
+| **subresource** | A path under a resource, such as `pods/log` or `pods/exec`. RBAC treats it as a separate resource string. |
+| **ServiceAccount** | "A type of non-human account that, in Kubernetes, provides a distinct identity in a Kubernetes cluster"<sup><a href="https://kubernetes.io/docs/concepts/security/service-accounts/">[4]</a></sup>. A Pod authenticates as `system:serviceaccount:<namespace>:<name>`. |
+| **projected token** | The short-lived token the kubelet mounts at `/var/run/secrets/kubernetes.io/serviceaccount/token`. The kubelet rotates it, and it stops working when the Pod is deleted. |
+| **securityContext** | "A security context defines privilege and access control settings for a Pod or Container"<sup><a href="https://kubernetes.io/docs/tasks/configure-pod-container/security-context/">[5]</a></sup>. |
+| **Pod Security Standards** | Three levels: Privileged ("unrestricted"), Baseline ("prevents known privilege escalations"), and Restricted ("following current Pod hardening best practices")<sup><a href="https://kubernetes.io/docs/concepts/security/pod-security-standards/">[6]</a></sup>. |
+| **PodSecurity admission** | The built-in admission controller that applies a Standard to a namespace through the label `pod-security.kubernetes.io/<mode>: <level>`. The modes are `enforce`, `audit`, and `warn`. |
 
 ## Mental model
 
-Every `kubectl` command — and every API call your Pods make — is an HTTP request to the API server, and the server runs it through three gates, in order<sup><a href="https://kubernetes.io/docs/concepts/security/controlling-access/">[9]</a></sup>:
-
-1. **Authentication** — *who are you?* The server validates your credential (a token, a client cert) and resolves it to a username and groups. A Pod's credential is its projected ServiceAccount token, which resolves to `system:serviceaccount:<ns>:<name>`.
-2. **Authorization** — *may you do this?* With RBAC, the server looks for a rule — reachable from your identity through some binding — that allows this verb on this resource in this scope. There is no explicit deny; if nothing allows, you get `403 Forbidden`<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[1]</a></sup>.
-3. **Admission** — *is this object allowed?* Writes only. Admission controllers see the object and can reject or modify it. PodSecurity checks a Pod's `securityContext` against the namespace's Standard<sup><a href="https://kubernetes.io/docs/concepts/security/pod-security-admission/">[6]</a></sup>.
+Every `kubectl` command and every API call from a Pod is an HTTPS request to the API server. The API server runs three gates in order<sup><a href="https://kubernetes.io/docs/concepts/security/controlling-access/">[2]</a></sup>. A Pod that passes all three still has one more check: the kubelet inspects the container before it starts it.
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {
@@ -62,88 +59,119 @@ Every `kubectl` command — and every API call your Pods make — is an HTTP req
   'background':'#0f0f0f'
 }}}%%
 flowchart LR
-    R[API request<br/>+ credential] --> A1{authenticated?<br/>who are you}
-    A1 -->|no| E1[401 Unauthorized]
-    A1 -->|yes: user or<br/>serviceaccount| A2{authorized?<br/>RBAC rule allows}
-    A2 -->|no| E2[403 Forbidden]
-    A2 -->|yes| A3{admitted?<br/>PodSecurity etc.}
-    A3 -->|reject| E3[forbidden:<br/>violates PodSecurity]
-    A3 -->|admit| S[persisted → scheduled]
+    R[Request] --> A1{Authentication}
+    A1 -->|bad credential| E1[401]
+    A1 --> A2{Authorization<br/>RBAC}
+    A2 -->|no rule allows| E2[403 Forbidden<br/>cannot verb resource]
+    A2 --> A3{Admission<br/>writes only}
+    A3 -->|rejected| E3[403 Forbidden<br/>violates PodSecurity]
+    A3 --> P[Pod stored]
+    P --> K{kubelet<br/>runAsNonRoot}
+    K -->|refused| E4[CreateContainerConfigError]
 ```
 
-The payoff is that a `Forbidden` names exactly which gate and why. An **authorization** Forbidden reads: `<resource> is forbidden: User "<identity>" cannot <verb> resource "<resource>" in API group "<group>" in the namespace "<ns>"` (or, for a cluster-scoped resource, `at the cluster scope`). Every field in that sentence is a place the fix could live: the **identity** (are you who you meant to be?), the **verb** and **resource** (does a rule cover them?), and the **scope** (namespace vs. cluster — did you use the right kind of binding?). An **admission** Forbidden reads differently — `pods "<name>" is forbidden: violates PodSecurity "restricted:latest": <fields>` — and it lands not on your command but on the ReplicaSet that tried to create the Pod, because the *controller*, not you, is the caller the server refused.
+The response tells you the gate. An invalid credential gets `401 Unauthorized`. A missing credential is not a 401 when anonymous access is enabled, which is the API server default. The API server treats the request as `system:anonymous`, and authorization then refuses it with a 403. An authorization refusal names the five fields. An admission refusal names the policy and the failed checks. A kubelet refusal does not come from the API server at all. It appears as a container status and an event on a Pod that already exists.
 
-Two facts make RBAC quick to reason about. First, it is **purely additive and deny-by-default**: you can only grant, never deny, and a subject's permissions are the union of every binding that reaches it — so "why can't it?" is always "no rule allows it," never "something blocked it"<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[1]</a></sup>. Second, RBAC matches **strings**, not intent: `endpoints` and `endpoint`, `get` and `list`, apiGroup `""` and `"apps"` are different keys, and a near-miss is a silent denial. The fix is never to argue with the error; it is to make some rule, reachable from the right subject, match all three strings in the right scope.
+RBAC is quick to reason about because it has one direction. "Permissions are purely additive (there are no "deny" rules)"<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[3]</a></sup>. A subject holds the union of every binding that reaches it. So "why is this denied?" always means "no rule matches", never "something blocks it". RBAC also matches exact strings. `get` is not `list`, `pods` is not `pods/log`, and API group `""` is not `apps`. A near miss is a silent denial.
 
 ## Concept walkthrough
 
-### RBAC: rules, bindings, and the two scopes
+### RBAC: the Forbidden sentence and the rule that answers it
 
-RBAC has exactly two kinds of object, each in a namespaced and a cluster-scoped form. A **Role** (or **ClusterRole**) is a bag of rules; a **RoleBinding** (or **ClusterRoleBinding**) grants a role to subjects. A rule is three lists ANDed together<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[1]</a></sup>:
+**Rule.** The API server allows a request when one rule matches its API group, resource, and verb. A binding in the right scope must grant that rule to the caller.
+
+The authorizer's refusal states every input it checked. This is the v1.30 format from the API server source, for a namespaced request:
+
+```text
+deployments.apps is forbidden: User "system:serviceaccount:provisioning:release-auditor"
+cannot list resource "deployments" in API group "apps" in the namespace "provisioning"
+```
+
+Read it as five fields, and each field names one place to look:
+
+| Field | In the message | Where the fix lives |
+|-------|----------------|---------------------|
+| identity | `User "system:serviceaccount:…"` | the Pod's `serviceAccountName`, or a binding's subject |
+| verb | `cannot list` | the rule's `verbs` |
+| resource | `resource "deployments"` (or `"pods/log"`) | the rule's `resources`, subresource included |
+| API group | `in API group "apps"` | the rule's `apiGroups` (`""` is the core group) |
+| scope | `in the namespace "…"` or `at the cluster scope` | the kind of binding |
+
+The verb comes from the HTTP request. A GET on one named object is `get`. A GET on a collection is `list`, and a GET with `?watch=true` is `watch`. A controller that reads a collection on start needs `list`, even when it later reads single objects with `get`.
+
+A rule is three lists:
 
 ```yaml
 rules:
-- apiGroups: [""]            # "" is the core group (pods, services, endpoints, secrets…)
-  resources: ["endpoints"]
+- apiGroups: ["apps"]          # "" is the core group: pods, services, endpoints, secrets
+  resources: ["deployments"]
   verbs: ["get", "list", "watch"]
 ```
 
-A request is authorized if some rule reachable from the caller matches its apiGroup, its resource, *and* its verb. Miss any one — ask to `list` when the rule only grants `get`, name `endpoints` when the rule says `services` — and no rule matches, so it's denied. There is no `deny` rule to look for; the *absence* of an allow is the denial.
+`kubectl describe role` prints each rule as a table row and qualifies the resource with its group. A core-group rule reads `deployments`. An `apps` rule reads `deployments.apps`. That suffix is the fastest check for a wrong API group, because a core-group rule for `deployments` matches no request that a client sends.
 
-The scope distinction is the part that bites. Roles and RoleBindings are **namespaced**: a RoleBinding grants its role's rules only within its own namespace, and a Role can only usefully grant namespaced resources. ClusterRoles and ClusterRoleBindings are **cluster-scoped**: a ClusterRoleBinding grants across every namespace, and — the load-bearing fact — a **cluster-scoped resource (`nodes`, `namespaces`, `persistentvolumes`) can only be granted by a ClusterRole through a ClusterRoleBinding**<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[1]</a></sup>. Put `nodes` in a namespaced Role, bind it with a RoleBinding, and RBAC accepts the YAML without complaint — but the grant does nothing: nodes live outside every namespace, so a namespaced binding can never reach them. The request is denied `at the cluster scope`, and that word — *scope* — is the whole tell.
+**Scope is a property of the binding.** A RoleBinding grants its rules only inside its own namespace, even when it references a ClusterRole. That reuse is the standard way to grant a built-in role such as `view` in one namespace. A ClusterRoleBinding grants across all namespaces. Cluster-scoped resources (`nodes`, `namespaces`, `persistentvolumes`) live in no namespace, so only a ClusterRole bound by a ClusterRoleBinding reaches them<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[3]</a></sup>. The API server accepts a Role that lists `nodes`. That Role grants nothing, and the refusal ends `at the cluster scope`.
 
-One useful combination: a RoleBinding may reference a *ClusterRole*, which grants that ClusterRole's rules *only within the RoleBinding's namespace* — the standard way to reuse a built-in ClusterRole like `view` per namespace without copying its rules.
-
-You don't have to reason about any of this in your head. `kubectl auth can-i` asks the API server the exact question the authorizer answers<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/authorization/">[2]</a></sup>:
+**Prove the decision instead of reading YAML.** `kubectl auth can-i` sends the same question to the authorizer<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/authorization/">[7]</a></sup>:
 
 ```bash
-kubectl auth can-i list endpoints -n media \
-  --as=system:serviceaccount:media:endpoint-watcher            # yes / no
-kubectl auth can-i --list \
-  --as=system:serviceaccount:media:endpoint-watcher -n media   # everything that SA can do
+kubectl auth can-i list deployments.apps -n provisioning \
+  --as=system:serviceaccount:provisioning:release-auditor
+kubectl auth can-i --list -n provisioning \
+  --as=system:serviceaccount:provisioning:release-auditor
 ```
 
-`--as` impersonates any identity (you need impersonation rights, which cluster-admin has); `--list` dumps the full matrix. This is the first move on any Forbidden: reproduce it as a yes/no, then widen with `--list` to see what the subject actually holds.
+The first command answers `yes` or `no` for one request. The second prints every rule the identity holds in that namespace. `--as` requires impersonation rights, which `cluster-admin` has. Make this the first move on any 403: reproduce the denial as a `no`, then fix the object until it reads `yes`.
 
 <details>
-<summary>📖 Going deeper: the built-in ClusterRoles, and why you rarely write rules from scratch<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[1]</a></sup></summary>
+<summary>📖 Going deeper: built-in ClusterRoles and the grants that escalate<sup><a href="https://kubernetes.io/docs/concepts/security/rbac-good-practices/">[8]</a></sup></summary>
 
-Kubernetes ships default ClusterRoles you should reach for before hand-writing rules. The four user-facing ones are namespace-grantable via a RoleBinding that references them:
+Kubernetes ships four user-facing ClusterRoles. Grant them per namespace with a RoleBinding before you write custom rules<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[3]</a></sup>:
 
-- **view** — read-only on most namespaced resources, *excluding* Secrets (reading Secrets is a privilege escalation — a viewer who could read Secrets could read every ServiceAccount token in the namespace).
-- **edit** — read/write on most namespaced resources; still no RBAC editing, and no Secret read by default.
-- **admin** — everything `edit` has, plus managing Roles and RoleBindings *within* the namespace.
-- **cluster-admin** — everything, everywhere. The built-in `system:masters` group maps here and bypasses RBAC entirely, which is why a leaked cluster-admin kubeconfig is game over.
+- **view** reads most namespaced objects. It excludes Secrets, because "reading the contents of Secrets enables access to ServiceAccount credentials in the namespace". It also excludes Roles and RoleBindings.
+- **edit** reads and writes most namespaced objects, but not Roles or RoleBindings. It does allow "accessing Secrets and running Pods as any ServiceAccount in the namespace". A holder of `edit` can therefore act as any ServiceAccount in that namespace.
+- **admin** adds Roles and RoleBindings inside the namespace. It cannot write the ResourceQuota or the namespace itself.
+- **cluster-admin** allows every action. The `system:masters` group holds it, and a credential in that group bypasses authorization.
 
-Grant `view` in one namespace with `kubectl create rolebinding … --clusterrole=view --serviceaccount=ns:sa`. Prefer these to bespoke Roles: they track new resource types as the API grows, and they encode escalation boundaries (like the Secret exclusion) that are easy to get wrong by hand. Write a custom Role only when you need something *narrower* than `view` — a controller that lists exactly one resource, say.
+Some grants are wider than they read. The good-practices guide lists the paths an on-call reviewer looks for:
+
+- **Workload creation.** The right to create Pods, or a Deployment that creates them, "implicitly grants access to many other resources in that namespace, such as Secrets". The Pod mounts the Secret and reads it. It can also run as any ServiceAccount in the namespace.
+- **`escalate`, `bind`, `impersonate`.** RBAC normally refuses to let you create a Role with permissions you do not hold. `escalate` and `bind` remove that check. `impersonate` lets the caller act as another identity.
+- **`nodes/proxy`.** A `get` on this subresource reaches the kubelet API, which can execute commands in every Pod on the node. That access bypasses audit logging and admission control.
+
+At 03:00 the useful question is narrow: which bindings reach this identity, and does any of them hold one of these paths? `kubectl auth can-i --list --as=…` answers it in one command.
 
 </details>
 
 ### ServiceAccounts: a Pod's identity
 
-Authorization needs an identity, and for a Pod that identity is a **ServiceAccount**. Every Pod runs as exactly one SA — the one named in `spec.serviceAccountName`, or `default` if you don't set one — and the kubelet projects a token for that SA into the container at `/var/run/secrets/kubernetes.io/serviceaccount/`<sup><a href="https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/">[3]</a></sup>. When the process calls the API with that token, the server authenticates it as `system:serviceaccount:<namespace>:<name>`. That string is the subject your RoleBindings must name — and the identity a Forbidden error quotes back at you.
+**Rule.** Every Pod runs as exactly one ServiceAccount. It is the one in `spec.serviceAccountName`, or `default` when the field is empty.
 
-The `default` SA is the trap. Kubernetes auto-creates a `default` ServiceAccount in every namespace, and it is **bound to nothing** — it can talk to the API server (authenticate) but is authorized for almost nothing<sup><a href="https://kubernetes.io/docs/concepts/security/service-accounts/">[4]</a></sup>. A Pod rolled out without `serviceAccountName` runs as `default`, so a workload that needs API access and whose author forgot the one line gets a `Forbidden` naming `…:default` — even when the Role and RoleBinding they carefully wrote are sitting right there, correct, granting the *intended* SA the Pod never adopted. The difference between "the permission is wrong" and "the caller isn't who you think" is one word in the error: the subject.
+The kubelet requests a token for that ServiceAccount and mounts it into each container at `/var/run/secrets/kubernetes.io/serviceaccount/`, next to the cluster CA and the namespace<sup><a href="https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/">[9]</a></sup>. A client library reads those files and sends the token. The API server then authenticates the caller as `system:serviceaccount:<namespace>:<name>`. That string is the subject a RoleBinding must name. It is also the identity a refusal quotes back.
 
-The token itself changed in a way worth knowing<sup><a href="https://kubernetes.io/docs/concepts/security/service-accounts/">[4]</a></sup>. Modern clusters project a **bound service account token**: a short-lived JWT, scoped to a specific audience and Pod, auto-rotated by the kubelet, and invalid the moment the Pod is gone. This replaced the old model where every SA got a permanent, non-expiring token stored in a Secret — a token that, if exfiltrated, worked forever. You no longer get an automatic Secret per SA; ask for a token explicitly with `kubectl create token <sa>` when you need one out-of-band. If a workload never calls the API, set `automountServiceAccountToken: false` and it gets no token to leak.
+Kubernetes creates a `default` ServiceAccount in every namespace. Those accounts "get no permissions by default other than the default API discovery permissions"<sup><a href="https://kubernetes.io/docs/concepts/security/service-accounts/">[4]</a></sup>. A workload that omits `serviceAccountName` authenticates as `default` and is denied. This happens even when a correct Role and RoleBinding exist for the account the author intended. The identity field tells the two failures apart. If it names the intended account, the permission is wrong. If it names `default`, the Pod is wrong.
 
-### securityContext and the Pod Security Standards
+Never fix that case by granting the permission to `default`. Every Pod in the namespace that omits `serviceAccountName` runs as `default` and would inherit the grant. Give each workload its own ServiceAccount and bind only that account.
 
-Authorization governs what a Pod's *process* may ask the API. The last gate governs what the Pod itself may *be*. A container, by default, can run as root, escalate privileges, and hold a broad set of Linux capabilities — fine on a laptop, a liability in a multi-tenant cluster where a container escape becomes a node compromise. The **securityContext** is where you tighten that, at the Pod level (applies to all containers) or per container<sup><a href="https://kubernetes.io/docs/tasks/configure-pod-container/security-context/">[8]</a></sup>:
+The token is a projected, bound token. The kubelet gets it from the TokenRequest API, rotates it before it expires, and the API server rejects it after the Pod is deleted. Before v1.24 Kubernetes created a Secret with a non-expiring token for every ServiceAccount. It no longer does. For a token outside a Pod, run `kubectl create token <serviceaccount>`. A workload that never calls the API sets `automountServiceAccountToken: false` and carries no token to steal.
 
-- `runAsNonRoot: true` — the kubelet refuses to start the container if its image would run as UID 0.
-- `runAsUser: 1000` — pin the UID (needed alongside `runAsNonRoot` when the image defaults to root).
-- `allowPrivilegeEscalation: false` — no child process can gain more privileges than its parent (blocks setuid escalation).
-- `capabilities: { drop: ["ALL"] }` — start from zero Linux capabilities and add back only what's needed.
-- `seccompProfile: { type: RuntimeDefault }` — apply the container runtime's default syscall filter.
+### Pod security: admission checks the spec, the kubelet checks the image
 
-Setting these on every workload by hand is error-prone, so Kubernetes standardizes them into three **Pod Security Standards** and enforces them per namespace<sup><a href="https://kubernetes.io/docs/concepts/security/pod-security-standards/">[5]</a></sup>:
+**Rule.** PodSecurity admission compares a Pod's spec with the namespace's Standard when the Pod is created. The kubelet later checks the identity the container will actually run as.
 
-- **Privileged** — unrestricted. The default when a namespace carries no label.
-- **Baseline** — blocks the known-dangerous: no privileged containers, no host namespaces, no `hostPath`. Minimal friction.
-- **Restricted** — the hardened profile: everything Baseline blocks, *plus* `runAsNonRoot`, `allowPrivilegeEscalation: false`, `capabilities: drop [ALL]`, and a `seccompProfile`. Exactly the fields listed above.
+A container runs as root by default, keeps the runtime's default Linux capabilities, and may gain privileges through setuid binaries. The `securityContext` removes each of these at Pod level (for all containers) or per container<sup><a href="https://kubernetes.io/docs/tasks/configure-pod-container/security-context/">[5]</a></sup>:
 
-**PodSecurity admission** turns a Standard on for a namespace with a label, `pod-security.kubernetes.io/<mode>: <level>`, in three independent modes<sup><a href="https://kubernetes.io/docs/tasks/configure-pod-security-admission/enforce-standards-namespace-labels/">[7]</a></sup>:
+| Field | Effect |
+|-------|--------|
+| `runAsNonRoot: true` | The kubelet refuses to start a container whose user is UID 0 |
+| `runAsUser: 1000` | Runs the process as this UID, overriding the image's user |
+| `allowPrivilegeEscalation: false` | Sets `no_new_privs`, so a child process cannot gain privileges |
+| `capabilities.drop: ["ALL"]` | Removes every Linux capability |
+| `seccompProfile.type: RuntimeDefault` | Applies the container runtime's default syscall filter |
+
+The three Standards are cumulative<sup><a href="https://kubernetes.io/docs/concepts/security/pod-security-standards/">[6]</a></sup>. **Baseline** forbids privileged containers, host namespaces, `hostPath` volumes, host ports, and added capabilities outside a default set. **Restricted** adds the rest: `runAsNonRoot: true`, no UID 0 in `runAsUser`, `allowPrivilegeEscalation: false`, `capabilities.drop: ["ALL"]` with only `NET_BIND_SERVICE` allowed back, a `RuntimeDefault` or `Localhost` seccomp profile, and a short list of volume types.
+
+PodSecurity admission applies a Standard per namespace<sup><a href="https://kubernetes.io/docs/concepts/security/pod-security-admission/">[10]</a></sup>:
 
 ```bash
 kubectl label ns payments \
@@ -151,56 +179,72 @@ kubectl label ns payments \
   pod-security.kubernetes.io/warn=restricted
 ```
 
-`enforce` **rejects** a non-compliant Pod at admission; `audit` records it in the audit log; `warn` returns a warning to the client but admits it. Because the three are independent, the safe rollout pattern is `warn`/`audit` first (learn what would break), then `enforce`.
+The three modes act differently:
 
-The failure mode is specific and easy to misread. Because enforce runs at **admission**, a rejection lands on the object that *tries to create* the Pod — for a Deployment, that's the ReplicaSet — not on a Pod, because no Pod is ever created. So a Deployment in an enforced namespace can sit at `0/3` ready with **no Pods at all**, not even `Pending` ones, and the reason is an event on the ReplicaSet: `Error creating: … violates PodSecurity "restricted:latest": …`. `kubectl get pods` shows nothing to describe; you look at the controller or the namespace events. (This mirrors what M06 taught about `NoSchedule`: enforce gates *creation* — Pods already admitted before the label went on keep running.)
+- `enforce` rejects a violating Pod.
+- `audit` adds an annotation to the audit log entry and allows the Pod.
+- `warn` returns a warning to the client and allows the Pod.
+
+A namespace with no labels takes the cluster's default, which is `privileged` unless the cluster admission configuration sets another level.
+
+**Admission and workload objects.** "Enforce mode is not applied to workload resources, only to the resulting pod objects"<sup><a href="https://kubernetes.io/docs/concepts/security/pod-security-admission/">[10]</a></sup>. `warn` and `audit` do check a Deployment's Pod template. So `kubectl apply` of a non-compliant Deployment prints `Warning: would violate PodSecurity "restricted:latest"` and still creates the Deployment. The ReplicaSet controller then creates the Pods, and `enforce` rejects each one. No Pod exists, so nothing is `Pending`. The refusal is a `FailedCreate` event on the ReplicaSet, and `kubectl describe deploy` shows the condition `ReplicaFailure True FailedCreate`. Enforcement checks only creation. Pods that existed before the label keep running until their next replacement.
+
+**The kubelet's check.** `restricted` requires `runAsNonRoot: true`, but it does not require `runAsUser`. A Pod can pass admission and still fail to start. `runAsNonRoot` is a check, not a switch: it does not change the user. When no `runAsUser` is set, the kubelet reads the user from the image. An image with no `USER`, such as `busybox` or `nginx`, runs as root. The kubelet then refuses to create the container. The Pod exists with status `CreateContainerConfigError`, and its events say `container has runAsNonRoot and image will run as root`. The fix is a non-root `runAsUser`, or an image that declares a numeric non-root `USER`. A non-numeric `USER` fails the same check, because the kubelet cannot prove the name is not root.
+
+Roll out enforcement in two passes. First set `warn` and `audit`, or run `kubectl label --dry-run=server --overwrite ns <name> pod-security.kubernetes.io/enforce=restricted`<sup><a href="https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/">[11]</a></sup>. The dry run prints a warning for each existing Pod that would violate the level. Fix those workloads, then set `enforce`.
 
 ## Hands-on
 
-Four steps in the baseline, four break/fix scenarios — all on the full Polyphone fleet on a 2-node cluster. The baseline reads the healthy security posture; each break/fix breaks exactly one gate so you practice reading a single denial at a time.
+The baseline has five steps, and there are six break/fix scenarios. All run the full Polyphone fleet on a 2-node cluster. Scenarios 01, 02, 03 and 05 each break one field of the Forbidden sentence. Scenarios 04 and 06 split pod security between admission and the kubelet.
 
-- **`baseline/`** — who the fleet's Pods are (their ServiceAccounts and projected tokens), what they may do (RBAC roles, bindings, and `kubectl auth can-i`), the `securityContext` they carry, and which namespaces enforce a Pod Security Standard. Healthy security, so a denial stands out later.
-- **`breakfix-01-rbac-missing-verb`** — a reader Pod in `CrashLoopBackOff`, its logs a `403 Forbidden`: its Role grants `get`/`watch` on endpoints but the app does a `list`. Tests parsing the Forbidden and reading a Role's rules.
-- **`breakfix-02-serviceaccount-default`** — the same 403, but the message names `…:default`: the Pod omits `serviceAccountName`, so the correctly-bound SA is never adopted. Tests reading *which identity* the error names, and fixing the Pod, not the RBAC.
-- **`breakfix-03-rbac-cluster-scope`** — a 403 that ends `at the cluster scope`: a namespaced Role/RoleBinding trying to grant `nodes`, which only a ClusterRole can. Tests the scope distinction.
-- **`breakfix-04-podsecurity-restricted`** — a Deployment stuck `0/1` with no Pods at all: a workload with no `securityContext` in a namespace that enforces `restricted`. Tests recognizing an admission rejection and writing a compliant `securityContext`.
+- **`baseline/`**: read Pod identities and RBAC objects, then grant `view` in one namespace and prove it with `auth can-i`. Read the fleet's `securityContext`, and watch PodSecurity reject a Pod and warn on a Deployment.
+- **`breakfix-01-rbac-missing-verb`**: a reader in `CrashLoopBackOff` whose Role grants `get` and `watch` but not `list`. Field: verb.
+- **`breakfix-02-serviceaccount-default`**: the same 403, but the identity is `default`. The RBAC is correct and the Pod is wrong. Field: identity.
+- **`breakfix-03-rbac-cluster-scope`**: a Role that names `nodes`. The refusal ends `at the cluster scope`. Field: scope.
+- **`breakfix-04-podsecurity-restricted`**: a Deployment at `0/1` with no Pods in a `restricted` namespace. Gate: admission.
+- **`breakfix-05-rbac-wrong-apigroup`**: a Role for `deployments` in the core group. The refusal says `in API group "apps"`. Field: API group.
+- **`breakfix-06-runasnonroot-root-image`**: a compliant spec that admission accepts, and a container the kubelet refuses to start. Gate: kubelet.
 
-The first three walk the `Forbidden` differential — one phrase in the message each — and the fourth flips to the admission gate. Check yourself against `ANSWER-KEY.md` after each.
+Check your path against `ANSWER-KEY.md` after each scenario.
 
 ## Common failure modes
 
 | Symptom | Likely cause | Where to look |
 |---------|--------------|---------------|
-| App logs `Forbidden … cannot list … in the namespace` | An RBAC rule doesn't cover the verb/resource for this SA | `kubectl auth can-i --list --as=system:serviceaccount:ns:sa -n ns`; the Role's `rules` |
-| `Forbidden` names `…:default` | Pod runs as the `default` SA (no `serviceAccountName`) | the Pod's `.spec.serviceAccountName`; the RoleBinding's subject |
-| `Forbidden … at the cluster scope` | A cluster-scoped resource granted via a namespaced Role/RoleBinding | is it a Role or ClusterRole; `kubectl api-resources --namespaced=false` to confirm the resource is cluster-scoped |
-| Deployment `0/N`, no Pods, no `Pending` Pod | PodSecurity `enforce` rejected the Pod at admission | `kubectl get events -n ns`; `kubectl describe rs`; the namespace's `pod-security…/enforce` label |
-| Container won't start: `has runAsNonRoot and image will run as root` | `runAsNonRoot: true` but no non-root `runAsUser` and a root image | the `securityContext.runAsUser`; the image's default user |
-| `auth can-i` says yes but the app still gets 403 | The Pod isn't using the SA you tested, or its token isn't mounted | the Pod's *actual* SA; `automountServiceAccountToken` |
-| Everything denied for an SA that "has admin" | Binding subject name/namespace typo, or RoleBinding vs. ClusterRoleBinding mismatch | `kubectl describe rolebinding/clusterrolebinding`; the subject `kind`/`name`/`namespace` |
+| `cannot list resource "…" … in the namespace` | The rule lacks the verb | `kubectl auth can-i --list --as=…`; `kubectl describe role` |
+| The identity in the 403 is `…:default` | The Pod omits `serviceAccountName` | `kubectl describe pod` → `Service Account:` |
+| `in API group "apps"`, and the Role shows `deployments` without `.apps` | The rule names the wrong API group | `kubectl describe role` → the `Resources` column |
+| `cannot get resource "pods/log"` | The rule grants `pods` but not the subresource | the rule's `resources` |
+| `… at the cluster scope` | A Role or RoleBinding for a cluster-scoped resource | `kubectl api-resources --namespaced=false`; the binding kind |
+| `User "system:anonymous"` | The request carried no token | `automountServiceAccountToken`; the client's token path |
+| Deployment `0/N`, no Pods at all | PodSecurity `enforce` rejected the Pods | `kubectl describe rs` → `FailedCreate`; the namespace labels |
+| Pod `CreateContainerConfigError`, `image will run as root` | `runAsNonRoot: true` with no non-root user | `runAsUser`; the image's `USER` |
+| `auth can-i` says `yes`, the app still gets 403 | You tested a different identity or namespace | the identity and namespace in the actual error |
 
 ## Recap
 
-- **Every API request passes three gates in order** — authentication (who), authorization (may they), admission (is the object allowed) — and a `Forbidden` names which gate and why. Read the gate before you touch the app.
-- **RBAC is additive, deny-by-default, and matches strings.** A request is allowed only if some rule, reachable from the caller's identity through a binding, matches its apiGroup, resource, *and* verb. A near-miss (`get` vs. `list`, singular vs. plural) is a silent denial — there is nothing to "unblock," only a rule to make match.
-- **A Pod's identity is its ServiceAccount**; unset means `default`, which is bound to nothing. The subject named in a Forbidden tells you whether the permission is wrong or the caller isn't who you meant — one is an RBAC fix, the other a one-line Pod fix.
-- **Scope is a hard boundary.** Cluster-scoped resources (nodes, PVs, namespaces) can only be granted by a ClusterRole through a ClusterRoleBinding. A namespaced binding for them parses fine and grants nothing — the error ends `at the cluster scope`.
-- **PodSecurity admission enforces the Standards per namespace by label.** `enforce` rejects at *creation*, so a rejected Deployment has zero Pods and the reason lives on the ReplicaSet, not on any Pod. `restricted` needs `runAsNonRoot`, no privilege escalation, dropped capabilities, and a seccomp profile.
+- **Three gates, then the kubelet.** A 401 means the credential failed. A 403 that says `cannot <verb>` comes from authorization. A 403 that says `violates PodSecurity` comes from admission. `CreateContainerConfigError` comes from the kubelet.
+- **The RBAC refusal is a five-field sentence.** Identity, verb, resource, API group, and scope each map to one object. Read the sentence, prove it with `kubectl auth can-i`, and change the one object that does not match.
+- **RBAC only adds.** Nothing blocks a request. A request is denied because no rule matches its exact strings in its scope.
+- **A Pod's identity is its ServiceAccount.** An empty `serviceAccountName` means `default`, which has no useful permissions. Fix the Pod, not the `default` account.
+- **Admission checks the spec, and the kubelet checks the user.** `enforce` leaves a Deployment with zero Pods and the reason on the ReplicaSet. A compliant spec can still fail at the kubelet when the image runs as root.
 
 ## Production thinking
 
-- A ServiceAccount is granted `cluster-admin` "to unblock a rollout" and never walked back. What's the blast radius of that one binding if the Pod using it is ever compromised, and how would you find out what the workload actually needs so you can scope it back down?
-- You enforce `restricted` on a namespace that already runs a dozen workloads. Existing Pods keep running; the next deploy of any of them fails admission. How would you sequence turning enforcement on so you learn what breaks before it breaks a production rollout?
-- A workload authenticates as `default` and someone "fixes" the Forbidden by granting `default` the permissions it needed. Why is that the wrong fix — what does it hand to every *other* Pod in the namespace that also uses `default`, and what should they have done instead?
+- A ServiceAccount received `cluster-admin` to unblock an incident months ago. How would you find what the workload actually calls, and how would you shrink the grant without causing the next incident?
+- A team holds `edit` in its namespace and asks why it cannot read one Secret through the API. What can that team already reach through Pod creation, and what does that imply for how you scope namespaces?
+- You plan to enforce `restricted` on a namespace that runs twenty workloads. Which of them fail at admission, which pass admission and fail at the kubelet, and how would you find each group before the next deploy?
 
 ## References
 
-1. Kubernetes — Using RBAC Authorization: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
-2. Kubernetes — Authorization Overview (checking access, `can-i`): https://kubernetes.io/docs/reference/access-authn-authz/authorization/
-3. Kubernetes — Configure Service Accounts for Pods: https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/
-4. Kubernetes — Service Accounts (concept): https://kubernetes.io/docs/concepts/security/service-accounts/
-5. Kubernetes — Pod Security Standards: https://kubernetes.io/docs/concepts/security/pod-security-standards/
-6. Kubernetes — Pod Security Admission: https://kubernetes.io/docs/concepts/security/pod-security-admission/
-7. Kubernetes — Enforce Pod Security Standards with Namespace Labels: https://kubernetes.io/docs/tasks/configure-pod-security-admission/enforce-standards-namespace-labels/
-8. Kubernetes — Configure a Security Context for a Pod or Container: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
-9. Kubernetes — Controlling Access to the Kubernetes API: https://kubernetes.io/docs/concepts/security/controlling-access/
+1. Kubernetes — Authenticating (anonymous requests): https://kubernetes.io/docs/reference/access-authn-authz/authentication/
+2. Kubernetes — Controlling Access to the Kubernetes API: https://kubernetes.io/docs/concepts/security/controlling-access/
+3. Kubernetes — Using RBAC Authorization: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
+4. Kubernetes — Service Accounts: https://kubernetes.io/docs/concepts/security/service-accounts/
+5. Kubernetes — Configure a Security Context for a Pod or Container: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/
+6. Kubernetes — Pod Security Standards: https://kubernetes.io/docs/concepts/security/pod-security-standards/
+7. Kubernetes — Authorization (checking API access): https://kubernetes.io/docs/reference/access-authn-authz/authorization/
+8. Kubernetes — Role Based Access Control Good Practices: https://kubernetes.io/docs/concepts/security/rbac-good-practices/
+9. Kubernetes — Configure Service Accounts for Pods: https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/
+10. Kubernetes — Pod Security Admission: https://kubernetes.io/docs/concepts/security/pod-security-admission/
+11. Kubernetes — Enforce Pod Security Standards with Namespace Labels: https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/

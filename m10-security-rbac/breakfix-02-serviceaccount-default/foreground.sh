@@ -7,7 +7,7 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "route-watcher (call-routing) is CrashLoopBackOff with a 403 — same as last time?"
+echo "route-watcher (call-routing) is CrashLoopBackOff with a 403. Same as last time?"
 echo "Read the logs, and this time read WHICH identity the Forbidden names:"
 echo ""
 echo "  kubectl get pods -n call-routing -l app=route-watcher"

@@ -1,39 +1,41 @@
 # Step 1 — Diagnose the missing Pods
 
-A Deployment with `0/1` ready and *no Pods at all* is not a scheduling or crash problem. It's admission.
+A scheduling failure leaves a `Pending` Pod. A crash leaves a restarting Pod. Here no Pod exists at all.
 
-## There's nothing to describe
+## List the chain
 
 ```bash
 kubectl get deploy,rs,pods -n payments
 ```{{exec}}
 
-The Deployment is `0/1`; its ReplicaSet wants `1` but shows `0` current; and there are **no Pods** — not `Pending`, not anything. A Pod that merely failed to *schedule* would at least exist as `Pending`. Here none was created at all, which points upstream of scheduling, to admission.
+The Deployment reads 0/1. Its ReplicaSet wants 1 and has 0 current. No Pods exist. The ReplicaSet controller tried to create a Pod, and the API server refused it before it was stored.
 
-## The rejection is an event on the ReplicaSet
+## Read the ReplicaSet's events
 
 ```bash
-kubectl get events -n payments | grep -i -E 'failed|forbidden'
+kubectl describe rs -n payments -l app=payments-api
 ```{{exec}}
 
-The ReplicaSet controller keeps trying to create the Pod and keeps getting refused:
+The `Events:` section at the bottom has `FailedCreate` lines:
 
 ```text
-FailedCreate  replicaset/payments-api-...  Error creating: pods "payments-api-..." is
-forbidden: violates PodSecurity "restricted:latest": allowPrivilegeEscalation != false
-(container "app" must set securityContext.allowPrivilegeEscalation=false),
-unrestricted capabilities (container "app" must set securityContext.capabilities.drop=["ALL"]),
-runAsNonRoot != true (pod or container must set securityContext.runAsNonRoot=true),
-seccompProfile (pod or container must set securityContext.seccompProfile.type to
-"RuntimeDefault" or "Localhost")
+Error creating: pods "payments-api-…" is forbidden: violates PodSecurity "restricted:latest":
+allowPrivilegeEscalation != false (…), unrestricted capabilities (…),
+runAsNonRoot != true (…), seccompProfile (…)
 ```
 
-That message is a checklist. It names the standard (`restricted:latest`) and every field the Pod is missing.
-
-## Confirm the namespace enforces restricted
+The message names the level, `restricted:latest`, and each check the Pod failed. The Deployment shows the same fault as a condition:
 
 ```bash
-kubectl get ns payments -o jsonpath='{.metadata.labels}'; echo
+kubectl describe deploy payments-api -n payments
 ```{{exec}}
 
-`pod-security.kubernetes.io/enforce: restricted`. The namespace was hardened; the workload was written for a permissive one. Every field in the violation is one you saw in the baseline tour — time to set them.
+In the `Conditions:` table, read the row `ReplicaFailure   True    FailedCreate`.
+
+## Read the namespace policy
+
+```bash
+kubectl describe ns payments
+```{{exec}}
+
+The `Labels:` block holds pod-security.kubernetes.io/enforce=restricted, plus the matching `warn` and `audit` labels. `enforce` rejects Pods. It does not check the Deployment, which is why the Deployment exists and its Pods do not.
