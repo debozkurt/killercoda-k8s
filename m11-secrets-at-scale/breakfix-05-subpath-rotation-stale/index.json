@@ -1,0 +1,19 @@
+{
+  "title": "M11 — Break/fix 05: subPath Rotation Stale",
+  "description": "The partner API token was rotated in the store, and every SecretSync reads Synced. The partner reports that partner-connector still presents the old token, and this consumer reads its token from a file, not an environment variable. Find where the old value lives and make rotations land without a restart.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the stale file", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

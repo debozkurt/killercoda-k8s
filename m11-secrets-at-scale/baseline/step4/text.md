@@ -1,25 +1,23 @@
-# Step 4 — The consumer: the chain end to end
+# Step 4 — The consumer
 
-The consumer is the point of it all. It reads the materialized Secret as an ordinary env var and never knows the operator, the store, or the SecretSync exist. Trace the value all the way from store to running process.
+The consumer reads the derived Secret like any Secret from M03. It does not know that the operator or the store exist.
 
-## The consumer is running on the synced Secret
+## The consumer is running
 
 ```bash
-kubectl get pods -n provisioning -l app=billing-processor
+kubectl describe deployment billing-processor -n provisioning
 ```{{exec}}
 
-`billing-processor` `Running`, `1/1`. It references the `db-credentials` Secret exactly like any Secret from M03 — `env.valueFrom.secretKeyRef` — so if that Secret were missing, this Pod would be in `CreateContainerConfigError`. It isn't, because the operator produced it.
+Read the `Environment:` block. It shows `DB_PASSWORD: <set to the key 'DB_PASSWORD' in secret 'db-credentials'>`. If that Secret were missing, the Pod would sit in `CreateContainerConfigError`.
 
-## The value the process actually got
+## The value the process holds
 
 ```bash
 kubectl exec deploy/billing-processor -n provisioning -- printenv DB_PASSWORD
 ```{{exec}}
 
-The credential the process is holding. Now compare it to the store, the far end of the chain:
+It prints S3cure-prod-4417, the same value as the store in step 2. The chain holds: store key `db-password`, then the operator, then Secret key `DB_PASSWORD`, then the environment of the running process.
 
-```bash
-kubectl get secret vault-backend -n secrets-source -o jsonpath='{.data.db-password}' | base64 -d; echo
-```{{exec}}
+The kubelet set that variable once, when the container started. A later change to the Secret does not reach it. Remember this for the rotation scenarios.
 
-Identical. The full chain held: store `db-password` → operator → `db-credentials` Secret `DB_PASSWORD` → the process's environment. That's a healthy secrets pipeline, top to bottom. Every break/fix scenario snaps exactly one link in this chain — internalize the whole shape so a broken link is obvious.
+Each break/fix scenario breaks one link in this chain.

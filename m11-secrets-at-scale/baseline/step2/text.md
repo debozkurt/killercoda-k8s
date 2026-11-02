@@ -1,28 +1,28 @@
-# Step 2 — The materialized Secret: a derived object
+# Step 2 — The derived Secret
 
-The operator turns each SecretSync into an ordinary Kubernetes `Secret` — the thing the consumer actually reads. That Secret is **derived**: the operator owns it and reconciles it back to the store.
+The operator writes an ordinary Secret for each `SecretSync`. That Secret is **derived**: the operator controls its content.
 
-## The Secret the operator produced
-
-```bash
-kubectl get secret db-credentials -n provisioning -o yaml
-```{{exec}}
-
-A normal `Opaque` Secret with key `DB_PASSWORD`, carrying a `managed-by: secret-operator` label — the operator stamps it so you can tell derived Secrets from hand-written ones. Confirm the value matches the store, base64-for-base64:
+## The Secret the operator wrote
 
 ```bash
-echo "store : $(kubectl get secret vault-backend -n secrets-source -o jsonpath="{.data.db-password}" | base64 -d)"
-echo "synced: $(kubectl get secret db-credentials -n provisioning -o jsonpath="{.data.DB_PASSWORD}" | base64 -d)"
+kubectl describe secret db-credentials -n provisioning
 ```{{exec}}
 
-Same value — the operator read `db-password` from the store and wrote it as `DB_PASSWORD` in the target. The `sourceKey → secretKey` rename from the SecretSync is exactly this mapping.
+Read two lines. `Labels:` includes `managed-by=secret-operator`, which marks the Secret as derived. Under `Data`, `DB_PASSWORD` shows its size in bytes.
 
-## Derived means don't hand-edit it
+To compare values you need the value itself. Decode one key from each end:
 
-Because the operator reconciles this Secret from the store on every pass, editing it by hand is pointless — the next reconcile overwrites it. Change the *source* (the store, or the SecretSync), never the materialized Secret. List everything the operator owns:
+```bash
+kubectl get secret vault-backend -n secrets-source -o jsonpath='{.data.db-password}' | base64 -d; echo
+kubectl get secret db-credentials -n provisioning -o jsonpath='{.data.DB_PASSWORD}' | base64 -d; echo
+```{{exec}}
+
+Both lines print S3cure-prod-4417. The operator read `db-password` from the store and wrote it as `DB_PASSWORD`. That rename is the `sourceKey` to `secretKey` mapping from step 1. Base64 hid nothing: one pipe to `base64 -d` printed the password.
+
+## Every derived Secret
 
 ```bash
 kubectl get secrets -A -l managed-by=secret-operator
 ```{{exec}}
 
-Both `db-credentials` and `partner-api` — the two Secrets the pipeline produced. These are outputs, not inputs.
+Two Secrets, `db-credentials` and `partner-api`. These are outputs of the pipeline. To change one, change the store or the `SecretSync`, never the Secret.

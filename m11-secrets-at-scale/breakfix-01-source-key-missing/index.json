@@ -1,6 +1,6 @@
 {
-  "title": "M11 — Break/fix 01: SecretSync SyncError (Missing Source Key)",
-  "description": "The partner-connector Pod (media) is stuck in CreateContainerConfigError and its partner-api Secret doesn't exist — while the billing side is perfectly healthy. Nothing crashed. Read the SecretSync's status, not the Pod's logs, to find why the Secret was never materialized, and fix it.",
+  "title": "M11 — Break/fix 01: Missing Source Key",
+  "description": "partner-connector in media has no ready Pod, and the Secret it reads does not exist. The billing side is healthy. Find the broken link in the secrets pipeline and fix it at the source.",
   "details": {
     "intro": {
       "text": "intro.md",
@@ -8,10 +8,19 @@
       "foreground": "foreground.sh"
     },
     "steps": [
-      { "title": "Diagnose the missing Secret", "text": "step1/text.md" },
-      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+      {
+        "title": "Diagnose the missing Secret",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
     ],
-    "finish": { "text": "finish.md" }
+    "finish": {
+      "text": "finish.md"
+    }
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"

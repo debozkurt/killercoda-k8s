@@ -1,6 +1,6 @@
 {
-  "title": "M11 — Break/fix 02: Store Access Denied (SecretStore Not Ready)",
-  "description": "Both consumers — billing-processor and partner-connector — are down at once, and every SecretSync reads StoreNotReady. The operator Pod is Running. One shared dependency is broken: the operator lost read access to the backing store. Diagnose store-first, using auth can-i --as the operator, and restore access.",
+  "title": "M11 — Break/fix 02: Store Access Denied",
+  "description": "billing-processor and partner-connector, in two namespaces, both have no ready Pod. Find the one shared cause in the secrets pipeline, prove it with one command, and restore the pipeline.",
   "details": {
     "intro": {
       "text": "intro.md",
@@ -8,10 +8,19 @@
       "foreground": "foreground.sh"
     },
     "steps": [
-      { "title": "Diagnose the store-wide outage", "text": "step1/text.md" },
-      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+      {
+        "title": "Diagnose the store-wide outage",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
     ],
-    "finish": { "text": "finish.md" }
+    "finish": {
+      "text": "finish.md"
+    }
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"

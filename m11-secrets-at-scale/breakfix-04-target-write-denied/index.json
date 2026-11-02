@@ -1,0 +1,19 @@
+{
+  "title": "M11 — Break/fix 04: Target Write Denied",
+  "description": "billing-processor in provisioning has no ready Pod, and its Secret does not exist. The media side syncs normally. Find which link in the secrets pipeline broke, and why it broke in only one namespace.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the one-namespace failure", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

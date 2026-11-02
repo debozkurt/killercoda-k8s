@@ -1,28 +1,24 @@
 # Step 2 — Fix it and verify
 
-The Secret is already correct, so there's nothing to change in the pipeline — you just need the consumer to re-read it. Rolling the Deployment restarts its Pods, and each new container reads the current Secret at start.
+The Secret is already correct. The consumer must start a new container so that the kubelet reads the Secret again.
 
 ## Roll the consumer
 
 ```bash
 kubectl rollout restart deployment/billing-processor -n provisioning
-```{{exec}}
-
-`rollout restart` replaces the Pod with a fresh one; you don't touch the Secret or the pipeline, because they're already right. Wait for the new Pod:
-
-```bash
 kubectl rollout status deployment/billing-processor -n provisioning
 ```{{exec}}
 
-## Verify the new value landed
+`rollout restart` changes a Pod template annotation, so the Deployment replaces its Pod.
 
-Read what the process holds now, and compare it to the store:
+## Verify the value
 
 ```bash
-echo "store: $(kubectl get secret vault-backend -n secrets-source -o jsonpath='{.data.db-password}' | base64 -d)"
-echo "proc : $(kubectl exec deploy/billing-processor -n provisioning -- printenv DB_PASSWORD)"
+kubectl exec deploy/billing-processor -n provisioning -- printenv DB_PASSWORD
 ```{{exec}}
 
-Both `R0tated-prod-8842` — the rotation finally reached the running process. The fix wasn't in the store, the SecretSync, or the Secret; it was the missing second step: rolling the consumers after the value changed.
+It prints R0tated-prod-8842, the value in the store. The rotation now reaches the process.
 
-For a durable version of this, you'd stop hand-rolling: annotate the Pod template with a hash of the Secret so a change rolls the Deployment automatically, or run a controller that watches the Secret and restarts consumers on change. Rotation becomes two coupled steps instead of one you can forget. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m11-secrets-at-scale/ANSWER-KEY.md). You're done — see `finish.md`.
+A checksum annotation on the Pod template does not prevent this failure here. The deploy tool computes the checksum when it renders the manifest, and the operator changes the Secret later. For a synced Secret, use a controller that watches the Secret and restarts its consumers.
+
+Check your path against the [ANSWER-KEY](https://github.com/debozkurt/killercoda-k8s/blob/main/m11-secrets-at-scale/ANSWER-KEY.md).

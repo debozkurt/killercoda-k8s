@@ -956,7 +956,14 @@ spec:
                   fi
 
                   # 4) Materialize the target Secret; values are copied base64-for-base64 from the store.
-                  printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels: { managed-by: secret-operator, plane: security, tier: lab }\ntype: Opaque\ndata: { %s }\n' "$target" "$ns" "${data_json%,}" | kubectl apply -f - >/dev/null 2>&1
+                  #    A failed write (for example, no RBAC grant in this namespace) is reported as
+                  #    SecretWriteError. The status never claims Synced for a Secret it did not write.
+                  synced="${synced# }"
+                  if ! err="$(printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels: { managed-by: secret-operator, plane: security, tier: lab }\ntype: Opaque\ndata: { %s }\n' "$target" "$ns" "${data_json%,}" | kubectl apply -f - 2>&1 >/dev/null)"; then
+                    kubectl patch secretsync "$name" -n "$ns" --subresource=status --type=merge -p "{\"status\":{\"ready\":\"False\",\"reason\":\"SecretWriteError\",\"message\":\"cannot write target Secret $ns/$target\",\"syncedKeys\":\"\"}}" >/dev/null 2>&1
+                    echo "[secret-operator] $ns/$name: SecretWriteError ($err)"
+                    continue
+                  fi
                   kubectl patch secretsync "$name" -n "$ns" --subresource=status --type=merge -p "{\"status\":{\"ready\":\"True\",\"reason\":\"Synced\",\"message\":\"materialized $ns/$target\",\"syncedKeys\":\"$synced\"}}" >/dev/null 2>&1
                   echo "[secret-operator] $ns/$name: Synced -> $ns/$target (keys:$synced)"
                 done

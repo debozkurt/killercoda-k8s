@@ -1,9 +1,11 @@
-# M11 — Break/fix 01: SecretSync SyncError (Missing Source Key)
+# M11 — Break/fix 01: Missing Source Key
 
-> The healthy pipeline from the baseline, with one broken reference. Work the store → sync → Secret → consumer chain backward.
+> The healthy pipeline from the baseline, with one link broken.
 
-The `partner-connector` workload in the `media` namespace won't start. Its Pod sits in `CreateContainerConfigError`, and the `partner-api` Secret it depends on isn't there. Meanwhile the other half of the pipeline — `billing-processor` and its `db-credentials` Secret — is completely fine.
+An alert fires: `partner-connector` in the `media` namespace has no ready Pod. The billing side of the fleet is healthy.
 
-The reflex from M03 is to go straight at the Pod: check its env references, look for a missing Secret. That gets you halfway — the Secret *is* missing — but not to *why*. This Secret isn't hand-written; it's **materialized** by the operator from a SecretSync. So the question isn't "who deleted the Secret," it's "why did the pipeline never produce it." And a controller answers that question in one place: the object's `.status`.
+The Secret that `partner-connector` reads is not hand-written. The `secret-operator` materializes it from a `SecretSync`. So the question is not only "which Secret is missing" but "why did the pipeline not produce it".
 
-Your job: read the SecretSync's status to find the failing step, confirm it against the store, and correct the reference so the Secret materializes and the consumer starts. The cluster takes 90–150 seconds to come up. Click **Start** when ready.
+Your job: find the broken link, fix it at the source, and confirm that the consumer recovers without a manual restart.
+
+The cluster takes 90–150 seconds to come up. Click **Start** when ready.

@@ -9,9 +9,7 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "Cluster is ready. The pipeline is green, but billing-processor is failing auth."
-echo "Start by confirming the pipeline really is healthy, then read what the process holds:"
+echo "Cluster is ready. The pipeline reports green. Begin with:"
 echo ""
 echo "  kubectl get secretsync -A"
-echo "  kubectl exec deploy/billing-processor -n provisioning -- printenv DB_PASSWORD"
 echo ""

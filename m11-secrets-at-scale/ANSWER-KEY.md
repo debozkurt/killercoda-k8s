@@ -1,207 +1,267 @@
-# M11 — Secrets at Scale — Answer Key
+# M11 — Security II: Secrets at Scale — Answer Key
 
-> Self-grading reference. Try each scenario first, then come back here to check your diagnostic path against the canonical one. Instructors running the lab live can use the same sections as a teaching script.
-> Environment: Killercoda `kubernetes-kubeadm-2nodes` with the Polyphone baseline plus a secrets pipeline — a backing store (`vault-backend` in `secrets-source`, standing in for an external secrets manager), the `SecretSync` CRD, the `secret-operator` reconcile loop, and two synced consumers (`billing-processor`/`provisioning`, `partner-connector`/`media`). The operator is a legible offline stand-in for the External Secrets Operator; the pipeline, `.status`, and failure modes are the real thing. The baseline tours a healthy pipeline; each break/fix snaps one link — the reference, the store, or the consumer.
+> Self-grading reference. Try each scenario first, then check your diagnostic path against the canonical one.
+> Environment: Killercoda `kubernetes-kubeadm-2nodes` with the Polyphone baseline plus a secrets pipeline. The backing store is the Secret `vault-backend` in `secrets-source`, in place of an external secrets manager. The `SecretSync` CRD models an External Secrets Operator `ExternalSecret`. The `secret-operator` loop (an `alpine/k8s` Pod in `secrets-system`) runs every 10 seconds and reports `Synced`, `SyncError`, `StoreNotReady`, or `SecretWriteError` in `.status`. Two consumers read the derived Secrets: `billing-processor` in `provisioning` and `partner-connector` in `media`.
 
 ## Lesson summary
 
-M11 is about what happens to a Secret once GitOps forbids the obvious thing. A plaintext `Secret` is base64, not encryption, so it can't be committed to Git; at scale a Secret becomes a **derived object** that a controller **materializes** from a source of truth. Two patterns: **sync-from-store** (External Secrets Operator, Vault) pulls the secret from an external manager into a Kubernetes `Secret`<sup><a href="https://external-secrets.io/latest/introduction/overview/">[2]</a></sup>; **encrypt-and-commit** (Sealed Secrets, SOPS) commits the secret encrypted and decrypts it in-cluster<sup><a href="https://github.com/bitnami-labs/sealed-secrets">[4]</a></sup>. Either way the failure surface moves upstream of the Pod, into the pipeline that feeds it.
+M11 covers what happens to a Secret when GitOps forbids plaintext in Git. A controller materializes each Secret from a store or from an encrypted file, and the consumer reads the result. The failure surface moves from the Pod into the pipeline. Five scenarios break one link each:
 
-The three break/fix scenarios each snap one link of that pipeline:
+- `breakfix-01-source-key-missing`: **one sync in `SyncError`**. The reference names a key that the store lacks.
+- `breakfix-02-store-access-denied`: **every sync in `StoreNotReady`**. The store RoleBinding names a ServiceAccount that does not exist.
+- `breakfix-03-rotation-not-propagated`: **a green pipeline and an old password in the process**. The consumer reads an environment variable.
+- `breakfix-04-target-write-denied`: **one namespace in `SecretWriteError`**. The write grant sits in the wrong namespace.
+- `breakfix-05-subpath-rotation-stale`: **a green pipeline and an old token in a file**. The consumer mounts the key with `subPath`.
 
-- `breakfix-01-source-key-missing` — **the reference**: a SecretSync names a store key that doesn't exist, so it goes `SyncError` and no Secret is produced
-- `breakfix-02-store-access-denied` — **the store**: the operator loses read access to the backing store, so every sync goes `StoreNotReady` and the whole pipeline is down
-- `breakfix-03-rotation-not-propagated` — **the consumer**: the store rotated and the Secret synced, but the env-consuming Pod froze the old value and was never rolled
-
-The through-line: **read the pipeline's own status, not the Pod's logs.** A missing or wrong materialized Secret has its cause in the object that produces it — and when the pipeline is green but the app is wrong, the cause is past the last status, in the value the process actually holds.
+The through-line: **read the producing object's status, and let the failure pattern pick the link.** One failed sync means its reference. A fan-out that names one store means the store. One failing namespace means a grant in that namespace. A green pipeline with a wrong process means the consumption mode<sup><a href="https://kubernetes.io/docs/concepts/configuration/secret/">[1]</a></sup>.
 
 ## Baseline tour reference
 
 No broken state. Expected output per step:
 
-- **Step 1 (Pipeline inputs):** `kubectl get secretsync -A` shows `db-credentials` (provisioning) and `partner-api` (media), both `READY True`, `REASON Synced`. A SecretSync's `.spec` names store keys (`storeRef: vault-backend`, `sourceKey → secretKey`, `target`) without containing them — it's safe to commit<sup><a href="https://external-secrets.io/latest/introduction/overview/">[2]</a></sup>. The store `vault-backend` (`secrets-source`) holds `db-password`, `api-token`, `signing-key`, base64-encoded (a Secret, so not encryption<sup><a href="https://kubernetes.io/docs/concepts/security/secrets-good-practices/">[1]</a></sup>).
-- **Step 2 (Materialized Secret):** `kubectl get secret db-credentials -n provisioning -o yaml` is an `Opaque` Secret with key `DB_PASSWORD` and a `managed-by: secret-operator` label; decoding it matches the store's `db-password`. `kubectl get secrets -A -l managed-by=secret-operator` lists both derived Secrets — outputs of the pipeline, not inputs; hand-editing one is reverted on the next reconcile.
-- **Step 3 (Operator reconciling):** `kubectl get pods -n secrets-system` shows `secret-operator` Running; `kubectl get secretsync db-credentials -n provisioning -o jsonpath='{.status}'` shows `ready: "True"`, `reason: Synced`, `syncedKeys: DB_PASSWORD`; `kubectl logs deployment/secret-operator -n secrets-system` shows a `Synced -> <ns>/<target>` line per sync, once per pass (level-triggered<sup><a href="https://kubernetes.io/docs/concepts/architecture/controller/">[6]</a></sup>).
-- **Step 4 (Consumer):** `kubectl get pods -n provisioning -l app=billing-processor` is `Running 1/1`; `kubectl exec deploy/billing-processor -n provisioning -- printenv DB_PASSWORD` equals the decoded store `db-password` — the chain held store → Secret → process.
+- **Step 1 (inputs):** `get secretsync -A` lists `db-credentials` and `partner-api`, both `True` and `Synced`. `describe secretsync db-credentials` shows `Source Key: db-password`, `Secret Key: DB_PASSWORD`, `Store Ref: Name: vault-backend`. `describe secret vault-backend` lists three keys with byte sizes and no values.
+- **Step 2 (derived Secret):** `describe secret db-credentials` shows the label `managed-by=secret-operator`. Both decode commands print `S3cure-prod-4417`. The label selector lists two Secrets.
+- **Step 3 (operator report):** the operator Pod is `Running`. The `Status:` block reads `Ready: True`, `Reason: Synced`, `Synced Keys: DB_PASSWORD`. The logs print one `Synced ->` line per sync per pass.
+- **Step 4 (consumer):** `describe deployment billing-processor` shows `DB_PASSWORD: <set to the key 'DB_PASSWORD' in secret 'db-credentials'>`. `printenv` prints `S3cure-prod-4417`.
+- **Step 5 (revert):** the first read after the patch prints `hand-edited`. After `sleep 15` it prints `S3cure-prod-4417`, and the sync still reads `Synced`. ESO behaves the same under the default `creationPolicy: Owner`: it watches the target and compares a data-hash annotation<sup><a href="https://external-secrets.io/latest/api/externalsecret/">[2]</a></sup>.
+- **Step 6 (etcd):** `grep -c` prints `0`. The `etcdctl get` output, with unprintable bytes as dots, contains `k8s`, `Secret`, `db-credentials`, `DB_PASSWORD`, and `S3cure-prod-4417` in clear text. With an `EncryptionConfiguration`, the value starts with `k8s:enc:` and the rest is ciphertext<sup><a href="https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/">[3]</a></sup>.
 
 ---
 
-## Break/fix 01 — SecretSync SyncError (Missing Source Key)
+## Break/fix 01 — Missing source key
 
-**Symptom:** `partner-connector` (`media`) is in `CreateContainerConfigError` and its `partner-api` Secret doesn't exist, while `billing-processor`/`db-credentials` are healthy. The operator is Running; nothing crashed.
+**Symptom:** `partner-connector` in `media` is in `CreateContainerConfigError`. The Secret `partner-api` does not exist. The billing side is healthy.
 
-**Root cause:** The `partner-api` SecretSync names `sourceKey: api-tokn`, but the store's key is `api-token` (a typo). The operator reads the store fine, but the named key resolves to nothing, so it sets the SecretSync to `reason=SyncError` and — by design — refuses to materialize a partial Secret. No `partner-api` Secret is ever created, so its consumer, referencing a Secret that never existed, can't build its container environment (the M03 `CreateContainerConfigError` shape). Because only one SecretSync is wrong, only one consumer is affected — this is a single-reference failure, not a store-wide one.
+**Root cause:** The `SecretSync` `partner-api` names `sourceKey: api-tokn`. The store holds `api-token`. The operator refuses to write a partial Secret, so it reports `SyncError` and writes nothing.
 
-**Diagnostic commands (the canonical path):**
+**Diagnostic commands:**
 
 ```bash
-# 1. The consumer can't start, and its Secret is absent
-kubectl get pods -n media -l app=partner-connector          # CreateContainerConfigError
-kubectl describe pod -n media -l app=partner-connector | grep -i 'secret'   # secret "partner-api" not found
-kubectl get secret partner-api -n media                      # NotFound
-
-# 2. The Secret is derived — read the producing object's status, don't hand-create it
-kubectl get secretsync -A                                    # partner-api: READY False, REASON SyncError (db-credentials Synced)
-kubectl get secretsync partner-api -n media -o jsonpath='{.status.message}'; echo
-#   source keys not found in store: api-tokn
-
-# 3. Compare what the sync asks for against what the store has
-kubectl get secretsync partner-api -n media -o jsonpath='{.spec.data}'; echo   # sourceKey: api-tokn
-kubectl get secret vault-backend -n secrets-source -o jsonpath='{.data}'; echo # keys: db-password, api-token, signing-key
+kubectl get pods -n media -l app=partner-connector        # CreateContainerConfigError
+kubectl describe pod -n media -l app=partner-connector    # Error: secret "partner-api" not found
+kubectl get secretsync -A                                 # partner-api False SyncError; db-credentials Synced
+kubectl describe secretsync partner-api -n media
+# Status: Message: source keys not found in store: api-tokn
+# Spec:   Source Key: api-tokn
+kubectl describe secret vault-backend -n secrets-source   # api-token, db-password, signing-key
 ```
 
-**Fix:** Correct the `sourceKey` in the SecretSync (the source of truth), not the Secret. Re-apply it:
+**Fix:**
 
 ```bash
-cat <<'EOF' | kubectl apply -f -
-apiVersion: polyphone.example/v1
-kind: SecretSync
-metadata: { name: partner-api, namespace: media, labels: { plane: media, tier: lab } }
-spec:
-  storeRef: { name: vault-backend }
-  target:   { name: partner-api }
-  data:
-    - { secretKey: API_TOKEN, sourceKey: api-token }
-EOF
+kubectl patch secretsync partner-api -n media --type=json \
+  -p '[{"op":"replace","path":"/spec/data/0/sourceKey","value":"api-token"}]'
 ```
 
 **Verify:**
 
 ```bash
-kubectl get secretsync partner-api -n media                  # READY True, REASON Synced
-kubectl get secret partner-api -n media                      # now exists, managed-by=secret-operator
-kubectl get pods -n media -l app=partner-connector           # Running 1/1 (kubelet retries the config error on a backoff)
-kubectl exec deploy/partner-connector -n media -- printenv API_TOKEN   # the store's token
+kubectl get secretsync -A                                 # both Synced
+kubectl get pods -n media -l app=partner-connector        # Running 1/1, no manual restart
+kubectl exec deploy/partner-connector -n media -- printenv API_TOKEN
 ```
 
-**What this scenario tests:** That a derived Secret's failure story lives in the object that produces it. Self-grading:
+**What this scenario tests:** reading the producing object before the consumer.
 
-- Did you go to the SecretSync's `.status` after seeing the Secret was missing, instead of hand-creating the Secret (which the operator would overwrite)?
-- Did you diagnose by *comparing* the sync's `sourceKey` to the store's actual keys, rather than guessing?
-- Did you fix the *source* (the SecretSync) and understand why editing the derived Secret directly wouldn't hold?
+- Did you open the `SecretSync` before you considered creating the Secret by hand?
+- Did one failed sync, next to one healthy sync, rule out the store and the operator?
+- Did you fix the reference, rather than add an `api-tokn` key to the store?
 
-**Expected time:** 4–8 min. The trap is treating it as a plain missing-Secret (M03) and stopping before you ask why the pipeline didn't produce it.
+**Expected time:** 3–5 min with the reflex; 10–15 min the first time.
 
-**Production thinking:** This is the everyday sync failure — a reference that names something the store doesn't have, or a key renamed on the store side without updating the ExternalSecret. The operator names the failing key in `.status`, so it's fast once you look there. Guard against it earlier: validate that referenced keys exist against the store in CI, and alert on any ExternalSecret whose `Ready` condition has been `False` past a short threshold — the Secret is only missing until the next Pod reschedule, so a silent SyncError is a latent outage.
+**Production thinking:** In ESO the same fault reads `SecretSyncedError` on the `ExternalSecret`, with the provider's "not found" in the message. Validate `remoteRef` keys in CI against the store's key list where the store allows it. A hand-created Secret hides the bug until the controller overwrites it.
 
 ---
 
-## Break/fix 02 — Store Access Denied (SecretStore Not Ready)
+## Break/fix 02 — Store access denied
 
-**Symptom:** Both `billing-processor` (`provisioning`) and `partner-connector` (`media`) are in `CreateContainerConfigError`, and neither `db-credentials` nor `partner-api` Secret exists. Every SecretSync reads `StoreNotReady`. The operator Pod is Running, 0 restarts.
+**Symptom:** `billing-processor` and `partner-connector` are both in `CreateContainerConfigError`. Every `SecretSync` reads `StoreNotReady`. The operator Pod is `Running`.
 
-**Root cause:** The `secret-operator-store` RoleBinding in `secrets-source` — the grant that lets the operator read the backing store — names the wrong subject: `secret-operator-ro`, a ServiceAccount that doesn't exist, instead of the operator's real identity `secret-operator`. So the operator's ServiceAccount has no read access in `secrets-source`; its attempt to read `vault-backend` is denied, and it sets *every* SecretSync to `StoreNotReady` and materializes nothing. Because all syncs depend on the one store, one mis-subjected binding takes the whole pipeline offline — a fan-out from a single shared dependency<sup><a href="https://external-secrets.io/latest/provider/kubernetes/">[3]</a></sup>. The RBAC parses fine and the operator process is healthy; the signal is in the syncs' `.status` and an access check, not the Pod (RBAC in full: M10<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[7]</a></sup>).
+**Root cause:** The RoleBinding `secret-operator-store` in `secrets-source` grants store access to `secret-operator-ro`, a ServiceAccount that does not exist. The operator runs as `secret-operator` and cannot read the store<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[4]</a></sup>.
 
-**Diagnostic commands (the canonical path):**
+**Diagnostic commands:**
 
 ```bash
-# 1. Two consumers down in two namespaces, and every sync fails the same way → shared dependency
-kubectl get secretsync -A                                    # BOTH READY False, REASON StoreNotReady
-kubectl get secretsync db-credentials -n provisioning -o jsonpath='{.status.message}'; echo
-#   cannot read backing store secrets-source/vault-backend
-kubectl get secrets -A -l managed-by=secret-operator         # none produced
-
-# 2. Operator Running → this is access, not a crash. Prove it as the operator (M10)
-kubectl get pods -n secrets-system                           # secret-operator Running, 0 restarts
+kubectl get secretsync -A                                 # both False StoreNotReady
+kubectl describe secretsync db-credentials -n provisioning
+# Message: cannot read backing store secrets-source/vault-backend
+kubectl get pods -n secrets-system                        # Running, 0 restarts
 kubectl auth can-i get secrets -n secrets-source \
-  --as=system:serviceaccount:secrets-system:secret-operator  # no
-
-# 3. Read the store binding — it grants the wrong identity
-kubectl get rolebinding secret-operator-store -n secrets-source -o jsonpath='{.subjects}'; echo
-#   name: secret-operator-ro  (a ServiceAccount that doesn't exist)
+  --as=system:serviceaccount:secrets-system:secret-operator   # no
+kubectl describe rolebinding secret-operator-store -n secrets-source
+# Subjects: ServiceAccount  secret-operator-ro  secrets-system
+kubectl get serviceaccounts -n secrets-system             # default, secret-operator
 ```
 
-**Fix:** Point the RoleBinding at the operator's real ServiceAccount and re-apply:
+**Fix:**
 
 ```bash
-cat <<'EOF' | kubectl apply -f -
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata: { name: secret-operator-store, namespace: secrets-source, labels: { plane: security, tier: lab } }
-roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: secret-operator-secrets }
-subjects:
-  - { kind: ServiceAccount, name: secret-operator, namespace: secrets-system }
-EOF
+kubectl patch rolebinding secret-operator-store -n secrets-source --type=json \
+  -p '[{"op":"replace","path":"/subjects/0/name","value":"secret-operator"}]'
 ```
-
-No restart is needed — the loop is level-triggered and retries every few seconds.
 
 **Verify:**
 
 ```bash
 kubectl auth can-i get secrets -n secrets-source \
-  --as=system:serviceaccount:secrets-system:secret-operator  # yes
-kubectl get secretsync -A                                    # both move to Synced
-kubectl get secrets -A -l managed-by=secret-operator         # db-credentials, partner-api appear
-kubectl get pods -n provisioning -l app=billing-processor    # Running 1/1
-kubectl get pods -n media -l app=partner-connector           # Running 1/1
+  --as=system:serviceaccount:secrets-system:secret-operator   # yes
+kubectl get secretsync -A                                 # both Synced within 10 s
+kubectl get pods -n provisioning -l app=billing-processor
+kubectl get pods -n media -l app=partner-connector        # both Running 1/1
 ```
 
-**What this scenario tests:** Recognizing a fan-out as one store-level problem and proving the store's identity lost access with `auth can-i --as`. Self-grading:
+**What this scenario tests:** store-first diagnosis, and proving a controller's identity.
 
-- Did the pattern — many syncs failing identically, all naming one store — send you to the store layer instead of opening two investigations?
-- Did you use `kubectl auth can-i … --as=<the operator's SA>` to turn "why is nothing syncing" into a yes/no, rather than guessing?
-- Did you fix the binding's subject and grant store-read to *only* the operator's SA, not widen access?
+- Did you read the identical reason on both syncs as one cause before you opened either consumer?
+- Did you test the operator's ServiceAccount with `auth can-i --as`, rather than your own access?
+- Did you fix the one binding, rather than grant the operator Secrets cluster-wide?
 
-**Expected time:** 4–8 min. The hardest move is distrusting the Running operator and the parsed-fine RBAC and reading the syncs' status first.
+**Expected time:** 3–5 min with the reflex; 10–20 min the first time.
 
-**Production thinking:** A `SecretStore`'s identity is a shared dependency, so its failures are the widest-blast-radius secret failures you have — a rotated store credential or a revoked binding fails every ExternalSecret under it at once. Because existing Pods keep running on their already-materialized Secrets, nothing is *down* until the first reschedule — so alert on the store's `Ready` condition and on a rising count of `StoreNotReady`/`Denied` syncs, not on Pod health, which lags the outage by hours. And scope store access to exactly the operator's identity; broad grants hide these gaps and widen the blast radius.
+**Production thinking:** In ESO the store itself reports the fault. The `SecretStore` goes `Ready=False` with `ValidationFailed`, and every `ExternalSecret` that uses it fails<sup><a href="https://external-secrets.io/latest/provider/kubernetes/">[5]</a></sup>. Alert on store readiness, not on each `ExternalSecret`. Existing Secrets keep their last value, so the outage starts only when a Pod reschedules or a new namespace needs a Secret.
 
 ---
 
-## Break/fix 03 — Rotation Not Propagated (Stale Consumer)
+## Break/fix 03 — Rotation not propagated (environment variable)
 
-**Symptom:** `billing-processor` is failing its database auth, but the whole pipeline is green: every SecretSync `Synced`, the operator healthy, and the `db-credentials` Secret holds the current (rotated) password. Nothing is red anywhere.
+**Symptom:** Both syncs read `Synced`. The store and `db-credentials` hold `R0tated-prod-8842`. `billing-processor` still presents `S3cure-prod-4417`.
 
-**Root cause:** The store's `db-password` was rotated to a new value (`R0tated-prod-8842`), and the operator synced it into the `db-credentials` Secret — so the Secret is correct. But `billing-processor` consumes `DB_PASSWORD` as an **environment variable**, and env vars are materialized once at container start and then frozen for the life of the container (M03<sup><a href="https://kubernetes.io/docs/concepts/configuration/secret/">[5]</a></sup>). The Pod started before the rotation and captured the old value (`S3cure-prod-4417`); the Secret updating underneath it changed nothing in the running process, and no controller watches a Secret to restart its consumers. The rotation reached the Secret and stopped there — a green pipeline above a stale consumer. This is the same "the headline status lies" theme as `Running` ≠ `Ready`, now `Synced` ≠ *adopted*.
+**Root cause:** `billing-processor` reads `DB_PASSWORD` from the Secret as an environment variable. The kubelet set it when the container started, before the rotation. A Secret update never changes a running container's environment, and nothing restarts the Pod<sup><a href="https://kubernetes.io/docs/concepts/configuration/secret/">[1]</a></sup>.
 
-**Diagnostic commands (the canonical path):**
+**Diagnostic commands:**
 
 ```bash
-# 1. The pipeline is genuinely healthy — the Secret holds the current value
-kubectl get secretsync -A                                    # both Synced, READY True
-echo "store : $(kubectl get secret vault-backend -n secrets-source -o jsonpath='{.data.db-password}' | base64 -d)"
-echo "secret: $(kubectl get secret db-credentials -n provisioning -o jsonpath='{.data.DB_PASSWORD}' | base64 -d)"
-#   both R0tated-prod-8842
-
-# 2. Read what the PROCESS holds — the gap the status can't show
-kubectl exec deploy/billing-processor -n provisioning -- printenv DB_PASSWORD   # S3cure-prod-4417 (OLD)
-
-# 3. Confirm nothing rolled the Pod since the rotation
-kubectl get pods -n provisioning -l app=billing-processor    # old AGE, 0 restarts
+kubectl get secretsync -A                                 # both Synced
+kubectl get secret vault-backend -n secrets-source -o jsonpath='{.data.db-password}' | base64 -d; echo
+kubectl get secret db-credentials -n provisioning -o jsonpath='{.data.DB_PASSWORD}' | base64 -d; echo
+# both R0tated-prod-8842
+kubectl exec deploy/billing-processor -n provisioning -- printenv DB_PASSWORD   # S3cure-prod-4417
+kubectl describe deployment billing-processor -n provisioning   # Environment: DB_PASSWORD <set to the key ...>
+kubectl get pods -n provisioning -l app=billing-processor       # old AGE, 0 restarts
 ```
 
-**Fix:** The Secret is already correct — roll the consumer so a fresh container re-reads it:
+**Fix:**
 
 ```bash
 kubectl rollout restart deployment/billing-processor -n provisioning
-kubectl rollout status  deployment/billing-processor -n provisioning
+kubectl rollout status deployment/billing-processor -n provisioning
 ```
 
 **Verify:**
 
 ```bash
-echo "store: $(kubectl get secret vault-backend -n secrets-source -o jsonpath='{.data.db-password}' | base64 -d)"
-echo "proc : $(kubectl exec deploy/billing-processor -n provisioning -- printenv DB_PASSWORD)"
-#   both R0tated-prod-8842 — the rotation reached the process
+kubectl exec deploy/billing-processor -n provisioning -- printenv DB_PASSWORD   # R0tated-prod-8842
 ```
 
-**What this scenario tests:** Catching the failure that no pipeline status shows — a healthy supply chain above a workload still running on the old value — by reading what the process actually holds. Self-grading:
+**What this scenario tests:** distrusting a green status, and reading the value the process holds.
 
-- When every status was green, did you read the *injected value* (`exec … printenv`) instead of trusting `Synced`?
-- Can you explain why the Secret updated but the process didn't — env frozen at start, and nothing rolls a Pod on a Secret change?
-- Did you fix it by rolling the *consumer* (not re-syncing the already-correct Secret), and can you name the durable version (config-hash annotation / reloader)?
+- Did you compare the process's value with the Secret, rather than stop at `Synced`?
+- Did you name the consumption mode (env, set at container start) as the cause?
+- Did you leave the store, the sync, and the Secret alone, because they were correct?
 
-**Expected time:** 5–10 min. The trap is the all-green pipeline — it takes discipline to stop trusting `Synced` and read the value inside the container.
+**Expected time:** 3–5 min with the reflex; 10–15 min the first time.
 
-**Production thinking:** Rotation is the reason to run any of this, and it's a two-step operation that reads like one: change the value, *and* roll every consumer. Miss the second step and you get the worst kind of incident — no alert fires (nothing crashed, nothing is `False`), and the fleet drifts onto two different credentials as Pods slowly reschedule, half on each. Couple the two by construction: a checksum of the Secret in the Pod-template annotations so a change triggers a rolling update, or a reloader controller that watches the Secret and restarts consumers. And to find who's still stale, compare the value each running Pod holds against the store — the pipeline's `Synced` won't tell you.
+**Production thinking:** A checksum annotation on the Pod template does not help a synced Secret, because the operator changes the Secret after the deploy tool rendered the manifest. Run a controller that watches the Secret and restarts its consumers, or mount the Secret as a directory and make the application reload it. Keep the old credential valid in the backend until every consumer runs on the new one.
+
+---
+
+## Break/fix 04 — Target write denied
+
+**Symptom:** `billing-processor` in `provisioning` is in `CreateContainerConfigError`. `db-credentials` reads `SecretWriteError`. `partner-api` in `media` reads `Synced`.
+
+**Root cause:** The RoleBinding `secret-operator-targets` meant for `provisioning` was created in `secrets-system`. A RoleBinding grants only inside its own namespace, so the operator can write Secrets in `secrets-system` and `media` but not in `provisioning`<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">[4]</a></sup>.
+
+**Diagnostic commands:**
+
+```bash
+kubectl get secretsync -A                                 # db-credentials SecretWriteError; partner-api Synced
+kubectl describe secretsync db-credentials -n provisioning
+# Message: cannot write target Secret provisioning/db-credentials
+kubectl logs deployment/secret-operator -n secrets-system --tail=4
+# ... is forbidden: User "system:serviceaccount:secrets-system:secret-operator"
+#     cannot get resource "secrets" in API group "" in the namespace "provisioning"
+kubectl auth can-i create secrets -n provisioning \
+  --as=system:serviceaccount:secrets-system:secret-operator   # no
+kubectl auth can-i create secrets -n media \
+  --as=system:serviceaccount:secrets-system:secret-operator   # yes
+kubectl get rolebindings -A | grep secret-operator        # targets in media and secrets-system only
+```
+
+**Fix:**
+
+```bash
+kubectl create rolebinding secret-operator-targets -n provisioning \
+  --clusterrole=secret-operator-secrets \
+  --serviceaccount=secrets-system:secret-operator
+kubectl delete rolebinding secret-operator-targets -n secrets-system
+```
+
+**Verify:**
+
+```bash
+kubectl get secretsync -A                                 # both Synced
+kubectl get pods -n provisioning -l app=billing-processor # Running 1/1
+```
+
+**What this scenario tests:** using the failure's scope to pick the binding.
+
+- Did a healthy sync from the same store rule out the store read?
+- Did you compare `auth can-i` across the failing and the healthy namespace?
+- Did you recognize that the binding's namespace, not its subject's namespace, sets its scope?
+
+**Expected time:** 4–6 min with the reflex; 12–20 min the first time.
+
+**Production thinking:** Onboard a namespace to the secrets pipeline with one template that creates the `ExternalSecret` and the controller's RoleBinding together. ESO typically runs with a cluster-wide grant, which removes this failure and widens the blast radius of a compromised controller. A per-namespace grant keeps the blast radius small, and its cost is this exact failure.
+
+---
+
+## Break/fix 05 — subPath rotation stale
+
+**Symptom:** Both syncs read `Synced`. The store and `partner-api` hold `pt_live_rotated_51e0c7`. The file `/etc/partner/API_TOKEN` in `partner-connector` still holds `pt_live_9c2f8a1b7e004d3a`.
+
+**Root cause:** `partner-connector` mounts the key `API_TOKEN` with `subPath`. The kubelet updates a Secret volume in place, but "a container using a Secret as a subPath volume mount does not receive automated Secret updates"<sup><a href="https://kubernetes.io/docs/concepts/configuration/secret/">[1]</a></sup>.
+
+**Diagnostic commands:**
+
+```bash
+kubectl get secretsync -A                                 # both Synced
+kubectl get secret partner-api -n media -o jsonpath='{.data.API_TOKEN}' | base64 -d; echo   # new token
+kubectl exec deploy/partner-connector -n media -- cat /etc/partner/API_TOKEN; echo         # old token
+kubectl describe pod -n media -l app=partner-connector
+# Mounts: /etc/partner/API_TOKEN from partner-api (ro,path="API_TOKEN")
+```
+
+**Fix:**
+
+```bash
+kubectl patch deployment partner-connector -n media --type=json -p '[
+  {"op":"replace","path":"/spec/template/spec/containers/0/volumeMounts/0/mountPath","value":"/etc/partner"},
+  {"op":"remove","path":"/spec/template/spec/containers/0/volumeMounts/0/subPath"}]'
+```
+
+**Verify:**
+
+```bash
+kubectl exec deploy/partner-connector -n media -- cat /etc/partner/API_TOKEN   # new token
+kubectl patch secret vault-backend -n secrets-source --type=merge \
+  -p '{"stringData":{"api-token":"pt_live_rotated_second"}}'
+# within about two minutes, the same Pod's file reads pt_live_rotated_second with 0 restarts
+```
+
+**What this scenario tests:** reading the mount, not only the source of the value.
+
+- Did you find the `path=` flag on the `Mounts:` line?
+- Did you expect a volume to update, and then ask why this one did not?
+- Did you prove the fix with a second rotation and no restart?
+
+**Expected time:** 4–6 min with the reflex; 12–20 min the first time.
+
+**Production thinking:** A `subPath` mount is common when an image expects one file in a directory that holds other files. Mount the Secret into its own directory and point the application at that path, or use a projected volume. A file that updates is half of the fix. The application must read the file again, through a file watch or a read on each use, or it keeps the old value in memory.
 
 ## References
 
-1. Kubernetes — Good practices for Kubernetes Secrets: https://kubernetes.io/docs/concepts/security/secrets-good-practices/
-2. External Secrets Operator — Introduction: https://external-secrets.io/latest/introduction/overview/
-3. External Secrets Operator — Kubernetes provider: https://external-secrets.io/latest/provider/kubernetes/
-4. Sealed Secrets — Overview (Bitnami Labs): https://github.com/bitnami-labs/sealed-secrets
-5. Kubernetes — Secrets (env is set at container start): https://kubernetes.io/docs/concepts/configuration/secret/
-6. Kubernetes — Controllers (level-triggered reconciliation): https://kubernetes.io/docs/concepts/architecture/controller/
-7. Kubernetes — Using RBAC Authorization: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
+1. Kubernetes — Secrets: https://kubernetes.io/docs/concepts/configuration/secret/
+2. External Secrets Operator — ExternalSecret: https://external-secrets.io/latest/api/externalsecret/
+3. Kubernetes — Encrypting Confidential Data at Rest: https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/
+4. Kubernetes — Using RBAC Authorization: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
+5. External Secrets Operator — Kubernetes provider: https://external-secrets.io/latest/provider/kubernetes/

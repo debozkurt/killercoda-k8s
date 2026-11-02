@@ -1,6 +1,6 @@
-# Step 1 — The pipeline inputs: store and SecretSyncs
+# Step 1 — The pipeline inputs
 
-A secrets pipeline has two declarative inputs: a **backing store** (where the real secret lives) and a **`SecretSync`** that names what to pull from it. Neither contains a secret in a form you'd hesitate to commit.
+A secrets pipeline has two inputs: a **backing store** that holds the values, and a **`SecretSync`** that names what to copy. A `SecretSync` is a custom resource, so `kubectl get` and `describe` work on it like on any built-in kind.
 
 ## The SecretSyncs
 
@@ -8,22 +8,18 @@ A secrets pipeline has two declarative inputs: a **backing store** (where the re
 kubectl get secretsync -A
 ```{{exec}}
 
-Two syncs — `db-credentials` (`provisioning`) and `partner-api` (`media`) — each `READY True`, `REASON Synced`. The `STORE` and `TARGET` columns come from `.spec`; `READY`/`REASON` from the `.status` the operator wrote. This is the pipeline reporting itself healthy.
-
-Read one sync's spec — it *names* store keys, it doesn't contain them:
+Two rows, `db-credentials` in `provisioning` and `partner-api` in `media`. Each reads `READY` True and `REASON` Synced. `STORE` and `TARGET` come from `.spec`. `READY` and `REASON` come from the `.status` that the operator writes.
 
 ```bash
-kubectl get secretsync db-credentials -n provisioning -o jsonpath='{.spec}'; echo
+kubectl describe secretsync db-credentials -n provisioning
 ```{{exec}}
 
-`storeRef: vault-backend`, a `data` mapping `sourceKey: db-password` → `secretKey: DB_PASSWORD`, and `target: db-credentials`. Nothing secret is in this object — it's safe to commit to Git, which is the whole point.
+Under `Spec:`, read three blocks. `Data:` maps `Source Key: db-password` to `Secret Key: DB_PASSWORD`. `Store Ref:` names `vault-backend`. `Target:` names `db-credentials`. The object names a key and holds no value, so it is safe to commit to Git.
 
 ## The backing store
 
-The store is a Secret in `secrets-source`, standing in for an external manager like Vault:
-
 ```bash
-kubectl get secret vault-backend -n secrets-source -o jsonpath='{.data}'; echo
+kubectl describe secret vault-backend -n secrets-source
 ```{{exec}}
 
-Three keys — `db-password`, `api-token`, `signing-key` — base64-encoded (a Secret, so not encryption; M03). The store holds more than any one consumer needs; each SecretSync pulls only the keys it names. This Secret is wired into no Pod directly — only the operator reads it.
+The `Data` section lists three keys, `api-token`, `db-password`, and `signing-key`, each with a size in bytes. `describe` never prints Secret values. The store holds more keys than any one consumer needs, and each `SecretSync` copies only the keys it names. No Pod mounts this Secret. Only the operator reads it.

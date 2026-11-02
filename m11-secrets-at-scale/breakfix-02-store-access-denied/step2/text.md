@@ -1,53 +1,33 @@
 # Step 2 — Fix it and verify
 
-Point the store RoleBinding at the identity the operator actually uses. You don't restart the operator — its loop retries every few seconds and picks up the restored access on its own.
+Point the RoleBinding at the identity that the operator runs as. Keep the grant in `secrets-source` only. A ClusterRoleBinding would also clear the symptom, and it would let the operator read every Secret in the cluster. The operator retries every 10 seconds, so it needs no restart.
 
-## Bind the correct ServiceAccount
-
-Re-apply the RoleBinding with the right subject (`secret-operator`):
+## Fix the subject
 
 ```bash
-cat <<'EOF' | kubectl apply -f -
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: secret-operator-store
-  namespace: secrets-source
-  labels: { plane: security, tier: lab }
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: secret-operator-secrets
-subjects:
-  - kind: ServiceAccount
-    name: secret-operator
-    namespace: secrets-system
-EOF
-```{{exec}}
-
-Confirm the operator's identity can now read the store:
-
-```bash
+kubectl patch rolebinding secret-operator-store -n secrets-source --type=json \
+  -p '[{"op":"replace","path":"/subjects/0/name","value":"secret-operator"}]'
 kubectl auth can-i get secrets -n secrets-source \
   --as=system:serviceaccount:secrets-system:secret-operator
 ```{{exec}}
 
-`yes`. Grant store-read to *only* the operator's ServiceAccount — a store is a shared dependency, so its access list is high-value; keep it to exactly the identity that needs it.
+The answer is now yes.
 
-## Verify the whole pipeline recovers
-
-Within ~10 seconds the operator's next pass reads the store and materializes both Secrets:
+## Verify the pipeline
 
 ```bash
+sleep 12
 kubectl get secretsync -A
 kubectl get secrets -A -l managed-by=secret-operator
 ```{{exec}}
 
-Both syncs flip to `Synced`, and `db-credentials` and `partner-api` appear. The consumers recover as the kubelet retries them:
+Both syncs read Synced, and both Secrets exist. The kubelet now starts both consumers on its next retry:
 
 ```bash
 kubectl get pods -n provisioning -l app=billing-processor
 kubectl get pods -n media -l app=partner-connector
 ```{{exec}}
 
-Both move to `Running` `1/1` (allow a few seconds). One binding fixed, and every consumer that depended on the store is back. For self-grading, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m11-secrets-at-scale/ANSWER-KEY.md). You're done — see `finish.md`.
+Both read `Running` and 1/1. If a Pod still waits, run the commands again after 20 seconds.
+
+Check your path against the [ANSWER-KEY](https://github.com/debozkurt/killercoda-k8s/blob/main/m11-secrets-at-scale/ANSWER-KEY.md).

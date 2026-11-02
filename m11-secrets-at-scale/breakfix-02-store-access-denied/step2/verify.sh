@@ -1,23 +1,26 @@
 #!/bin/bash
-# Checks: the operator's ServiceAccount can read the store again, both SecretSyncs are
-# Synced, and both consumers recovered. Asserts the outcome, not the exact fix used.
-CANI=$(kubectl auth can-i get secrets -n secrets-source \
-  --as=system:serviceaccount:secrets-system:secret-operator 2>/dev/null)
-if [ "$CANI" != "yes" ]; then
-  echo "The secret-operator ServiceAccount still can't read secrets in secrets-source. Fix the secret-operator-store RoleBinding subject to name 'secret-operator' and re-apply." >&2
+# Checks: the operator SA can read secrets in secrets-source but NOT cluster-wide, both
+# syncs are Synced, and both consumers are Ready.
+SA=system:serviceaccount:secrets-system:secret-operator
+if [ "$(kubectl auth can-i get secrets -n secrets-source --as=$SA 2>/dev/null)" != "yes" ]; then
+  echo "secret-operator still cannot read secrets in secrets-source. Fix the RoleBinding subject:" >&2
+  echo "  kubectl patch rolebinding secret-operator-store -n secrets-source --type=json -p '[{\"op\":\"replace\",\"path\":\"/subjects/0/name\",\"value\":\"secret-operator\"}]'" >&2
+  exit 1
+fi
+if [ "$(kubectl auth can-i get secrets -n kube-system --as=$SA 2>/dev/null)" = "yes" ]; then
+  echo "secret-operator can read secrets in kube-system. The fix granted too much. Remove the wide binding and grant only in secrets-source:" >&2
+  echo "  kubectl get clusterrolebindings -o wide | grep secret-operator" >&2
   exit 1
 fi
 DB=$(kubectl get secretsync db-credentials -n provisioning -o jsonpath='{.status.reason}' 2>/dev/null)
 PA=$(kubectl get secretsync partner-api -n media -o jsonpath='{.status.reason}' 2>/dev/null)
-if [ "$DB" != "Synced" ] || [ "$PA" != "Synced" ]; then
-  echo "Access is restored but the syncs aren't both Synced yet (db-credentials='$DB', partner-api='$PA'). The operator reconciles every ~10s — wait and retry." >&2
-  exit 1
-fi
 BR=$(kubectl get deployment billing-processor -n provisioning -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
 PR=$(kubectl get deployment partner-connector -n media -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
-if [ "$BR" != "1" ] || [ "$PR" != "1" ]; then
-  echo "Secrets are materialized but a consumer isn't Ready yet (billing='$BR', partner='$PR'). The kubelet retries CreateContainerConfigError on a backoff — wait ~30s and retry." >&2
+if [ "$DB" != "Synced" ] || [ "$PA" != "Synced" ] || [ "$BR" != "1" ] || [ "$PR" != "1" ]; then
+  echo "Access works, but the pipeline has not recovered (syncs: '$DB'/'$PA', ready: '$BR'/'$PR'). The operator runs every 10 seconds and the kubelet retries on a backoff. Wait 30 seconds, then run:" >&2
+  echo "  kubectl get secretsync -A" >&2
   exit 1
 fi
-echo "✓ Operator can read the store again; both syncs Synced and both consumers recovered — one binding, whole pipeline back"
+kubectl get secretsync -A
+echo "✓ The operator reads the store again, both syncs are Synced, and both consumers are Ready"
 exit 0
