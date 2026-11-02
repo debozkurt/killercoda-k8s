@@ -1,11 +1,11 @@
 # Done
 
-A Pod stuck `ContainerCreating` sent you not to the Pod but to what it mounts. The `FailedMount` named a Secret that didn't exist; the Secret didn't exist because its `Certificate` read `Ready: False`; and the `CertificateRequest` beneath it named the real reason — an `issuerRef` pointing at an issuer that doesn't exist. Repointing it at `polyphone-ca` let cert-manager sign the cert, write the Secret, and unstick the Pod.
+A Pod stuck in `ContainerCreating` sent you to what it mounts. The `FailedMount` event named a Secret that did not exist. The Secret did not exist because its `Certificate` read Ready False. The CertificateRequest beneath it gave the reason: an `issuerRef` that named an issuer that does not exist. Repointing it at `polyphone-ca` let cert-manager sign the cert and write the Secret.
 
-The reflex: **a missing cert is a missing Secret is a stuck Pod.** When a workload can't mount a `tls` Secret, don't debug the workload — climb the issuance ladder: `Certificate` (is it `Ready`?) → `CertificateRequest` (why not?). The answer is almost always an issuer that's missing, the wrong `kind`, or not itself `Ready`.
+The instinct to keep: a missing cert is a missing Secret is a stuck Pod. Climb the ladder: Pod events, then `Certificate`, then CertificateRequest.
 
 **Next:**
 
 - Check your path against [`ANSWER-KEY.md`](../ANSWER-KEY.md).
-- For the *why* — the cert-manager issuance chain and the `Issuer`/`Certificate`/`CertificateRequest` objects — see [`LESSON.md`](../LESSON.md) § cert-manager and the issuance chain.
-- Then `breakfix-02-san-mismatch`: a cert that issues perfectly but claims the wrong name.
+- Read [`LESSON.md`](../LESSON.md) § cert-manager and the issuance chain.
+- Continue to `breakfix-02-san-mismatch`: a cert that issues but claims the wrong name.

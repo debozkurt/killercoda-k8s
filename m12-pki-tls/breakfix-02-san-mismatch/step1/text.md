@@ -1,6 +1,6 @@
 # Step 1 — Diagnose the handshake failure
 
-The app is healthy by every status check, so prove the failure is in TLS, then read exactly which of the two handshake checks — trust or identity — failed.
+The status checks pass, so reproduce the failure. Then read which handshake check failed: trust or identity.
 
 ## Reproduce the call
 
@@ -11,39 +11,30 @@ kubectl exec -n app-services deploy/config-client -- \
        https://config-api.media.svc.cluster.local/
 ```{{exec}}
 
-```text
-curl: (60) SSL: no alternative certificate subject name matches target host name 'config-api.media.svc.cluster.local'
-```
+The error reads `no alternative certificate subject name matches target host name 'config-api.media.svc.cluster.local'`. This is the name check. The trust check says `unable to get local issuer certificate`, and that is not what you got. The client trusts the signer. The name it dialed is not in the cert.
 
-Read that precisely. It is **not** "unable to get local issuer certificate" (that would be trust). It's the *hostname* check: curl trusts the signer fine, but the name you dialed isn't in the cert's SANs. So the cert is issued and trusted — its **identity** is wrong.
-
-## Confirm the app itself is fine
+## The app and the Certificate look fine
 
 ```bash
 kubectl get pods -n media -l app=config-api
 kubectl get certificate config-api-tls -n media
 ```{{exec}}
 
-`Running 1/1`, `Certificate` `Ready`. Nothing here hints at a problem — which is the lesson: a green `Certificate` says *issued*, not *correct*.
+Pod Running 1/1, `Certificate` Ready. Ready means issued. It does not mean correct.
 
-## Read the cert's SANs
+## Read the SANs
 
-Decode the served cert straight from its Secret and read the names it's valid for:
+Decode the served cert from its Secret:
 
 ```bash
 kubectl get secret config-api-tls -n media -o jsonpath='{.data.tls\.crt}' | base64 -d \
   | openssl x509 -noout -ext subjectAltName
 ```{{exec}}
 
-```text
-X509v3 Subject Alternative Name:
-    DNS:config-api-legacy.media.svc.cluster.local
-```
-
-There's the mismatch: the cert is valid only for `config-api-legacy.media.svc.cluster.local`, but clients reach the Service at `config-api.media.svc.cluster.local`. Confirm what drives those SANs — the `Certificate`'s `dnsNames`:
+The only SAN is `config-api-legacy.media.svc.cluster.local`. Clients dial `config-api.media.svc.cluster.local`. Now find what drives the SAN list:
 
 ```bash
-kubectl get certificate config-api-tls -n media -o jsonpath='{.spec.dnsNames}{"\n"}'
+kubectl describe certificate config-api-tls -n media
 ```{{exec}}
 
-`["config-api-legacy.media.svc.cluster.local"]` — it omits the real Service names. Root cause: the server cert's SANs don't cover the name clients dial. On to the fix.
+In the `Spec:` block, read `Dns Names`. It holds the legacy name only. The cert omits the real Service names.

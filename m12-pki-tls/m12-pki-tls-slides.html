@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>M12 — PKI &amp; TLS</title>
+<title>M12 — PKI and TLS</title>
 <style>
   :root{
     --bg:#0f0f0f;
@@ -205,389 +205,344 @@
 <div class="hint">← → navigate · F fullscreen</div>
 <div class="brand">M12 · PKI &amp; TLS</div>
 <div class="hud"><b id="cur">1</b> / <span id="tot">1</span></div>
+
 <div class="deck" id="deck">
 
-  <!-- 1 · TITLE -->
   <section class="slide">
     <div class="wrap">
-      <h1>PKI &amp; TLS</h1>
-      <p class="lead">How a workload gets a cryptographic identity, and uses it to talk securely. A
-        certificate binds a public key to a set of names; TLS checks it on every connection.</p>
-      <div class="note" style="margin-top:1.8rem">
-        <p>Every TLS failure is one of three questions — was the cert <strong>issued</strong>, does
-          its <strong>identity</strong> match, is its signer <strong>trusted</strong>. Name the
-          layer and you have halved the fix.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 2 · OBJECTIVES -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>What you'll walk away with</h2>
+      <h1>PKI and TLS<br/>for workload identity</h1>
+      <p class="lead">How workloads get a certificate, prove who they are, and decide whom to believe.</p>
       <ul>
-        <li>Read the cert-manager issuance chain — <code>Issuer</code> &rarr; <code>Certificate</code>
-          &rarr; <code>CertificateRequest</code> &rarr; a <code>kubernetes.io/tls</code> Secret</li>
-        <li>Stand up an internal CA, and say why a <strong>private</strong> CA — not a public one —
-          secures east-west traffic</li>
-        <li>Read a leaf cert's identity — its <strong>SANs</strong> — and recognize a
-          hostname-verification failure on sight</li>
-        <li>Explain <strong>trust</strong>: why a client accepts or rejects a server by which CA
-          signed it, and how <code>ca.crt</code> reaches the clients that need it</li>
-        <li>Set up <strong>mutual TLS</strong> between two workloads and read each way it breaks</li>
-        <li>Place <strong>ACME</strong> — the Let's Encrypt protocol — and why it is for public certs,
-          not internal ones</li>
+        <li>Read the <strong>cert-manager</strong> issuance chain and find where it stalls</li>
+        <li>Tell <strong>identity</strong> failures from <strong>trust</strong> failures by the error text</li>
+        <li>Run <strong>mutual TLS</strong> and tell which side rejects</li>
+        <li>Place <strong>renewal</strong> and <strong>ACME</strong> in the picture</li>
       </ul>
     </div>
   </section>
 
-  <!-- 3 · THE SPINE: three questions -->
   <section class="slide">
     <div class="wrap">
-      <h2>Every TLS failure is one of three questions</h2>
-      <p class="sub">A certificate answers "who are you?" with a signature you can check without
-        asking anyone. Three separable properties make that work — and each fails on its own.</p>
-      <div class="cards c3" style="margin-top:1.6rem">
+      <h2>Three questions classify<br/>every TLS failure</h2>
+      <div class="cards c3">
         <div class="card">
           <h3>Issuance</h3>
-          <p>Does a signed cert <em>exist</em>? Someone holding a CA key had to sign the workload's
-            public key.</p>
+          <p>Does a signed cert exist?</p>
+          <div class="sigs"><div class="sig"><span class="lbl">fails as</span><span class="val">a missing Secret</span></div></div>
         </div>
         <div class="card">
           <h3>Identity</h3>
-          <p>Does the cert claim the <em>right name</em>? A cert for one service proves nothing about
-            another.</p>
+          <p>Does the cert claim the name the client dialed?</p>
+          <div class="sigs"><div class="sig"><span class="lbl">fails as</span><span class="val">a name mismatch</span></div></div>
         </div>
         <div class="card">
           <h3>Trust</h3>
-          <p>Does the verifier <em>believe the signer</em>? A cert is only as good as your trust in
-            its CA.</p>
+          <p>Does the verifier believe the signer?</p>
+          <div class="sigs"><div class="sig"><span class="lbl">fails as</span><span class="val">an unknown issuer</span></div></div>
         </div>
       </div>
-      <div class="note" style="margin-top:1.5rem">
-        <p>All three look identical from outside — "the call didn't connect" — but have different
-          fixes. Name the failing layer before you touch anything.</p>
-      </div>
+      <div class="note"><p>Mutual TLS adds a fourth check: <em>purpose</em>. A cert must also be fit for the role it plays.</p></div>
     </div>
   </section>
 
-  <!-- 4 · CERT-MANAGER: the reconcile loop -->
   <section class="slide">
     <div class="wrap">
-      <h2>cert-manager turns a certificate<br/>into a declarative object</h2>
-      <div class="grid-2 vcenter">
-        <div>
-          <p>Before, getting a cert into a Pod meant a human running <code>openssl</code> and pasting
-            the result into a Secret — every 90 days. cert-manager is an operator: CRDs plus a
-            controller that issues and auto-renews.</p>
-          <ul>
-            <li>An <strong>Issuer</strong> declares <em>how</em> certs get signed — the backend</li>
-            <li>A <strong>Certificate</strong> declares <em>what</em> you want — names, duration, the
-              Secret to write</li>
-            <li>The controller creates a <strong>CertificateRequest</strong> — a CSR as an object —
-              which the issuer signs</li>
-          </ul>
-        </div>
-        <div class="card">
-          <h3>The reconcile, in objects</h3>
-          <div class="sigs">
-            <div class="sig"><span class="lbl">you write</span><span class="val"><code>Certificate</code> — the desired state</span></div>
-            <div class="sig"><span class="lbl">it creates</span><span class="val"><code>CertificateRequest</code> — one per issuance</span></div>
-            <div class="sig"><span class="lbl">issuer signs</span><span class="val">per the <code>Issuer</code> backend</span></div>
-            <div class="sig"><span class="lbl">result</span><span class="val">a <code>kubernetes.io/tls</code> Secret</span></div>
-          </div>
-        </div>
+      <h2>cert-manager reconciles a <code>Certificate</code><br/>into a Secret</h2>
+      <div class="flow" style="margin:1.6rem 0 1.2rem;justify-content:center">
+        <div class="node"><div class="t">SelfSigned issuer</div><div class="s">ClusterIssuer</div></div>
+        <div class="arrow"><span class="lbl">signs</span>→</div>
+        <div class="node"><div class="t">CA Certificate</div><div class="s">isCA: true</div></div>
+        <div class="arrow"><span class="lbl">stored in</span>→</div>
+        <div class="node"><div class="t">CA Secret</div><div class="s">tls.crt, tls.key</div></div>
+        <div class="arrow"><span class="lbl">read by</span>→</div>
+        <div class="node"><div class="t">CA issuer</div><div class="s">ClusterIssuer</div></div>
       </div>
+      <div class="flow" style="margin:2.2rem 0 1.4rem;justify-content:center">
+        <div class="node"><div class="t">Leaf Certificate</div><div class="s">names, issuer, duration</div></div>
+        <div class="arrow"><span class="lbl">creates</span>→</div>
+        <div class="node"><div class="t">CertificateRequest</div><div class="s">one per issuance</div></div>
+        <div class="arrow"><span class="lbl">writes</span>→</div>
+        <div class="node good"><div class="t">TLS Secret</div><div class="s">kubernetes.io/tls</div></div>
+        <div class="arrow"><span class="lbl">mounted by</span>→</div>
+        <div class="node"><div class="t">Workload Pod</div><div class="s">serves HTTPS</div></div>
+      </div>
+      <div class="note"><p>The Secret is the deliverable. The CA cert is the trust anchor that clients hold separately.</p></div>
     </div>
   </section>
 
-  <!-- 5 · INTERNAL CA: two-phase bootstrap chain -->
   <section class="slide">
     <div class="wrap">
-      <h2>An internal CA is a two-step bootstrap</h2>
-      <p class="sub">You can't ask a CA issuer to sign your CA cert — there is no CA yet. A SelfSigned
-        issuer mints the root once; a CA issuer signs every leaf after.</p>
-      <h3 class="muted" style="margin:1.4rem 0 .5rem">Bootstrap the root — once</h3>
-      <div class="flow" style="justify-content:center;gap:.7rem">
-        <div class="node"><div class="t">SelfSigned</div><div class="s">issuer</div></div>
-        <div class="arrow"><span class="lbl">signs</span>&rarr;</div>
-        <div class="node"><div class="t">CA cert</div><div class="s">isCA: true</div></div>
-        <div class="arrow"><span class="lbl">stored in</span>&rarr;</div>
-        <div class="node"><div class="t">CA Secret</div><div class="s">tls.crt / tls.key</div></div>
-        <div class="arrow"><span class="lbl">read by</span>&rarr;</div>
-        <div class="node good"><div class="t">CA issuer</div><div class="s">the backend</div></div>
-      </div>
-      <h3 class="muted" style="margin:1.6rem 0 .5rem">Issue a leaf — every workload</h3>
-      <div class="flow" style="justify-content:center;gap:.7rem">
-        <div class="node good"><div class="t">CA issuer</div><div class="s">signs leaves</div></div>
-        <div class="arrow"><span class="lbl">signs</span>&rarr;</div>
-        <div class="node"><div class="t">Certificate</div><div class="s">config-api-tls</div></div>
-        <div class="arrow"><span class="lbl">becomes</span>&rarr;</div>
-        <div class="node"><div class="t">tls Secret</div><div class="s">+ ca.crt</div></div>
-        <div class="arrow"><span class="lbl">mounted by</span>&rarr;</div>
-        <div class="node"><div class="t">Pod</div><div class="s">serves HTTPS</div></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 6 · THE tls SECRET CONTRACT -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>One Secret, three keys —<br/>the deliverable and the trust anchor</h2>
-      <p class="sub">cert-manager reconciles a <code>Certificate</code> into a
-        <code>kubernetes.io/tls</code> Secret. This is what a workload mounts.</p>
-      <div class="boundary" style="margin-top:1.4rem">
-        <span class="tag">kubernetes.io/tls Secret</span>
-        <div class="items">
-          <div class="item"><b>tls.crt</b><span>the leaf cert · public</span></div>
-          <div class="item"><b>tls.key</b><span>private key · never leaves</span></div>
-          <div class="item"><b>ca.crt</b><span>the issuing CA · public</span></div>
-        </div>
-        <div class="substrate">the <b>server</b> mounts it to <b>serve</b> TLS · a <b>client</b> needs
-          only <b>ca.crt</b> to <b>verify</b></div>
-      </div>
-      <div class="note" style="margin-top:1.3rem">
-        <p>The Secret is the deliverable; <code>ca.crt</code> is the trust anchor. Issuance produces
-          the first, trust distribution the second — keep the two jobs separate.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 7 · ISSUANCE DIAGNOSIS: climb the ladder -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>When issuance stalls, read down the chain</h2>
+      <h2>Diagnose issuance from the Pod<br/>up the ladder</h2>
       <div class="grid-2 vcenter">
         <div class="ladder">
           <div class="rung"><div class="rail"><div class="dot"></div><div class="line"></div></div>
-            <div class="body"><b>Certificate</b><span>the READY column — True or False</span></div></div>
+            <div class="body"><b>Pod events</b><span>FailedMount names the missing Secret</span></div></div>
           <div class="rung"><div class="rail"><div class="dot"></div><div class="line"></div></div>
-            <div class="body"><b>CertificateRequest</b><span>the child CSR — describe it for the real error</span></div></div>
+            <div class="body"><b>Certificate</b><span>Ready False means no Secret was written</span></div></div>
+          <div class="rung"><div class="rail"><div class="dot"></div><div class="line"></div></div>
+            <div class="body"><b>CertificateRequest</b><span>its condition holds the reason</span></div></div>
           <div class="rung"><div class="rail"><div class="dot k"></div></div>
-            <div class="body"><b class="bad">No Secret</b><span>nothing signed means nothing written</span></div></div>
+            <div class="body"><b>Issuer</b><span>is it present, and is it Ready?</span></div></div>
         </div>
-        <div>
-          <div class="card bad">
-            <h3>Missing cert = missing Secret = stuck Pod</h3>
-            <p>A <code>Certificate</code> that won't issue never writes its Secret. A Pod mounting that
-              Secret sits <code>ContainerCreating</code> with a <code>FailedMount</code> event.</p>
-          </div>
-          <div class="note warn" style="margin-top:1.1rem">
-            <p>Two symptoms, one root cause. Read the <code>Certificate</code>, not the Pod.</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 8 · IDENTITY: SANs, not CN -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Identity is the SAN list,<br/>not the Common Name</h2>
-      <p class="sub">TLS checks the name you dialed against the cert's Subject Alternative Names.
-        Modern clients ignore the legacy Common Name entirely.</p>
-      <div class="grid-2 tight" style="margin-top:1.1rem">
         <div class="terminal">
-<span class="o"># decode a leaf cert, read its SANs</span>
-<span class="c">kubectl</span> get secret config-api-tls \
-  -o jsonpath=<span class="g">'{.data.tls\.crt}'</span> \
-  | base64 -d | <span class="c">openssl</span> x509 -noout -text \
-  | grep -A1 <span class="g">'Subject Alternative Name'</span>
+<span class="c">kubectl</span> describe pod &lt;pod&gt;
+<span class="c">kubectl</span> get certificate -n &lt;ns&gt;
+<span class="c">kubectl</span> describe certificate &lt;name&gt;
+<span class="c">kubectl</span> describe certificaterequest
+<span class="c">kubectl</span> describe clusterissuer &lt;name&gt;
         </div>
-        <div>
-          <div class="card bad">
-            <h3>The handshake error</h3>
-            <p><code>no alternative certificate subject name matches target host name</code> —
-              trusted, freshly issued, still rejected because the dialed name is not in the SANs.</p>
-          </div>
-        </div>
-      </div>
-      <div class="note" style="margin-top:1.1rem">
-        <p>A service's cert must list every name a client uses to reach it — the short form and the
-          FQDN. Miss one and some callers fail while others succeed.</p>
       </div>
     </div>
   </section>
 
-  <!-- 9 · TRUST: the client holds the CA -->
   <section class="slide">
     <div class="wrap">
-      <h2>Trust is what the client holds,<br/>distributed apart from the cert</h2>
+      <h2>A <code>Certificate</code> can name an issuer<br/>that does not exist</h2>
+      <div class="grid-2 vcenter">
+        <div class="card">
+          <h3>One cause, two symptoms</h3>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">pod</span><span class="val"><code>ContainerCreating</code> with a <code>FailedMount</code> event</span></div>
+            <div class="sig"><span class="lbl">cert</span><span class="val"><code>Ready</code> False, no Secret written</span></div>
+            <div class="sig"><span class="lbl">fix</span><span class="val">point <code>issuerRef</code> at a real issuer</span></div>
+          </div>
+        </div>
+        <div class="terminal">
+<span class="o"># CertificateRequest condition</span>
+Referenced "ClusterIssuer" not found:
+clusterissuer.cert-manager.io
+"polyphone-ca-typo" not found
+        </div>
+      </div>
+      <div class="note"><p>The Pod is never the problem. It waits for a Secret that no issuer can sign.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>An issuer that exists can still<br/>be not Ready</h2>
+      <div class="cards c2">
+        <div class="card">
+          <h3>On the CertificateRequest</h3>
+          <div class="terminal" style="margin-top:.6rem">
+Referenced issuer does not have
+a Ready status condition
+          </div>
+        </div>
+        <div class="card">
+          <h3>On the ClusterIssuer</h3>
+          <div class="terminal" style="margin-top:.6rem">
+Error getting keypair
+for CA issuer: ... not found
+          </div>
+        </div>
+      </div>
+      <div class="note warn"><p>Every <code>Certificate</code> that shares the issuer stalls together, and so does every renewal behind it. Existing certs keep working until they expire.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>The TLS Secret is a contract,<br/>and derived state</h2>
+      <div class="grid-2 vcenter">
+        <div class="card">
+          <h3>Keys in the Secret</h3>
+          <table style="margin-top:.4rem">
+            <tr><td><code>tls.crt</code></td><td class="muted">required by Kubernetes</td></tr>
+            <tr><td><code>tls.key</code></td><td class="muted">required by Kubernetes</td></tr>
+            <tr><td><code>ca.crt</code></td><td class="muted">cert-manager addition, a best guess at the CA</td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <h3>Delete the Secret</h3>
+          <p>The controller treats a missing Secret as a reason to issue. It writes a new key pair, and the revision increments.</p>
+          <div class="sigs"><div class="sig"><span class="lbl">intent</span><span class="val">the <code>Certificate</code></span></div>
+            <div class="sig"><span class="lbl">derived</span><span class="val">the Secret</span></div></div>
+        </div>
+      </div>
+      <div class="note"><p>The ACME issuer does not write <code>ca.crt</code>. Do not rely on the key being present.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Identity: the dialed name must appear<br/>in the SANs</h2>
+      <div class="terminal">
+<span class="o"># the client rejects the server during the handshake</span>
+curl: (60) SSL: no alternative certificate subject name
+      matches target host name 'config-api.media.svc.cluster.local'
+      </div>
+      <div class="cards c2" style="margin-top:1.4rem">
+        <div class="card">
+          <h3>List every Service name form</h3>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">short</span><span class="val"><code>config-api</code></span></div>
+            <div class="sig"><span class="lbl">scoped</span><span class="val"><code>config-api.media.svc</code></span></div>
+            <div class="sig"><span class="lbl">full</span><span class="val"><code>config-api.media.svc.cluster.local</code></span></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>The Common Name does not count</h3>
+          <p>RFC 6125 forbids matching the CN when the cert presents a DNS SAN. cert-manager writes every <code>dnsNames</code> entry into the SANs.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Trust: the client needs the CA<br/>that signed the server</h2>
+      <div class="terminal">
+<span class="o"># the client does not recognize the signer</span>
+curl: (60) SSL certificate problem: unable to get local issuer certificate
+      </div>
+      <div class="cards c2" style="margin-top:1.4rem">
+        <div class="card bad">
+          <h3>Turn verification off</h3>
+          <p><code>curl -k</code> and <code>insecureSkipVerify</code> accept any cert, including an attacker's.</p>
+        </div>
+        <div class="card good">
+          <h3>Distribute the CA bundle</h3>
+          <p>The CA cert is public. Mount it in the client and pass it to the verifier with <code>--cacert</code>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Do not use a leaf Secret's <code>ca.crt</code><br/>as the trust anchor</h2>
       <div class="grid-2 vcenter">
         <div>
-          <p>A client trusts a fixed set of CAs — for the public web, the roots baked into the OS. An
-            internal CA no OS has heard of is trusted by nobody by default.</p>
           <ul>
-            <li><code>ca.crt</code> is <strong>public</strong> — no private key — so it is safe to
-              hand to every workload</li>
-            <li>Give the client the CA's public cert so it can complete the chain; point its verifier
-              at it with <code>--cacert</code></li>
-            <li>Mount the <em>wrong</em> CA and a flawless server is rejected</li>
+            <li>cert-manager fills <code>ca.crt</code> with a best guess</li>
+            <li>It can change when the issuer changes</li>
+            <li>It updates only when the leaf renews</li>
+            <li><strong>trust-manager</strong> syncs a CA bundle into every namespace</li>
           </ul>
         </div>
-        <div>
-          <div class="card bad">
-            <h3>The trust error</h3>
-            <p><code>unable to get local issuer certificate</code> — not "the cert is bad", but "I
-              don't recognize who signed it."</p>
-          </div>
-          <div class="note warn" style="margin-top:1.1rem">
-            <p>Never answer this with <code>curl -k</code> or <code>insecureSkipVerify</code> — that
-              turns authenticated TLS into plaintext-equivalent.</p>
-          </div>
+        <div class="ladder">
+          <div class="rung"><div class="rail"><div class="dot"></div><div class="line"></div></div>
+            <div class="body"><b>Add the new CA to the bundle</b><span>the bundle now holds both CAs</span></div></div>
+          <div class="rung"><div class="rail"><div class="dot"></div><div class="line"></div></div>
+            <div class="body"><b>Issue leaf certs from the new CA</b><span>clients already trust it</span></div></div>
+          <div class="rung"><div class="rail"><div class="dot k"></div></div>
+            <div class="body"><b>Remove the old CA</b><span>after the last old leaf expires</span></div></div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- 10 · THE DIFFERENTIAL -->
   <section class="slide">
     <div class="wrap">
-      <h2>Two failures, both <code>curl: (60)</code> —<br/>one phrase tells them apart</h2>
-      <div class="cards c2" style="margin-top:1.4rem">
-        <div class="card warn">
-          <h3>Identity failure</h3>
-          <p><code>no alternative certificate subject name matches target host name</code></p>
-          <div class="sigs">
-            <div class="sig"><span class="lbl">meaning</span><span class="val">the cert's SANs omit the name you dialed</span></div>
-            <div class="sig"><span class="lbl">fix</span><span class="val">add the name to the cert's <code>dnsNames</code></span></div>
-            <div class="sig"><span class="lbl">look at</span><span class="val">the server's cert — <code>openssl x509 -text</code></span></div>
-          </div>
-        </div>
-        <div class="card bad">
-          <h3>Trust failure</h3>
-          <p><code>unable to get local issuer certificate</code></p>
-          <div class="sigs">
-            <div class="sig"><span class="lbl">meaning</span><span class="val">the client trusts the wrong CA, or none</span></div>
-            <div class="sig"><span class="lbl">fix</span><span class="val">give the client the right <code>ca.crt</code></span></div>
-            <div class="sig"><span class="lbl">look at</span><span class="val">the client's <code>--cacert</code> bundle, not the server</span></div>
-          </div>
-        </div>
+      <h2>In mTLS, read which side rejects</h2>
+      <div class="flow" style="margin:1.2rem 0 1.8rem;justify-content:center">
+        <div class="node"><div class="t">Client</div><div class="s">presents its own cert</div></div>
+        <div class="arrow"><span class="lbl">checks server: name, signer</span>⇄</div>
+        <div class="node"><div class="t">Server</div><div class="s">requires a client cert</div></div>
       </div>
-    </div>
-  </section>
-
-  <!-- 11 · mTLS -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Mutual TLS: both ends present<br/>and verify a certificate</h2>
-      <p class="sub">Server TLS authenticates one direction — the server accepts anyone. mTLS closes
-        the loop: the server also requires a client cert and verifies it against a CA.</p>
-      <div class="flow" style="justify-content:center;gap:1.2rem;margin:1.3rem 0">
-        <div class="node"><div class="t">Client</div><div class="s">presents tls.crt / key<br/>verifies the server</div></div>
-        <div class="arrow"><span class="lbl">both verify</span>&harr;</div>
-        <div class="node"><div class="t">Server</div><div class="s">presents tls.crt / key<br/>requires + verifies client</div></div>
-      </div>
-      <div class="terminal">
-<span class="o"># --cert/--key present the caller's identity; --cacert is its trust anchor</span>
-<span class="c">curl</span> --cert /etc/tls/id/tls.crt --key /etc/tls/id/tls.key \
-     --cacert /etc/tls/trust/ca.crt \
-     https://config-api.media.svc.cluster.local/
-      </div>
-      <div class="note" style="margin-top:1.1rem">
-        <p>mTLS multiplies the failure surface — either side's cert can be un-issued, mis-named, or
-          untrusted — but adds no new <em>kinds</em> of failure. It is issuance, identity, trust,
-          from two vantage points.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 12 · ACME -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>ACME issues public certs<br/>by proving you control the domain</h2>
-      <p class="sub">A private CA fits internal traffic — you own both ends. A cert a customer's
-        browser hits must be signed by a CA the browser already trusts, such as Let's Encrypt.</p>
-      <div class="cards c2" style="margin-top:1.4rem">
-        <div class="card">
-          <h3>HTTP-01</h3>
-          <p>Serve a random token at <code>/.well-known/acme-challenge/</code> — proves you control
-            the web server behind the name.</p>
-        </div>
-        <div class="card">
-          <h3>DNS-01</h3>
-          <p>Publish a <code>TXT</code> record — proves you control the domain's DNS, and can issue
-            wildcards.</p>
-        </div>
-      </div>
-      <div class="note" style="margin-top:1.3rem">
-        <p>Internal traffic &rarr; private CA (instant, free, you own trust). Public traffic &rarr;
-          ACME (a real CA, but you must prove domain control). An ACME issuer will never sign a
-          cluster-internal name.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 13 · EXPIRY & RENEWAL -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Certificates expire;<br/>renewal is a loop, not a reminder</h2>
-      <p class="sub">A cert nobody renews is an outage with a timer on it — it worked yesterday and
-        now throws <code>certificate has expired</code>.</p>
-      <div class="flow" style="margin:1.5rem 0;justify-content:flex-start">
-        <div class="phase run">Issued<br/><span class="muted" style="font-size:.76rem">Ready: True</span></div>
-        <div class="arrow"><span class="lbl">at ⅔ of life</span>&rarr;</div>
-        <div class="phase">Renewed<br/><span class="muted" style="font-size:.76rem">new cert, same Secret</span></div>
-        <div class="arrow">&rarr;</div>
-        <div class="phase term">Expired<br/><span class="muted" style="font-size:.76rem">if the loop stalled</span></div>
-      </div>
-      <div class="note warn">
-        <p>Renewal fires only if cert-manager is healthy and the issuer still works. Alert on the cert
-          itself — "within N days of expiry <em>and</em> not renewed" — not on the loop you hope
-          will fire.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 14 · FAILURE MODES TABLE -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Common failure modes</h2>
       <table>
-        <tr><th>Symptom</th><th>Likely cause</th><th>Where to look</th></tr>
-        <tr>
-          <td><code>Ready: False</code>, no Secret</td>
-          <td>issuer missing / wrong kind / CSR rejected</td>
-          <td class="muted">describe the <code>Certificate</code>, then its <code>CertificateRequest</code></td>
-        </tr>
-        <tr>
-          <td>Pod <code>ContainerCreating</code>, <code>FailedMount</code></td>
-          <td>the cert filling that Secret hasn't issued</td>
-          <td class="muted">the <code>Certificate</code> behind the Secret</td>
-        </tr>
-        <tr>
-          <td><code>subject name matches</code> failure</td>
-          <td>SANs omit the dialed name</td>
-          <td class="muted"><code>openssl x509 -text</code> — SANs vs the URL</td>
-        </tr>
-        <tr>
-          <td><code>local issuer certificate</code></td>
-          <td>client trusts the wrong CA, or none</td>
-          <td class="muted">the client's <code>--cacert</code> vs the signing CA</td>
-        </tr>
-        <tr>
-          <td><code>certificate has expired</code></td>
-          <td>renewal didn't happen</td>
-          <td class="muted">the cert's <code>NOT AFTER</code>; controller health</td>
-        </tr>
+        <tr><th>Who rejects</th><th>What you see</th><th>Where to look</th></tr>
+        <tr><td>Client rejects server</td><td>A handshake error inside curl</td><td class="muted">the error text: identity or trust</td></tr>
+        <tr><td>Server rejects client</td><td>The channel opens, then an HTTP 400</td><td class="muted">the server log</td></tr>
       </table>
     </div>
   </section>
 
-  <!-- 15 · RECAP -->
   <section class="slide">
     <div class="wrap">
-      <h2>What to carry forward</h2>
+      <h2>Purpose: a client identity needs<br/><code>client auth</code></h2>
+      <div class="grid-2 vcenter">
+        <div class="card">
+          <h3>Extended Key Usage</h3>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">server cert</span><span class="val"><code>server auth</code></span></div>
+            <div class="sig"><span class="lbl">client cert</span><span class="val"><code>client auth</code></span></div>
+            <div class="sig"><span class="lbl">default</span><span class="val"><code>digital signature</code>, <code>key encipherment</code>, <code>server auth</code></span></div>
+          </div>
+        </div>
+        <div class="terminal">
+<span class="o"># server log, HTTP 400 to the client</span>
+client SSL certificate verify error:
+(26:unsuitable certificate purpose)
+        </div>
+      </div>
+      <div class="note warn"><p>nginx logs this line at <code>info</code>. Its default level is <code>notice</code>, so the one record of the cause disappears unless you raise the level.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Renewal writes the Secret.<br/>A running process must reload.</h2>
+      <div class="flow" style="margin:1.4rem 0 1.8rem;justify-content:flex-start">
+        <div class="phase">Issued<br/><span class="muted" style="font-size:.76rem">90-day life</span></div>
+        <div class="arrow">→</div>
+        <div class="phase run">Renewal Time<br/><span class="muted" style="font-size:.76rem">two thirds, about day 60</span></div>
+        <div class="arrow">→</div>
+        <div class="phase run">Secret updated<br/><span class="muted" style="font-size:.76rem">same Secret</span></div>
+        <div class="arrow">→</div>
+        <div class="phase term">Process reloads<br/><span class="muted" style="font-size:.76rem">restart, signal, or watcher</span></div>
+      </div>
+      <div class="grid-2 tight">
+        <div class="note"><p>The kubelet refreshes mounted Secret files on its periodic sync.</p></div>
+        <div class="note warn"><p>A process that loaded the cert at startup serves the old cert until it reloads. Alert on the served cert's expiry.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>ACME issues public certs<br/>after a domain challenge</h2>
+      <div class="cards c2">
+        <div class="card">
+          <h3>HTTP-01</h3>
+          <p>Serve a random token at <code>/.well-known/acme-challenge/</code>. This proves control of the web server.</p>
+        </div>
+        <div class="card">
+          <h3>DNS-01</h3>
+          <p>Publish a <code>TXT</code> record. This proves control of the DNS zone and allows wildcards.</p>
+        </div>
+      </div>
+      <div class="note"><p>Internal traffic uses a private CA. Public traffic uses ACME. An ACME issuer never signs <code>config-api.media.svc.cluster.local</code>, because that name exists only inside the cluster.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Failure modes and where to look</h2>
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th><th>Where to look</th></tr>
+        <tr><td><code>Certificate</code> Ready False</td><td>Issuer missing, or not Ready</td><td class="muted"><code>describe certificaterequest</code></td></tr>
+        <tr><td>Several Certificates stuck</td><td>A shared issuer is not Ready</td><td class="muted"><code>describe clusterissuer</code></td></tr>
+        <tr><td><code>FailedMount</code> on a tls volume</td><td>The Certificate has not issued</td><td class="muted">the Certificate, not the Pod</td></tr>
+        <tr><td>Name mismatch error</td><td>SANs omit the dialed name</td><td class="muted"><code>openssl x509 -text</code></td></tr>
+        <tr><td>Unknown issuer error</td><td>The client holds the wrong CA</td><td class="muted">client CA bundle against the issuer</td></tr>
+        <tr><td>HTTP 400, no handshake error</td><td>The server rejects the client cert</td><td class="muted">server log, then the cert's EKU</td></tr>
+        <tr><td>Expired cert, worked yesterday</td><td>No renewal, or no reload</td><td class="muted"><code>Not After</code> on the served cert</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Recap</h2>
       <ul>
-        <li><strong>Every TLS failure is issuance, identity, or trust.</strong> Was it signed, does it
-          claim the right name, does the verifier trust the signer — name the layer first.</li>
-        <li><strong>cert-manager makes certs a reconcile loop.</strong> When it stalls, read from the
-          <code>Certificate</code> down to its <code>CertificateRequest</code> for the real reason.</li>
-        <li><strong>A missing cert is a missing Secret is a stuck Pod.</strong> Diagnose the cert, not
-          the Pod it blocks.</li>
-        <li><strong>Identity is SANs, not CN.</strong> The cert must list every name its clients dial.</li>
-        <li><strong>Trust is the client's CA, distributed separately.</strong> <code>ca.crt</code> is
-          public and safe to spread; never fix a trust error by disabling verification.</li>
+        <li><strong>Issuance, identity, trust</strong>, plus purpose in mTLS. Name the layer first.</li>
+        <li>cert-manager is a reconciliation loop. Climb from Pod events to the issuer.</li>
+        <li>A cert that cannot issue leaves a stuck Pod. Failures that start together share an issuer.</li>
+        <li>Identity is SANs. Trust is the client's CA, distributed apart from the cert.</li>
+        <li>An HTTP error from the server means the server rejects the client. Read its log.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Production thinking</h2>
+      <ul>
+        <li>Renewal needs a healthy controller, a working issuer, and a reload. What do you alert on, and why does the served cert's expiry beat the renewal loop?</li>
+        <li>You rotate the internal CA. Does the new CA reach every CA bundle first, or do the new leaf certs come first? Why does a bundle with both CAs prevent an outage?</li>
+        <li>A teammate adds <code>--insecure</code> to close a trust ticket. What did that turn off, and which review rule keeps it out?</li>
       </ul>
     </div>
   </section>

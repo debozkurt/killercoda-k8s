@@ -1,40 +1,39 @@
 # Step 2 — A Certificate becomes a TLS Secret
 
-You don't sign certs by hand. You declare a `Certificate`, and cert-manager reconciles it into a `kubernetes.io/tls` Secret. `config-api` (the HTTPS server in `media`) has one.
+You declare a `Certificate`. cert-manager reconciles it into a Secret of type `kubernetes.io/tls`, the object a Pod mounts to read a key pair. `config-api` (the HTTPS server in `media`) has one.
 
-## The leaf Certificate is Ready
+## The Certificate is Ready
 
 ```bash
 kubectl get certificate config-api-tls -n media
-kubectl describe certificate config-api-tls -n media | sed -n '/Status:/,/Events:/p'
+kubectl describe certificate config-api-tls -n media
 ```{{exec}}
 
-`READY=True`. The `describe` shows the conditions and the child `CertificateRequest` cert-manager created to get it signed — the ladder you'll climb in `breakfix-01` when a cert *won't* issue.
+Ready is True. In the `describe` output, read `Conditions:` and then the `Events:` at the bottom. The events name the CertificateRequest, the object cert-manager creates to get each key pair signed.
 
 ## The Secret it produced
 
 ```bash
-kubectl get secret config-api-tls -n media
+kubectl describe secret config-api-tls -n media
 ```{{exec}}
 
-Type `kubernetes.io/tls`. Three keys: `tls.crt` (the cert), `tls.key` (the private key the server serves with), and `ca.crt` (the CA that signed it — handy for clients). This Secret is the deliverable: the `config-api` Pod mounts it to serve HTTPS.
+The `Data` block lists three keys: `tls.crt` (the cert), `tls.key` (the private key) and `ca.crt` (the issuing CA). Kubernetes requires only `tls.crt` and `tls.key`. cert-manager adds `ca.crt` as its best guess at the CA.
 
-## Read the cert's identity — its SANs
+## Read the cert's identity
 
-The **Subject Alternative Names** are the only field TLS checks for identity. Decode the cert and read them:
+The **Subject Alternative Names** (SANs) are the names a client checks. Decode the cert and read them:
 
 ```bash
 kubectl get secret config-api-tls -n media -o jsonpath='{.data.tls\.crt}' | base64 -d \
   | openssl x509 -noout -subject -ext subjectAltName
 ```{{exec}}
 
-Three SANs — `config-api`, `config-api.media.svc`, `config-api.media.svc.cluster.local` — the three DNS forms a caller might use to reach this Service. A client that dials any of them passes hostname verification; a client that dials a name *not* listed fails, even though the cert is perfectly valid. That mismatch is `breakfix-02`.
+The cert lists three SANs: the short name, `config-api.media.svc`, and the full cluster name. A client that dials any of the three passes the name check. A client that dials another name fails, even though the cert is valid.
 
-## Confirm the server mounts it
+## Confirm the Pod mounts it
 
 ```bash
-kubectl get deploy config-api -n media \
-  -o jsonpath='{.spec.template.spec.volumes[?(@.name=="tls")].secret.secretName}{"\n"}'
+kubectl describe deployment config-api -n media
 ```{{exec}}
 
-`config-api-tls` — the Pod mounts the Secret at `/etc/nginx/tls` and serves HTTPS from it. On to the handshake.
+Under `Volumes:`, read the `tls` entry. Its SecretName is `config-api-tls`, and the container mounts it at /etc/nginx/tls.

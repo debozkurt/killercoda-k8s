@@ -1,26 +1,21 @@
 # Step 2 — Fix it and verify
 
-The `Certificate` points at `polyphone-ca-typo`; the real internal-CA issuer is `polyphone-ca`. Repoint it and cert-manager will sign it.
+Point the `Certificate` at the real issuer. cert-manager compares the open CertificateRequest with the spec, sees the new `issuerRef`, and creates a fresh request.
 
 ## Correct the issuerRef
 
 ```bash
 kubectl patch certificate config-api-tls -n media --type=merge \
   -p '{"spec":{"issuerRef":{"name":"polyphone-ca"}}}'
-```{{exec}}
-
-cert-manager sees the change, creates a fresh `CertificateRequest`, the CA issuer signs it, and the Secret gets written. Watch it go Ready:
-
-```bash
 kubectl wait --for=condition=Ready certificate/config-api-tls -n media --timeout=90s
 kubectl get secret config-api-tls -n media
 ```{{exec}}
 
-`READY=True`, and the `kubernetes.io/tls` Secret now exists.
+Ready is True, and the `kubernetes.io/tls` Secret exists.
 
-## The Pod recovers
+## Start the Pod
 
-Once the Secret exists, the kubelet's next mount retry lets the stuck Pod start — give it a nudge so you don't wait for the backoff:
+The kubelet retries a failed mount on its own, after a delay. Roll the Deployment to skip the delay:
 
 ```bash
 kubectl rollout restart deployment/config-api -n media
@@ -30,7 +25,6 @@ kubectl rollout status deployment/config-api -n media --timeout=90s
 ## Verify end to end
 
 ```bash
-kubectl get certificate config-api-tls -n media
 kubectl get pods -n media -l app=config-api
 kubectl exec -n app-services deploy/config-client -- \
   curl -sS --cert /etc/tls/id/tls.crt --key /etc/tls/id/tls.key \
@@ -38,4 +32,6 @@ kubectl exec -n app-services deploy/config-client -- \
        https://config-api.media.svc.cluster.local/
 ```{{exec}}
 
-`Certificate` Ready, Pod `Running 1/1`, and the mTLS call returns `config-api: mTLS OK`. The Pod was never broken — it was waiting on a Secret that couldn't exist until the `Certificate` had a real issuer. See `finish.md`, and check `ANSWER-KEY.md`.
+The Pod reads Running, 1/1, and the call returns `config-api: mTLS OK`. The Pod was never broken. It waited for a Secret that no issuer could sign.
+
+Check your path against the [ANSWER-KEY](https://github.com/debozkurt/killercoda-k8s/blob/main/m12-pki-tls/ANSWER-KEY.md).

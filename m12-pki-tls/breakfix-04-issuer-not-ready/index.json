@@ -1,0 +1,19 @@
+{
+  "title": "M12 — Break/fix 04: two Certificates fail at once",
+  "description": "config-api and config-client both sit in ContainerCreating, in two namespaces, and no manifest changed. Every issuer name resolves, yet no leaf cert issues. Find the object the two Certificates share, read why it cannot sign, and fix it once.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the shared failure", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

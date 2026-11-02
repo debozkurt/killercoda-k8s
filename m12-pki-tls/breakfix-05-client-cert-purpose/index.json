@@ -1,0 +1,19 @@
+{
+  "title": "M12 — Break/fix 05: a client cert the server refuses",
+  "description": "config-client cannot call config-api. Both Pods run and both Certificates are Ready, yet the call returns an HTTP error page. The server rejects the client cert. Find who rejects, read the server's reason, and fix the client cert at its source.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the rejection", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

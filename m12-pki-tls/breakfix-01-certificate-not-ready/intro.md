@@ -1,9 +1,11 @@
 # M12 — Break/fix 01: a Certificate that won't issue
 
-> Pre-req: the M12 baseline tour. You've seen a healthy leaf `Certificate` go `Ready: True` and produce a `kubernetes.io/tls` Secret. Here it doesn't.
+> The healthy PKI from the baseline, with one link broken.
 
-`config-api` in the `media` namespace serves HTTPS from a cert-manager-issued certificate. After a manifest change it won't come up — the Pod is stuck `ContainerCreating` and never goes Ready. The rest of the fleet is fine.
+An alert fires: `config-api` in the `media` namespace never goes Ready. After a manifest change, the Pod sits in `ContainerCreating`. The rest of the fleet is healthy.
 
-This is the **issuance** layer of PKI: does a signed cert actually *exist*? A `Certificate` object can sit un-issued forever, and when it does, the Secret it's supposed to write is never created — so any Pod mounting that Secret is stuck at the starting line. Your job: recognize that the Pod isn't the problem, climb the cert-manager ladder to find *why* issuance failed, and fix it so the Secret gets written.
+This is the **issuance** layer: does a signed cert exist? A `Certificate` that cannot issue never writes its Secret. A Pod that mounts that Secret waits at the starting line.
 
-The cluster takes 2–3 minutes to come up (cert-manager installs during boot). Click **Start** when ready.
+Your job: show that the Pod is not the problem, climb the cert-manager ladder to the reason issuance failed, and fix the cause.
+
+The cluster takes 2–3 minutes to come up. Click **Start** when ready.

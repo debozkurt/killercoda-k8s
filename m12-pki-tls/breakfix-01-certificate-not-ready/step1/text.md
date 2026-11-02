@@ -1,47 +1,35 @@
 # Step 1 — Diagnose the stuck server
 
-A Pod that won't leave `ContainerCreating` is almost never the Pod's fault — something it *needs* isn't there yet. Follow what it's waiting on.
+A Pod stuck in `ContainerCreating` waits for something it needs. Follow what it waits for.
 
-## The Pod is stuck, not crashing
+## The Pod waits, it does not crash
 
 ```bash
 kubectl get pods -n media -l app=config-api
+kubectl describe pod -n media -l app=config-api
 ```{{exec}}
 
-`ContainerCreating`, `0/1`, no restarts. It isn't crashlooping (that would be a bad image or command) — it can't even start. Ask why:
-
-```bash
-kubectl describe pod -n media -l app=config-api | sed -n '/Events:/,$p'
-```{{exec}}
-
-```text
-Warning  FailedMount  ...  MountVolume.SetUp failed for volume "tls" :
-                           secret "config-api-tls" not found
-```
-
-The Pod mounts Secret `config-api-tls` to serve HTTPS, and that Secret **doesn't exist**. Don't chase the Pod — chase the Secret. And a cert-manager Secret is written by a `Certificate`.
+The Pod reads ContainerCreating, 0/1. In the `describe` output, read the `Events:` at the bottom. A `FailedMount` event says `secret "config-api-tls" not found`. The Pod mounts a Secret that does not exist. A cert-manager Secret comes from a `Certificate`.
 
 ## Climb to the Certificate
 
 ```bash
 kubectl get certificate config-api-tls -n media
+kubectl describe certificate config-api-tls -n media
 ```{{exec}}
 
-`READY=False`. That's the whole story: the cert never issued, so its Secret was never written, so the Pod can't mount it. Now find *why* it didn't issue — the reason lives one rung down, on the `CertificateRequest`:
+Ready is False. The `Events:` show that cert-manager started an issuance because the Secret does not exist, then created a CertificateRequest. The **CertificateRequest** is the object that asks an issuer to sign one key pair. It holds the reason for a failure.
+
+## Read the CertificateRequest
 
 ```bash
-kubectl describe certificate config-api-tls -n media | sed -n '/Status:/,$p'
-kubectl describe certificaterequest -n media -l cert-manager.io/certificate-name=config-api-tls | sed -n '/Status:/,$p'
+kubectl describe certificaterequest -n media
 ```{{exec}}
 
-```text
-Message:  Referenced "ClusterIssuer" not found: clusterissuer.cert-manager.io "polyphone-ca-typo" not found
-```
-
-There it is. The `Certificate`'s `issuerRef` names `polyphone-ca-typo`, an issuer that doesn't exist — so cert-manager has nothing to sign with. Confirm the real issuer's name:
+In `Conditions:`, read the Message: `Referenced "ClusterIssuer" not found`, followed by the name `polyphone-ca-typo`. The `Certificate` names an issuer that does not exist. Compare with the real issuers:
 
 ```bash
 kubectl get clusterissuers
 ```{{exec}}
 
-The internal CA issuer is `polyphone-ca` (no `-typo`). Root cause: the `Certificate` points at a non-existent issuer. On to the fix.
+The internal CA issuer is `polyphone-ca`.

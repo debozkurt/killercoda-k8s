@@ -1,11 +1,11 @@
 # Done
 
-The server's cert was issued, `Ready`, and correctly named — flawless — and the call still failed, because trust lives on the *client's* side. `unable to get local issuer certificate` meant the client couldn't chain the server's cert up to any CA it held. The server was signed by `polyphone-internal-ca`; the client was mounting `polyphone-legacy-ca`. Pointing its trust volume at `internal-ca-bundle` gave it the right anchor, and the same untouched server cert verified immediately.
+The server cert was issued, Ready and correctly named, and the call still failed. Trust lives on the client's side. `unable to get local issuer certificate` meant the client could not chain the server cert to any CA it held. The internal CA signed the server, and the client mounted the legacy CA. Pointing the `trust` volume at `internal-ca-bundle` fixed it. The server cert never changed.
 
-The reflex: **trust is the client's CA, distributed separately from the cert — and you fix a trust error by distributing the *right* CA, never by turning verification off.** Split the error first (`unable to get local issuer certificate` = trust; `subject name matches` = identity), then compare the server cert's *issuer* against the CA the client actually holds. `curl --insecure` / `insecureSkipVerify` makes the error vanish by making the check meaningless — that's how internal TLS quietly rots into unauthenticated plaintext-equivalent.
+The instinct to keep: split the error first. `unable to get local issuer certificate` is trust. `subject name matches` is identity. For trust, compare the issuer of the server cert with the CA the client holds. Never answer a trust error with `--insecure`.
 
 **Next:**
 
 - Check your path against [`ANSWER-KEY.md`](../ANSWER-KEY.md).
-- For the *why* — the chain of trust, distributing `ca.crt`, and trust-manager at scale — see [`LESSON.md`](../LESSON.md) § Trust.
-- That's all three break/fix scenarios — issuance, identity, trust. Re-read [`LESSON.md`](../LESSON.md) for the full model, including where ACME and public certs fit.
+- Read [`LESSON.md`](../LESSON.md) § Trust.
+- Continue to `breakfix-04-issuer-not-ready`: two Certificates fail at once.

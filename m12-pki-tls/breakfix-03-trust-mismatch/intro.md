@@ -1,9 +1,11 @@
 # M12 — Break/fix 03: the client trusts the wrong CA
 
-> Pre-req: the M12 baseline tour. You've seen `config-client` verify `config-api` against a mounted CA bundle (`/etc/tls/trust/ca.crt`). Here it's verifying against the wrong one.
+> The healthy PKI from the baseline, with one link broken. Work breakfix-01 and 02 first.
 
-`config-client` in `app-services` calls `config-api` in `media` over mTLS. The server side is flawless — the cert is issued, `Ready`, and valid for the right name (you fixed that last scenario). But the call still fails, and this time the failure is on the *client's* side of the check.
+An alert fires: `config-client` in `app-services` cannot call `config-api` in `media`. The server side is flawless. Its cert is issued, Ready, and lists the right names. The call fails on the client's side of the check.
 
-This is the **trust** layer: a TLS client accepts a server only if it can chain the server's cert up to a CA it already holds. `config-api`'s cert is signed by the internal CA — so the client must hold *that* CA's public cert to verify it. Mount a different CA and the client rejects a perfectly valid certificate. Your job: recognize a trust failure (not a bad cert), find which CA the client is trusting, and give it the right one — **not** by disabling verification.
+This is the **trust** layer. A client accepts a server only when it can chain the server's cert to a CA it already holds. `config-api` presents a cert signed by the internal CA, so the client needs that CA's public cert. A different CA makes the client reject a valid certificate.
 
-The cluster takes 2–3 minutes to come up (cert-manager installs during boot). Click **Start** when ready.
+Your job: recognize a trust failure, find which CA the client holds, and give it the right one. Do not disable verification.
+
+The cluster takes 2–3 minutes to come up. Click **Start** when ready.

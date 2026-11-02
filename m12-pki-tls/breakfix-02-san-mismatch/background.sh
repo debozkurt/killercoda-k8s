@@ -688,7 +688,7 @@ EOF
 # Wait for the fleet to come up
 # ---------------------------------------------------------------------------
 
-kubectl wait --for=condition=Available deployment --all -A --timeout=240s >/dev/null 2>&1
+kubectl wait --for=condition=Available deployment --all -A --timeout=120s >/dev/null 2>&1
 # StatefulSets don't have an Available condition; wait for at least one ready pod
 for ns in media signaling app-services edge; do
   kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=120s >/dev/null 2>&1
@@ -707,7 +707,7 @@ done
 # known-good release. The webhook validates/defaults every Issuer and Certificate,
 # so nothing PKI-related can be created until it is serving — we wait for it below.
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml >/dev/null 2>&1
-kubectl -n cert-manager wait --for=condition=Available deployment --all --timeout=180s >/dev/null 2>&1
+kubectl -n cert-manager wait --for=condition=Available deployment --all --timeout=120s >/dev/null 2>&1
 
 # The bootstrap issuer: a SelfSigned ClusterIssuer that can mint a self-signed root.
 # Retry until it applies — even after the webhook Deployment is Available, the
@@ -818,6 +818,7 @@ data:
     server {
       listen 8443 ssl;
       server_name config-api.media.svc.cluster.local;
+      error_log /dev/stderr info;
       ssl_certificate     /etc/nginx/tls/tls.crt;
       ssl_certificate_key /etc/nginx/tls/tls.key;
       ssl_client_certificate /etc/nginx/tls/ca.crt;

@@ -1,34 +1,27 @@
 # Step 2 — Fix it and verify
 
-The cert must list every name clients use to reach the Service — all three DNS forms. Put them back, let cert-manager reissue, then make nginx reload the new cert.
+The cert must list every name a client uses: the short name, `<service>.<namespace>.svc`, and the full cluster name. Restore them, let cert-manager reissue, then make nginx reload.
 
 ## Restore the dnsNames
 
 ```bash
 kubectl patch certificate config-api-tls -n media --type=merge -p \
   '{"spec":{"dnsNames":["config-api.media.svc.cluster.local","config-api.media.svc","config-api"]}}'
-```{{exec}}
-
-cert-manager reissues into the same Secret with the corrected SANs. Wait for it, then confirm the cert now carries the right names:
-
-```bash
-kubectl wait --for=condition=Ready certificate/config-api-tls -n media --timeout=90s
+sleep 5
 kubectl get secret config-api-tls -n media -o jsonpath='{.data.tls\.crt}' | base64 -d \
   | openssl x509 -noout -ext subjectAltName
 ```{{exec}}
 
-The SAN list now includes `config-api.media.svc.cluster.local`.
+The `Certificate` can read Ready True for a moment before cert-manager notices the edit. Trust the SAN list instead. If it still shows the legacy name, wait 10 seconds and run the last command again. It must list three names.
 
-## Reload nginx so it serves the new cert
+## Make nginx load the new cert
 
-nginx loaded the *old* cert at startup and won't notice the Secret changed. Roll the Deployment so a fresh Pod loads the reissued cert:
+nginx loads its cert at startup and does not notice a Secret change. Roll the Deployment so a new Pod loads the reissued cert:
 
 ```bash
 kubectl rollout restart deployment/config-api -n media
 kubectl rollout status deployment/config-api -n media --timeout=90s
 ```{{exec}}
-
-(In production a sidecar "reloader" that watches the Secret and signals nginx avoids the restart — but the reissue-then-reload sequence is the same.)
 
 ## Verify the handshake
 
@@ -39,4 +32,6 @@ kubectl exec -n app-services deploy/config-client -- \
        https://config-api.media.svc.cluster.local/
 ```{{exec}}
 
-`config-api: mTLS OK`. The name the client dialed now appears in the cert's SANs, so hostname verification passes. The cert was always issued and trusted; it just claimed the wrong identity. See `finish.md`, and check `ANSWER-KEY.md`.
+The call returns `config-api: mTLS OK`. The cert was issued and trusted all along. It claimed the wrong identity.
+
+Check your path against the [ANSWER-KEY](https://github.com/debozkurt/killercoda-k8s/blob/main/m12-pki-tls/ANSWER-KEY.md).
