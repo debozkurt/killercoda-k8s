@@ -1,0 +1,28 @@
+{
+  "title": "M13 — Break/fix 05: a scrape target that is absent",
+  "description": "call-metrics is healthy, its scrape port is right, and its dashboards are flat. The Service selector matches no Pod, so the Service has no endpoints and a service-based scraper finds no target at all. Check the endpoints before the port.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      {
+        "title": "Diagnose the missing target",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
+    ],
+    "finish": {
+      "text": "finish.md"
+    }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

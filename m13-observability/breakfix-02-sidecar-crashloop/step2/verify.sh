@@ -1,11 +1,24 @@
 #!/bin/bash
-# Checks: sip-monitor is Available again — which requires its Pod to be fully
-# Ready, i.e. BOTH containers (app + metrics-agent) up. A 1/2 Pod with the
-# crashlooping sidecar is never Ready, so the Deployment is not Available until
-# the sidecar command is fixed. Deterministic once the rollout completes.
-if ! kubectl wait --for=condition=Available deployment/sip-monitor -n signaling --timeout=90s >/dev/null 2>&1; then
-  echo "sip-monitor still isn't Available — its metrics-agent sidecar isn't Ready (Pod stuck below 2/2). Correct the sidecar's command (container index 1) so it runs a command the image provides, then wait for the rollout." >&2
+# Checks: the metrics-agent sidecar has COLLECTOR_ENDPOINT set and has logged an
+# export, so it survived past its 15-second check. Polls up to 45 seconds because
+# the agent exports only after that check, and the Pod reads 2/2 only after it.
+ENV=$(kubectl get deployment sip-monitor -n signaling \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="metrics-agent")].env[?(@.name=="COLLECTOR_ENDPOINT")].value}' 2>/dev/null)
+if [ -z "$ENV" ]; then
+  echo "The metrics-agent sidecar has no COLLECTOR_ENDPOINT. Set it on that container only:" >&2
+  echo "  kubectl set env deployment/sip-monitor -n signaling -c metrics-agent COLLECTOR_ENDPOINT=collector.platform.svc:4317" >&2
   exit 1
 fi
-echo "✓ sip-monitor is 2/2 and Available — the app and its metrics-agent sidecar are both Ready"
-exit 0
+for i in $(seq 1 15); do
+  if kubectl logs -n signaling -l app=sip-monitor -c metrics-agent --tail=20 --max-log-requests=5 2>/dev/null | grep -q "exported telemetry batch"; then
+    READY=$(kubectl get pods -n signaling -l app=sip-monitor --no-headers 2>/dev/null | grep -c " 2/2 ")
+    if [ "$READY" -ge 1 ]; then
+      echo "✓ metrics-agent has COLLECTOR_ENDPOINT, exports telemetry, and the Pod is 2/2"
+      exit 0
+    fi
+  fi
+  sleep 3
+done
+echo "The sidecar has the variable, but it has not logged an export and reached 2/2 yet. The agent waits 15 seconds first." >&2
+echo "  Check it with: kubectl get pods -n signaling -l app=sip-monitor; kubectl logs -n signaling deploy/sip-monitor -c metrics-agent" >&2
+exit 1

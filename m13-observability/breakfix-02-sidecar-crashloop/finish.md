@@ -1,11 +1,11 @@
 # Done
 
-A `1/2` Pod that paged no one: the nginx app served fine while its telemetry **sidecar** crashlooped, leaving that workload's metrics dark. `get pods` only showed the aggregate (`1/2`, `CrashLoopBackOff`); the per-container status and the `Warning`/`BackOff` event named the culprit — `container=metrics-agent` — and `kubectl logs -c metrics-agent --previous` showed the dead instance's error: it execed a binary the image didn't contain and exited 127. Correcting the sidecar's command brought the Pod to `2/2`.
+A 1/2 Pod paged no one. The nginx app served traffic while its telemetry **sidecar** exited 1 each time it started, because it had no COLLECTOR_ENDPOINT. `get pods` showed only the aggregate. `describe` named the container and its exit code. The BackOff event named it again. `kubectl logs -c metrics-agent --previous` showed the dead instance's fatal line. Setting the variable on the sidecar brought the Pod to 2/2.
 
-The reflex: **`N-1/N` means one container is down — name it, then read *that* container's logs, and use `--previous` because the live instance is mid-restart and the dead one holds the error.** The event stream tells you which container; `-c` and `--previous` tell you why.
+The reflex: **N-1/N means one container is down. Name it, then read its log with `-c … --previous`.** Plain `kubectl logs` returns whichever instance exists now, and that may be a new instance that has not failed yet. `--previous` pins the one that died.
 
 **Next:**
 
 - Check your path against [`ANSWER-KEY.md`](../ANSWER-KEY.md).
-- For the *why*, see [`LESSON.md`](../LESSON.md) § Events and § Logs.
-- Next scenario: **`breakfix-03-metrics-scrape-port`** — a healthy app with flat dashboards, where the failing signal is a scrape target that's DOWN.
+- For the why, read [`LESSON.md`](../LESSON.md) § Events and § Logs.
+- Next scenario: **`breakfix-03-metrics-scrape-port`**, a healthy app with flat dashboards.

@@ -1,39 +1,42 @@
 # Step 1 — Find the failing container
 
-`1/2` means one of two containers isn't Ready. The first job is naming *which* — then reading its logs.
+1/2 means one of two containers is not Ready. Name it first, then read its logs.
 
-## Confirm 1/2, and see the restarts
+## Confirm the restarts
 
 ```bash
 kubectl get pods -n signaling -l app=sip-monitor
 ```{{exec}}
 
-`READY 1/2`, `STATUS CrashLoopBackOff`, `RESTARTS` climbing. One container is fine; one keeps dying. `get pods` won't tell you which — it aggregates.
+READY reads 1/2 and RESTARTS climbs. `get pods` aggregates, so it does not say which container fails.
 
-## Which container? Read the per-container status
+## Which container?
 
 ```bash
-kubectl get pod -n signaling -l app=sip-monitor -o \
-  custom-columns='CONTAINER:.status.containerStatuses[*].name,READY:.status.containerStatuses[*].ready,RESTARTS:.status.containerStatuses[*].restartCount'
+kubectl describe pod -n signaling -l app=sip-monitor | grep -E "^  [a-z-]+:$|Ready:|Restart Count|Reason:|Exit Code"
 ```{{exec}}
 
-`app` is `true` (Ready), `metrics-agent` is `false` with a climbing restart count. The nginx app serves fine; the **telemetry sidecar** is the one crashlooping.
+Each container prints its own block. `app` is Ready True. `metrics-agent` is Ready False, has a Restart Count above 0, and its Last State is Terminated with Exit Code 1. The nginx app is fine. The telemetry sidecar dies.
 
-## The event stream names it too
+## The event names it too
 
 ```bash
-kubectl describe pod -n signaling -l app=sip-monitor | sed -n '/Events:/,$p'
+kubectl events -n signaling --types=Warning
 ```{{exec}}
 
 ```text
-Warning  BackOff  ...  Back-off restarting failed container=metrics-agent pod=sip-monitor-…
+Warning   BackOff   pod/sip-monitor-…   Back-off restarting failed container metrics-agent in pod sip-monitor-…
 ```
 
-The `Warning`/`BackOff` event names `container=metrics-agent`. That's the object the event is *about* — the control plane telling you exactly which container to look at.
+The BackOff event names the container. The kubelet waits longer between each restart. That wait is CrashLoopBackOff.
 
-## Read the dead instance's logs — `--previous`
+## Read the log
 
-The current `metrics-agent` instance is mid-backoff and hasn't printed anything useful. The one that *died* did. Read it:
+```bash
+kubectl logs -n signaling deploy/sip-monitor -c metrics-agent
+```{{exec}}
+
+`-c` selects the container. This command reads the current instance when one runs, and the last dead instance while the container waits in back-off. You cannot tell which one you read. If you see only the banner, the new instance has not failed yet. Pin the instance that died:
 
 ```bash
 kubectl logs -n signaling deploy/sip-monitor -c metrics-agent --previous
@@ -41,7 +44,7 @@ kubectl logs -n signaling deploy/sip-monitor -c metrics-agent --previous
 
 ```text
 [metrics-agent] starting; exporting sip-monitor telemetry
-/bin/sh: exec: line 3: /usr/local/bin/metrics-agent: not found
+[metrics-agent] fatal: COLLECTOR_ENDPOINT is not set
 ```
 
-There's the root cause: the sidecar's command execs `/usr/local/bin/metrics-agent`, a binary that isn't in this image — so it exits non-zero (127) immediately and the kubelet restarts it, forever. `-c` picked the right container; `--previous` showed why the dead one died. On to the fix.
+The agent needs the environment variable COLLECTOR_ENDPOINT. It waits 15 seconds, finds it empty and exits 1. `--previous` always returns that instance, whatever the container does next. On to the fix.

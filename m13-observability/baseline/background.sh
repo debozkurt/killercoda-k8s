@@ -691,7 +691,8 @@ EOF
 #     annotations a Prometheus would discover it by — prometheus.io/scrape,
 #     prometheus.io/port: "80", prometheus.io/path: "/metrics" — all pointing at
 #     the port it actually serves on. This is what a healthy scrape target looks
-#     like; break/fix 03 ships the same workload with a mismatched scrape port.
+#     like; break/fix 03 ships the same workload with a mismatched scrape port and
+#     break/fix 05 with a Service selector that matches no Pod.
 cat <<'EOF' | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -754,13 +755,50 @@ spec:
   selector: { app: call-metrics }
   ports: [{ port: 80, targetPort: metrics, name: metrics }]
 EOF
+
+# m13 baseline enhancement (step 5): restart-demo, a Pod whose first instance
+# fails and whose second instance runs. A container restart keeps the Pod's
+# emptyDir, so a marker file makes the first instance exit and the second stay up.
+# By the time the learner arrives the Pod reads RESTARTS 1: `kubectl logs` shows
+# the clean second start and `kubectl logs --previous` shows the first instance's
+# failure. Deterministic, no timing race.
+cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: restart-demo
+  namespace: analytics
+  labels: { app: restart-demo, plane: control, tier: lab }
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          if [ ! -f /state/seen ]; then
+            touch /state/seen
+            echo "start 1: cannot reach upstream, exiting" >&2
+            exit 1
+          fi
+          echo "start 2: healthy"
+          sleep 3600
+      volumeMounts:
+        - { name: state, mountPath: /state }
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 32Mi }
+  volumes:
+    - name: state
+      emptyDir: {}
+EOF
 # <<< m13 baseline enhancement ends
 
 # ---------------------------------------------------------------------------
 # Wait for the fleet to come up
 # ---------------------------------------------------------------------------
 
-kubectl wait --for=condition=Available deployment --all -A --timeout=240s >/dev/null 2>&1
+kubectl wait --for=condition=Available deployment --all -A --timeout=120s >/dev/null 2>&1
 # StatefulSets don't have an Available condition; wait for at least one ready pod
 for ns in media signaling app-services edge; do
   kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=120s >/dev/null 2>&1

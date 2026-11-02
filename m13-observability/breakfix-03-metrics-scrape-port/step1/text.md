@@ -1,19 +1,19 @@
 # Step 1 — Diagnose the flat dashboards
 
-Flat dashboards with a healthy app is the classic scrape problem. Prove the app is fine on the *other* pipeline first, then chase the scrape.
+Flat dashboards on a healthy app point at the scrape. Prove the app is fine on the other pipeline first.
 
-## The app is healthy — and `kubectl top` proves the other pipeline works
+## The other pipeline works
 
 ```bash
 kubectl get pods -n analytics -l app=call-metrics
 kubectl top pod -n analytics -l app=call-metrics
 ```{{exec}}
 
-`Running 1/1`, and `kubectl top` returns CPU/memory. The **resource metrics** pipeline (metrics-server) is fine — so whatever's flat, it isn't a dead app or a dead metrics-server.
+The Pod is Running 1/1 and `kubectl top` returns CPU and memory. Metrics-server works and the app is alive.
 
-## The app really is exposing `/metrics`
+## The app exposes `/metrics`
 
-Hit the endpoint on the port the container actually serves (80):
+Call the endpoint on the port the container serves, 80. A throwaway Pod plays the scraper:
 
 ```bash
 POD_IP=$(kubectl get pod -n analytics -l app=call-metrics -o jsonpath='{.items[0].status.podIP}')
@@ -21,21 +21,19 @@ kubectl run obs-curl --rm -i --restart=Never --image=curlimages/curl:8.11.1 -n a
   -- curl -s http://$POD_IP:80/metrics
 ```{{exec}}
 
-There's the exposition output — `sip_calls_active`, `sip_calls_total`, the histogram. The application-metrics endpoint works. So the data exists; something isn't collecting it.
+The exposition text returns: sip_calls_active, sip_calls_total and the histogram. The data exists, so something does not collect it.
 
-## Read the scrape annotation — where would a scraper look?
+## Where does the scraper look?
 
 ```bash
-kubectl get pod -n analytics -l app=call-metrics \
-  -o jsonpath='{.items[0].metadata.annotations.prometheus\.io/port}{"\n"}'
+kubectl describe pod -n analytics -l app=call-metrics | grep -E "prometheus.io|Port:"
 ```{{exec}}
 
-`9090`. A Prometheus discovers this Pod by its annotations and scrapes `podIP:9090/metrics` — but the container serves on `80`. Reproduce exactly what the scraper does:
+The annotation prometheus.io/port names 9090. The container serves on 80. A scraper that follows these annotations calls the Pod on 9090. Do what it does:
 
 ```bash
-POD_IP=$(kubectl get pod -n analytics -l app=call-metrics -o jsonpath='{.items[0].status.podIP}')
 kubectl run obs-curl --rm -i --restart=Never --image=curlimages/curl:8.11.1 -n analytics \
   -- curl -s -m 5 -o /dev/null -w "HTTP %{http_code}\n" http://$POD_IP:9090/metrics
 ```{{exec}}
 
-`HTTP 000` — connection refused. Nothing listens on 9090, so the scrape fails and Prometheus marks the target **DOWN**. The metric never arrives; the graph goes flat. Root cause: the annotated scrape port (`9090`) doesn't match the port `/metrics` is served on (`80`). On to the fix.
+The output reads HTTP 000: the connection is refused, because nothing listens on 9090. Prometheus marks this target **DOWN**, and the graphs go flat. The advertised port does not match the serving port. On to the fix.

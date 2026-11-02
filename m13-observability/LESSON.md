@@ -1,55 +1,54 @@
 # M13 — Observability
 
-> The three signals a running cluster already gives you — **events**, **logs**, **metrics** — plus the fourth you add yourself, **traces**; which question each answers, why every one of them is ephemeral, and how to read the right signal instead of guessing.
+> A running cluster gives you three signals: **events**, **logs** and **metrics**. Each answers one question and each expires. This module teaches you to pick the right signal first, to read it fast, and to see what the durable stack above it is for. **Traces** are the fourth signal, which you add yourself.
 
 ## What you'll learn
 
-- Separate the three built-in signals by the question each answers — **events** (what the control plane *did*), **logs** (what the process *said*), **metrics** (how much it's *using* / how it's *behaving*) — and reach for the right one first
-- Read an **Event** as a structured object — `type` (Normal/Warning), `reason`, `involvedObject`, `count` — and survey the stream with `--field-selector` and `--sort-by`, knowing it's namespaced and expires (~1h TTL)
-- Retrieve container logs under pressure: `--previous` for a container that already crashed, `-c` / `--all-containers` for the right container in a multi-container Pod, and `--since` / `--tail` / `-f` to scope the firehose
-- Read the **container logging contract** — the kubelet captures only stdout/stderr, so an app that writes to a file inside the container is invisible to `kubectl logs` — and know the two fixes: log to stdout, or add a streaming **sidecar**
-- Tell the **two metrics pipelines** apart — the **Resource Metrics API** (metrics-server → `kubectl top`, HPA) versus **application metrics** (Prometheus's pull/scrape model, the `/metrics` exposition format, ServiceMonitor) — and diagnose a scrape target that's silently down
-- Place **traces** (OpenTelemetry) in the picture: what a span is, and why distributed tracing answers the cross-service latency question that logs and metrics structurally can't
+- Match each built-in signal to its question: **events** (what the control plane did), **logs** (what the process said), **metrics** (how much the workload uses, and how it behaves)
+- Read an **Event** as a structured object, and survey events with `kubectl events`
+- Retrieve container logs under pressure: `--previous`, `-c`, `--all-containers`, `--since`, `--tail`
+- State the **container logging contract**: the kubelet captures only stdout and stderr. Name the two fixes for an app that logs to a file.
+- Tell the **two metrics pipelines** apart: the Resource Metrics API (`kubectl top`) and application metrics (Prometheus scraping `/metrics`)
+- Tell a scrape target that is **DOWN** from a target that is **absent**
+- Place **traces** (OpenTelemetry) in the picture
 
 ## Why it matters
 
-Observability is how you answer *what is this thing doing right now* without shelling into a box. Kubernetes ships three signals for free, and each answers a different question: an event tells you what the **control plane** tried and decided, a log line tells you what the **process** thought, a metric tells you how much it's **consuming** or how it's **behaving over time**. Reach for the wrong one and you burn an hour — reading app code for a scheduling failure, or staring at CPU graphs for a config bug the logs named in one line.
+Observability answers the question "what is this workload doing right now" without a shell on the node. Each signal answers a different question. An event tells you what the control plane tried and decided. A log line tells you what the process reported. A metric tells you how much the workload consumes, or how it behaves over time. A wrong first choice costs an hour: you read application code for a scheduling failure, or you stare at CPU graphs for a configuration error that one log line names.
 
-At Polyphone the split is constant. `session-broker` gets slow; events say the control plane is fine, logs say the app is fine, and only `kubectl top` shows it pinned at its memory limit — one workload, three signals, one answer. A monitoring sidecar quietly dies and the app keeps serving, so `get pods` reads `1/2` and nothing pages — you're blind on that workload until you read *which* container the event stream names. A scrape target's port is off by a digit and every dashboard for it goes flat, though the app is healthy and `kubectl top` still works, because that's a different pipeline.
+Two failures hide in the gaps between signals. A telemetry sidecar dies and the app keeps serving. The Pod reads `1/2`, nothing pages, and that workload goes dark. A scrape target loses its port or its Service endpoints. Every dashboard for it goes flat while the app stays healthy and `kubectl top` still works, because `kubectl top` reads a different pipeline.
 
-The other half of the job is knowing that **all three built-in signals are ephemeral** — events expire (~1h TTL), logs die when the Pod is deleted, `kubectl top` keeps no history at all. That impermanence is the entire reason a real platform bolts durable pipelines on top. This module is about reading the live signal fast, and understanding what the durable stack is *for*.
+All three built-in signals are also ephemeral. Events expire. Logs leave the node with the Pod. `kubectl top` keeps no history. That fact is the reason a platform adds durable pipelines on top. This module teaches you to read the live signal at 03:00, and to know what the durable stack must replace.
 
 ## Scope
 
-**Covers:** the three built-in signals and which question each answers; **Events** as first-class objects (`type`/`reason`/`involvedObject`/`count`/timestamps), their namespacing and TTL, surveying with `--field-selector` and `--sort-by`, and `describe`-aggregation versus `get events`; **container logs** — `kubectl logs` and its load-bearing flags (`--previous`, `-c`/`--all-containers`, `--since`/`--tail`/`-f`), the stdout/stderr contract, node-side rotation and log ephemerality, and the two shipping patterns (node-level collector DaemonSet, streaming sidecar); the **two metrics pipelines** — the Resource Metrics API (metrics-server, `kubectl top`, the HPA from M09) and the **Prometheus** pull model (the `/metrics` exposition format, the four metric types, the `prometheus.io/*` scrape convention, and the Prometheus Operator's ServiceMonitor); and **traces** / **OpenTelemetry** as a concept (spans, trace context, the Collector, OTLP).
+**Covers:** the three built-in signals and the question each answers; Events as API objects (`type`, `reason`, `involvedObject`, count, TTL), read with `kubectl events`, `describe` and `get events`; `kubectl logs` and its flags, the stdout contract, which container instance the command returns, kubelet log rotation and the two shipping patterns; the Resource Metrics API and `kubectl top`; Prometheus as a pull model (the exposition format, the four metric types, the scrape annotation convention, ServiceMonitor, and the DOWN versus absent target); traces and OpenTelemetry as a concept.
 
-**Doesn't cover:** installing and operating a full metrics/logging/tracing stack — Prometheus, Loki/Elasticsearch, Grafana, and an OTel Collector are *described*, not deployed, because each needs operator or storage infrastructure a single lab can't stand up (the same reason M09 kept VPA/KEDA/Cluster-Autoscaler concept-only); **PromQL**, recording/alerting rules, and SLO math; **dashboards**; the **audit log**, which records authorization decisions, not workload behavior → M10; and language-specific instrumentation SDKs.
+**Doesn't cover:** installing a metrics, logging or tracing stack. Prometheus, Loki, Grafana and an OpenTelemetry Collector are described, not deployed, because each needs storage or an operator that one lab cannot start. PromQL, alerting rules and SLO math. Dashboards. The audit log, which records authorization decisions → M10. Instrumentation SDKs. Pod-level `kubectl debug` and ephemeral containers → M01.
 
-**Assumes:** M00 (the `get → describe → events → logs` loop, `spec`/`status`, owner chains — this module goes deep on the last two of those commands), M01 (the Pod lifecycle and probes — a failing probe is an event you'll read; a crashing container is what `--previous` is for), M06 (requests and limits — a metric is only meaningful against a request), and M09 (the HPA reads the Resource Metrics API — the pipeline `kubectl top` reads).
+**Assumes:** M00 (the `get`, `describe`, events, logs loop), M01 (the Pod lifecycle, probes, restarts), M04 (a Service selects Pods and owns endpoints), M06 (requests and limits: a usage number means something only against a request), M09 (the HPA reads the Resource Metrics API) and M08 (a ServiceMonitor is a custom resource).
 
 ## Vocabulary
 
 | Term | Definition |
 |------|------------|
-| **Event** | A short-lived object recording something that happened to another object. Not a log line — it's the control plane (scheduler, kubelet, controllers) narrating its own actions. |
-| **Normal / Warning** | An Event's `type`. `Normal` is routine (`Scheduled`, `Pulled`, `Started`); `Warning` is trouble (`Unhealthy`, `BackOff`, `FailedScheduling`). Triage reads Warnings first. |
-| **reason** | An Event's short machine token for *what* happened — `Unhealthy`, `BackOff`, `Killing`, `OOMKilling`, `FailedMount`. The best `--field-selector` key. |
-| **involvedObject** | The object an Event is about (`kind`/`name`/`uid`). `describe` finds an object's events by matching this to its UID. |
-| **count / lastTimestamp** | Repeated identical events aggregate into one row with a `count` and a `lastTimestamp` — a line reading `count=47` recurred 47 times; you didn't miss 46. A high, climbing count is an active fire. |
-| **event TTL** | Events are garbage-collected after a fixed age (default ~1 hour, `--event-ttl` on the API server). They are not durable history. |
-| **container logging contract** | The kubelet captures a container's **stdout** and **stderr** only. Anything written to a file inside the container is invisible to `kubectl logs`. |
-| **`--previous`** | `kubectl logs --previous` returns the logs of the *prior, terminated* instance of a container — the only way to see why a container that has since restarted actually died. |
-| **sidecar (streaming)** | A second container in a Pod that `tail`s an app's log file (on a shared volume) to its own stdout, so a stdout-only log collector can ship it. |
-| **Resource Metrics API** | The API (`metrics.k8s.io`) served by **metrics-server**: live CPU/memory per Pod and Node, point-in-time, no history. Powers `kubectl top` and the HPA. |
-| **application metrics** | Numbers a workload publishes about *itself* (calls/sec, queue depth, error rate) at an HTTP `/metrics` endpoint, in the Prometheus exposition format. |
-| **scrape / pull model** | Prometheus *pulls*: it periodically fetches `/metrics` from each target it discovers. The workload doesn't push; it just exposes an endpoint and waits to be scraped. |
-| **exposition format** | The plain-text line format at `/metrics`: `metric_name{label="v"} value`, with `# HELP` / `# TYPE` headers. Metric types: **counter**, **gauge**, **histogram**, **summary**. |
-| **ServiceMonitor** | A Prometheus Operator custom resource that declares *which* Services to scrape and on which port — the operator-managed alternative to hand-written scrape configs or `prometheus.io/*` annotations. |
-| **span / trace / OTel** | A **span** is one timed operation (one service handling one request); a **trace** is the tree of spans for a single request crossing services, tied by a propagated trace ID. **OpenTelemetry** is the vendor-neutral standard for producing them (SDKs, the **OTLP** format, the **Collector**). |
+| **Event** | An API object that records something that happened to another object. The scheduler, the kubelet and controllers create Events. An Event is not a log line. |
+| **type** | `Normal` or `Warning`. Triage reads Warnings first. |
+| **reason** | A short machine token such as `FailedMount`, `BackOff` or `Unhealthy`. It is the best key for a selector. |
+| **involvedObject** | The object an Event describes: its kind, name and namespace. |
+| **event TTL** | The age at which the API server deletes an Event. The `kube-apiserver --event-ttl` flag sets it. The default is 1h0m0s.<sup><a href="https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/">[3]</a></sup> |
+| **container logging contract** | The kubelet captures a container's stdout and stderr. Text written to a file inside the container is not captured. |
+| **instance** | One run of a container. A restart creates a new instance. `kubectl logs --previous` reads the last terminated instance. |
+| **streaming sidecar** | A second container in the Pod that reads a log file and prints it to its own stdout. |
+| **Resource Metrics API** | The `metrics.k8s.io` API that metrics-server serves. It holds current CPU and memory for Pods and Nodes. `kubectl top` and the HPA read it. |
+| **application metrics** | Numbers a workload publishes about itself at an HTTP `/metrics` endpoint in the Prometheus exposition format. |
+| **scrape target** | One endpoint that Prometheus fetches on an interval. Prometheus pulls. The workload does not push. |
+| **ServiceMonitor** | A Prometheus Operator custom resource. It selects Services by label and names the Service port to scrape.<sup><a href="https://prometheus-operator.dev/docs/api-reference/api/">[10]</a></sup> |
+| **span / trace** | A span is one timed operation in one service. A trace is the tree of spans for one request, tied together by a propagated trace ID. |
 
 ## Mental model
 
-Three signals come with the cluster, and a fourth you add. The trick is not memorizing commands — it's matching the *question* to the *signal*, because each answers exactly one kind of question and each has a different lifetime.
+Match the question to the signal. Each signal has a different lifetime.
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {
@@ -60,156 +59,177 @@ Three signals come with the cluster, and a fourth you add. The trick is not memo
 }}}%%
 flowchart LR
     Q([something is wrong]) --> E{which question?}
-    E -->|control plane<br/>did what?| EV[Events<br/>get events / describe<br/>~1h TTL]
-    E -->|process<br/>said what?| LO[Logs<br/>kubectl logs<br/>dies with the Pod]
-    E -->|using / behaving<br/>how?| ME[Metrics<br/>kubectl top / Prometheus<br/>point-in-time / time-series]
-    E -->|latency across<br/>services?| TR[Traces<br/>OpenTelemetry<br/>sampled spans]
+    E -->|control plane<br/>did what?| EV[Events<br/>kubectl events<br/>1h TTL]
+    E -->|process<br/>said what?| LO[Logs<br/>kubectl logs<br/>leave with the Pod]
+    E -->|using or<br/>behaving how?| ME[Metrics<br/>kubectl top<br/>or Prometheus]
+    E -->|slow across<br/>services?| TR[Traces<br/>OpenTelemetry]
 ```
 
-The load-bearing insight is the shared weakness: **the three built-in signals are all ephemeral.** Events expire, logs die with the Pod, `kubectl top` keeps no history. That's not a flaw to route around — it's the reason a production platform runs a durable layer on top: a log store fed by node collectors, a Prometheus time-series database fed by scrapes, a tracing backend fed by spans. `kubectl` reads the live, expiring signal at 3am; the stack answers "what happened last Tuesday." Know both, and know which one you're holding.
+The three built-in signals share one weakness: they are ephemeral. A durable layer fixes that. A log store takes lines from node collectors. A Prometheus database takes samples from scrapes. A tracing backend takes spans. `kubectl` reads the live signal at 03:00. The durable stack answers "what happened last Tuesday". Know which one you hold.
 
 ## Concept walkthrough
 
-### Events — the control plane narrating itself
+### Events: the control plane narrating itself
 
-An Event is not a log line. Your app doesn't write it; the **control plane** does — the scheduler, the kubelet, and the various controllers emit an Event whenever they do something worth recording *to* an object. `Scheduled`, `Pulling`, `Pulled`, `Created`, `Started` are the Normal lifecycle beats; `FailedScheduling`, `Unhealthy`, `BackOff`, `Killing`, `OOMKilling`, `FailedMount` are the Warnings. When a Pod is `Pending` and its own logs don't exist yet, the event stream is the *only* signal that exists.
+An Event is not a log line. The control plane writes it. The scheduler, the kubelet and the controllers create an Event when they act on an object. `Scheduled`, `Pulled`, `Created` and `Started` are routine Normal events. `FailedScheduling`, `FailedMount`, `Unhealthy` and `BackOff` are Warnings. A Pod that waits in `ContainerCreating` has no logs. Its events are the only signal that exists.
 
-Each Event is a structured object worth reading field by field<sup><a href="https://kubernetes.io/docs/reference/kubernetes-api/cluster-resources/event-v1/">[1]</a></sup>:
-
-```text
-LAST SEEN   TYPE      REASON      OBJECT             MESSAGE
-2m (x47)    Warning   Unhealthy   pod/reg-proxy-0    Readiness probe failed: HTTP probe failed with statuscode: 404
-```
-
-- `type` — `Normal` or `Warning`. In triage you filter to `Warning` first.
-- `reason` — the machine token (`Unhealthy`). It's stable, so it's the best thing to select on.
-- `involvedObject` — what it's about (`pod/reg-proxy-0`). This is the key `describe` uses.
-- `count` / `lastTimestamp` — the `x47` means this exact event fired 47 times and was aggregated into one row. A high, climbing count is a fast, ongoing failure; a count of 1 an hour ago is stale.
-
-Two properties shape how you use them. Events are **namespaced** — `kubectl get events` shows only the current namespace, so reach for `-A` when you don't yet know where the problem lives. And they're **ephemeral**: the API server garbage-collects them after a TTL (~1 hour)<sup><a href="https://kubernetes.io/docs/concepts/cluster-administration/logging/">[2]</a></sup>, so a failure that recovered two hours ago has *no* events left — which is why teams run an event exporter to ship them somewhere durable.
-
-Two ways to read them, for two questions. `kubectl describe <kind> <name>` shows the events for **one object** (matching `involvedObject` to its UID) — when you know the suspect. `kubectl get events` surveys the **stream**, shaped with selectors<sup><a href="https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/">[3]</a></sup>:
+Two commands read events. Use `kubectl describe <kind> <name>` when you know the suspect. It prints the events for that one object at the bottom. Use `kubectl events` when you do not. It lists events for the namespace, sorted by time. Three flags matter<sup><a href="https://kubernetes.io/docs/reference/kubectl/generated/kubectl_events/">[1]</a></sup>:
 
 ```bash
-kubectl get events -n signaling --sort-by=.lastTimestamp          # oldest→newest; read the bottom
-kubectl get events -A --field-selector type=Warning               # only the trouble, cluster-wide
-kubectl get events -n signaling --field-selector reason=BackOff,involvedObject.name=reg-proxy-0
+kubectl events -A --types=Warning                 # all namespaces, only trouble
+kubectl events --for pod/web-0                    # one object, by kind and name
+kubectl events --for pod/web-0 --watch            # follow new events
 ```
 
-`get events` is unsorted by default — always add `--sort-by=.lastTimestamp` or you'll misread the order. When you don't know the object, survey by `type=Warning`; when you do, `describe` it.
+```text
+LAST SEEN         TYPE      REASON        OBJECT      MESSAGE
+3m (x7 over 9m)   Warning   FailedMount   pod/web-0   MountVolume.SetUp failed for volume "cfg" : configmap "app-cfg" not found
+```
+
+Events are **namespaced**. `kubectl events` reads the current namespace unless you add `-A`. When you do not know where the problem lives, start with `-A --types=Warning`.
+
+The kubectl `get events` command is the older reader. It does not sort. It hides the count column unless you add `-o wide`. Add a sort when you use it, and use `--field-selector` to select on `reason`, `type` or `involvedObject.name`:
+
+```bash
+kubectl get events -n signaling --sort-by=.metadata.creationTimestamp
+kubectl get events -A --field-selector reason=BackOff
+```
+
+The components that emit events collapse repeats into one Event object and raise its count. A line that reads `x7 over 9m` means the same event happened seven times in nine minutes. The count is the severity signal. A Warning with count 1 an hour ago is stale. A Warning with a climbing count is active.
+
+Events are ephemeral. The API server deletes each one after the event TTL, one hour by default<sup><a href="https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/">[3]</a></sup>. Deleting a Pod does not delete its events. The TTL does. A failure that healed two hours ago leaves nothing to read. Teams run an event exporter to keep events somewhere durable.
 
 <details>
-<summary>📖 Going deeper: why <code>count</code> exists, and the two Event API groups<sup><a href="https://kubernetes.io/docs/reference/kubernetes-api/cluster-resources/event-v1/">[1]</a></sup></summary>
+<summary>📖 Going deeper: why events deduplicate, and why <code>kubectl events</code> sorts correctly<sup><a href="https://kubernetes.io/docs/reference/kubectl/generated/kubectl_events/">[1]</a></sup></summary>
 
-A crashlooping container could emit a `BackOff` event every ten seconds — thousands per hour, enough to strain etcd. Kubernetes deduplicates: identical events (same `reason`, `involvedObject`, message) collapse into one object whose `count` increments and `lastTimestamp` advances. So a `kubectl get events` row reading `(x2033)` is an aggregate, not a sample — and that `count` *is* the severity signal: the same Warning is a one-off at `count=1` and an active fire at `count=2033`.
+A crashlooping container could emit a `BackOff` event every few seconds. That volume would load etcd for no gain. The event recorders therefore collapse identical events into one object. The object's count rises and its last-seen time moves forward.
 
-Historically there are two Event APIs: the original `core/v1` `Event` that `describe` reads, and a newer `events.k8s.io/v1` carrying richer, better-deduplicated events that the kubelet emits through. `kubectl get events` shows a unified view; you'll see both `.involvedObject` (core) and `.regarding` (events.k8s.io) only if you dump raw YAML.
+Two Event APIs exist. The original `core/v1` Event records a `lastTimestamp` and a `count`. The newer `events.k8s.io/v1` Event records an `eventTime` and, for repeats, a `series`. Some components write the newer form. A single sort key therefore does not fit every event. In the kubectl source, `kubectl events` sorts by the series time, then `lastTimestamp`, then `eventTime`. The sort on `get events` uses one field you choose.
 
 </details>
 
-### Logs — what the process said, and the contract behind them
+### Logs: what the process said
 
-`kubectl logs <pod>` returns a container's output — and it returns *only* stdout and stderr, because that's the entire **container logging contract**. The kubelet redirects the container's stdout/stderr to a file on the node (under `/var/log/pods/…`) and `kubectl logs` streams that file back through the API server<sup><a href="https://kubernetes.io/docs/concepts/cluster-administration/logging/">[2]</a></sup>. The corollary bites people: an app that writes its "logs" to a file *inside* the container — `/var/log/app/app.log` — produces an empty `kubectl logs`, because nothing went to stdout. The app is running and logging; you just can't see it. The fix is to make the app log to stdout (the twelve-factor convention), or, when you can't change the app, to run a **streaming sidecar**.
+`kubectl logs <pod>` returns the stdout and stderr of one container. That is the whole **container logging contract**. The kubelet redirects each container's stdout and stderr to a file on the node, and `kubectl logs` reads that file through the API server<sup><a href="https://kubernetes.io/docs/concepts/cluster-administration/logging/">[2]</a></sup>. An app that writes its log to a file inside the container produces an empty `kubectl logs`. The app logs. You cannot see it.
 
-The flags that matter when it counts<sup><a href="https://kubernetes.io/docs/reference/kubectl/generated/kubectl_logs/">[4]</a></sup>:
+Two fixes exist. The first is to make the app log to stdout. This is the default choice, because a node-level collector already ships stdout. The second is a **streaming sidecar** for an app you cannot change. The sidecar shares a volume with the app, runs `tail -F` on the file, and prints the lines to its own stdout.
 
-- `--previous` (`-p`) — the logs of the **prior terminated instance**. When a container has restarted, `kubectl logs` shows the *fresh* start (often clean and misleading); `--previous` shows why the last one died. This is the single most important logs flag at 3am.
-- `-c <container>` / `--all-containers` — a Pod with more than one container makes `kubectl logs` ambiguous; name the container, or read them all. A `1/2` Pod means one of two containers is down — read *that* one.
-- `--since=15m` / `--tail=100` — scope the firehose to a window or a count.
-- `-f` — follow (stream) live.
+Know the flags before the incident<sup><a href="https://kubernetes.io/docs/reference/kubectl/generated/kubectl_logs/">[4]</a></sup>:
 
-The other half of the story is that **logs are as ephemeral as the Pod**. They're files on the node, and the kubelet rotates them (a default cap around 10Mi per file, a few files kept — older lines are discarded)<sup><a href="https://kubernetes.io/docs/concepts/cluster-administration/logging/">[2]</a></sup>. Delete the Pod and the files go with it; `kubectl logs` on a gone Pod returns nothing. So anything you'll want *after* the Pod is gone has to be shipped off the node while it's still there — which is what the durable log stack does.
+- `-c <container>` selects one container. `--all-containers` reads all of them. On a Pod with several containers, `kubectl logs` without `-c` prints a `Defaulted container` notice and picks one.
+- `--previous` (`-p`) reads the last terminated instance of the container.
+- `--since=15m` and `--tail=100` limit the output. `-f` follows.
+
+Know which instance you read. The kubelet chooses by container state. When an instance runs, `kubectl logs` returns that instance. When the container waits in back-off after a crash, `kubectl logs` returns the last terminated instance. `--previous` always selects the last terminated instance. After a restart, the new instance often runs and has logged only its startup banner. The banner looks clean and hides the crash. Use `--previous` to pin the instance that died. Read `describe` for the exit code and reason under `Last State`.
+
+A container that waits to start has no instance to read. `kubectl logs` then fails with `container "…" in pod "…" is waiting to start: ContainerCreating`. Read the events instead.
+
+Logs are as ephemeral as the Pod. The kubelet rotates each file at 10Mi by default and keeps five files. `kubectl logs` returns at most 10MiB of data by default. When the node removes a Pod, it removes the logs with it<sup><a href="https://kubernetes.io/docs/concepts/cluster-administration/logging/">[2]</a></sup>.
 
 <details>
-<summary>📖 Going deeper: the two log-shipping patterns<sup><a href="https://kubernetes.io/docs/concepts/cluster-administration/logging/">[2]</a></sup></summary>
+<summary>📖 Going deeper: node collectors, streaming sidecars and native sidecars<sup><a href="https://kubernetes.io/docs/concepts/cluster-administration/logging/">[2]</a></sup></summary>
 
-Two standard ways to get logs off the node into a central store, for two situations.
+A **node-level collector** is a DaemonSet with one agent per node, for example Fluent Bit or Vector. It reads every container's log file, labels each line with the Pod and namespace, and forwards the lines to a store. It needs no change in the app if the app logs to stdout.
 
-- **Node-level collector (a DaemonSet).** One agent per node (Fluent Bit, Vector, Fluentd) tails every container's stdout/stderr files under `/var/log/pods`, tags each line with its Pod/namespace/labels, and forwards to a store (Loki, Elasticsearch, a cloud sink). This is the default: zero-config for the app *as long as it logs to stdout*, one agent covers every Pod on the node. It's why "log to stdout" is the whole contract — do that and the platform's collector already ships you.
+A **streaming sidecar** costs one container and some memory per Pod. If a node-level agent also runs, a streamed file can double the storage the lines use on the node. Prefer a direct write to `/dev/stdout` when the app allows it.
 
-- **Streaming sidecar.** When an app insists on writing to a file (a legacy binary, an access log it won't send to stdout), add a second container that shares a volume with the app and does `tail -F /var/log/app/app.log` to *its* stdout, so the file's contents flow to stdout and the node collector picks them up like any other container. It costs a container and some memory per Pod — the fallback, not the default.
+Since Kubernetes v1.29 you can declare a sidecar as an init container with `restartPolicy: Always`. The kubelet starts it before the app containers and stops it after them.<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/">[6]</a></sup> The feature is on by default since v1.29 and stable in v1.33. A `1/2` Pod still means one container is not Ready. Read `describe` to see which.
 
 </details>
 
-### Metrics — two pipelines, and never confuse them
+### Metrics: two pipelines
 
-"Metrics" in Kubernetes means two entirely separate pipelines. Confusing them is the most common metrics mistake, so pin the distinction first.
+"Metrics" names two separate pipelines. Pin the difference before you debug either.
 
-**Pipeline 1 — the Resource Metrics API.** `metrics-server` scrapes each kubelet for live CPU and memory per Pod and Node and serves it on the `metrics.k8s.io` API<sup><a href="https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/">[5]</a></sup>. That's the pipeline behind `kubectl top`:
+**Pipeline 1: the Resource Metrics API.** metrics-server collects CPU and memory from each kubelet and serves them on `metrics.k8s.io`<sup><a href="https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/">[5]</a></sup>. `kubectl top nodes` and `kubectl top pods` read it. The HPA divides this usage by the Pod's request to get the utilization it scales on (M09). The pipeline reports CPU and memory only. It reports the present only. Without metrics-server, `kubectl top` fails and the HPA shows `<unknown>`.
 
-```bash
-kubectl top nodes                 # per-node CPU/memory usage vs. capacity
-kubectl top pods -A --sort-by=memory
-```
-
-It is deliberately minimal: CPU and memory only, *right now* only, no history, no custom numbers. It answers "how loaded is this?" and feeds the HPA, which divides live usage by the Pod's **request** to get the utilization it scales on (M09). No metrics-server → `kubectl top` errors and the HPA reads `<unknown>` — same pipeline, same failure.
-
-**Pipeline 2 — application metrics (the Prometheus model).** Anything richer — calls per second, queue depth, error ratio, p99 latency — the *workload* has to publish about itself, and the ecosystem standard is **Prometheus**<sup><a href="https://prometheus.io/docs/concepts/data_model/">[6]</a></sup>. The model is **pull**: each workload exposes an HTTP endpoint (by convention `/metrics`) in a plain-text **exposition format**, and Prometheus periodically *scrapes* it:
+**Pipeline 2: application metrics.** A workload publishes anything richer, such as calls per second or queue depth, at an HTTP endpoint. By convention the path is `/metrics`. Prometheus pulls it on an interval. The endpoint returns the **exposition format**<sup><a href="https://prometheus.io/docs/instrumenting/exposition_formats/">[7]</a></sup>:
 
 ```text
-# HELP sip_calls_active Currently active SIP calls.
-# TYPE sip_calls_active gauge
-sip_calls_active 42
-# HELP sip_calls_total Total SIP calls processed since start.
-# TYPE sip_calls_total counter
-sip_calls_total 18734
+# HELP calls_active Calls in progress.
+# TYPE calls_active gauge
+calls_active 42
+# HELP calls_total Calls handled since start.
+# TYPE calls_total counter
+calls_total 18734
 ```
 
-The four metric types are worth knowing on sight: a **counter** only goes up (totals — you `rate()` it), a **gauge** goes up and down (a level — active calls, memory), a **histogram** buckets observations (latency distributions, for percentiles), and a **summary** is a client-side percentile. The workload doesn't push anywhere; it exposes and waits.
+A **counter** only rises, and you read its rate. A **gauge** rises and falls. A **histogram** counts observations in buckets, so you can compute percentiles. A **summary** reports percentiles that the client computed.
 
-How does Prometheus know *what* to scrape? The lightweight convention is **Pod annotations** — `prometheus.io/scrape: "true"`, `prometheus.io/port: "80"`, `prometheus.io/path: "/metrics"`. The production one is the **Prometheus Operator**: install Prometheus as an operator (the CRD/controller pattern) and declare targets as **ServiceMonitor** or **PodMonitor** custom resources — "scrape every Pod behind this Service, on the port named `metrics`"<sup><a href="https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/design.md">[7]</a></sup>. Either way the failure mode is the same and specific: if the declared **port** doesn't match the port the workload serves `/metrics` on, the scrape is refused, the target shows **DOWN**, and every graph for it goes flat — while the app is healthy and `kubectl top` (pipeline 1) still works. A metrics gap with a green `kubectl top` is almost always a pipeline-2 scrape problem, not a sick app. (One caution: every distinct label *value* is its own time series, so a label like `call_id` with millions of values — **high cardinality** — can bury the database. Keep labels bounded.)
+Keep label values bounded. Every distinct label value creates a new time series, so a label such as `call_id` with millions of values can overload the database<sup><a href="https://prometheus.io/docs/practices/naming/">[8]</a></sup>.
 
-### Traces — the fourth signal
+**How Prometheus finds a target.** Prometheus itself reads no Pod annotation by default. The `prometheus.io/scrape`, `prometheus.io/port` and `prometheus.io/path` annotations are a community convention. They work only when the scrape configuration contains relabeling rules that read them.<sup><a href="https://prometheus.io/docs/prometheus/latest/configuration/configuration/">[9]</a></sup> Prometheus's own example configuration shows the pattern with a placeholder name. Two discovery styles exist:
 
-Metrics aggregate (p99 across *all* calls); logs are per-process (what *this* container said). Neither answers "for *this one slow call*, which of the eight services it touched ate the 900ms?" That's **distributed tracing**. A **span** is one timed operation — one service handling one request, with a start, duration, and attributes. A **trace** is the tree of spans for a single request as it flows `sip-proxy → sip-router → sip-app → route-engine`, stitched together because each hop propagates a shared **trace ID** (the W3C `traceparent` header). Read the trace and the slow hop is the long bar.
+- **Pod discovery.** The `pod` role makes one target per declared container port. Annotations on the Pod can then change the address. A wrong `prometheus.io/port` points the scraper at a port nothing serves.
+- **Service discovery.** The Prometheus Operator reads a **ServiceMonitor**. It selects Services by label and scrapes the endpoints behind them, on the Service port that it names.<sup><a href="https://prometheus-operator.dev/docs/api-reference/api/">[10]</a></sup>
 
-**OpenTelemetry (OTel)** is the vendor-neutral standard for producing this: instrumentation SDKs, the **OTLP** wire format, and the **Collector** — an in-cluster pipeline that receives spans, processes them, and exports to a backend (Jaeger, Tempo, a vendor)<sup><a href="https://opentelemetry.io/docs/concepts/signals/traces/">[8]</a></sup>. It isn't installed here — tracing needs app instrumentation and a backend a single lab can't stand up — so you'll learn its shape, not run it. The reflex to carry: when metrics say "slow" and logs say "each service looks fine," the missing signal is a trace across the call path.
+Two silent failures follow. In both, the app is healthy and `kubectl top` works:
+
+| Failure | Cause | What Prometheus shows |
+|---|---|---|
+| Target **DOWN** | Discovery works. The scrape fails: wrong port, wrong path, refused connection. | A target with `up` equal to 0<sup><a href="https://prometheus.io/docs/concepts/jobs_instances/">[11]</a></sup> |
+| Target **absent** | Discovery finds nothing: the Service selector matches no Pod, so it has no endpoints. | No target and no `up` series |
+
+An alert on `up == 0` catches the first failure only. An absent target produces no series, so the alert has nothing to evaluate. Check the Service endpoints before you check ports.
+
+### Traces: the fourth signal
+
+Metrics aggregate across calls. Logs describe one process. Neither shows which of the services that one slow call touched consumed the delay. **Distributed tracing** shows it. A span records one timed operation. A trace is the tree of spans for one request. Each hop passes the trace ID to the next service in the W3C `traceparent` header<sup><a href="https://www.w3.org/TR/trace-context/">[12]</a></sup>. Read the trace, and the slow hop is the long bar.
+
+**OpenTelemetry** is the vendor-neutral standard: instrumentation SDKs, the OTLP wire format, and the Collector. The Collector receives spans, processes them and exports them to a backend such as Jaeger or Tempo<sup><a href="https://opentelemetry.io/docs/concepts/signals/traces/">[13]</a></sup>. This module does not install it. Tracing needs app instrumentation and a backend. When metrics say "slow" and every log says "fine", the missing signal is a trace.
 
 ## Hands-on
 
-Four steps in the baseline, three break/fix scenarios — all on the full Polyphone fleet on a 2-node cluster. The baseline tours a healthy version of each signal; each break/fix breaks the reading of exactly one signal so you practice a single instrument at a time.
+The baseline has five steps. Five break/fix scenarios follow. Each runs on the full Polyphone fleet and breaks the reading of one signal.
 
-- **`baseline/`** — read all three live signals on a healthy fleet: survey the **event** stream (`--field-selector`, `--sort-by`, the `type`/`reason`/`count` fields); pull **logs** with `--previous`, `-c`, `--since`; read **resource metrics** with `kubectl top`; and inspect a healthy **application-metrics** target — its `/metrics` exposition output and `prometheus.io/*` annotations. What "observable" looks like before a signal goes dark.
-- **`breakfix-01-logs-to-stdout`** — `session-logger` is `Running 1/1` but `kubectl logs` shows only a startup banner: the app writes its real logs to a file inside the container, breaking the stdout contract. Tests recognizing an empty-but-healthy log and restoring visibility (stdout, or a streaming sidecar).
-- **`breakfix-02-sidecar-crashloop`** — `sip-monitor` sits at `1/2`: the app container is fine, but its telemetry **sidecar** crashloops. Tests reading *which* container the event stream names, then `logs -c <sidecar> --previous` to see why the dead instance died.
-- **`breakfix-03-metrics-scrape-port`** — `call-metrics` is healthy and `kubectl top` works, but its dashboards are flat: the `prometheus.io/port` annotation points at a port nothing serves, so the scrape target is DOWN. Tests the two-pipeline distinction and fixing a scrape target.
+- **`baseline/`** — read events with `kubectl events`, logs with their flags, `kubectl top`, and a healthy `/metrics` target. In the last step, watch a container restart and see why `--previous` matters.
+- **`breakfix-01-logs-to-stdout`** — a Pod is `Running 1/1` and its log holds one line. The app writes to a file. Make its output visible.
+- **`breakfix-02-sidecar-crashloop`** — a Pod reads `1/2`. A telemetry sidecar dies after it starts. Name the container, then read the instance that died.
+- **`breakfix-03-metrics-scrape-port`** — dashboards are flat, the app is healthy. The scrape annotation names a port nothing serves. The target is DOWN.
+- **`breakfix-04-event-only-failure`** — a workload never starts and has no logs. Only an event names the cause. Find it with no namespace given.
+- **`breakfix-05-scrape-target-absent`** — dashboards are flat, the port is right. The Service has no endpoints. The target is absent.
 
-Check yourself against `ANSWER-KEY.md` after each.
+Check yourself against `ANSWER-KEY.md` after each scenario.
 
 ## Common failure modes
 
 | Symptom | Likely cause | Where to look |
 |---------|--------------|---------------|
-| `kubectl logs` is empty but the Pod is `Running` | App writes logs to a file, not stdout/stderr | `kubectl exec … -- ls /var/log/…`; the container's log destination |
-| `kubectl logs` shows a clean fresh start for a Pod that keeps restarting | You're reading the *current* instance, not the one that died | `kubectl logs --previous`; `describe` → `Last State` |
-| Pod `1/2` (or `2/3`) and nothing obvious wrong | One container of several is down | `describe` events name the container; `kubectl logs -c <container> [--previous]` |
-| A failure "has no events" | Events aged out (TTL), or you're in the wrong namespace | shorten the window / `get events -A`; capture events durably next time |
-| `get events` looks out of order | It's unsorted by default | add `--sort-by=.lastTimestamp` |
-| `kubectl top` errors: `Metrics API not available` | metrics-server missing/unhealthy (also breaks HPA) | metrics-server Deployment in `kube-system`; wait if it just started |
-| App dashboards flat, but app healthy and `kubectl top` fine | Scrape target DOWN — wrong port/path (pipeline 2, not pipeline 1) | the `prometheus.io/port` (or ServiceMonitor port) vs. the port `/metrics` actually serves on |
-| Prometheus slow / TSDB bloated | High-cardinality label (unbounded values) | the label set on the offending metric |
+| `kubectl logs` is empty and the Pod is `Running` | The app writes to a file | `kubectl exec … -- ls /var/log` |
+| `kubectl logs` shows a clean start for a Pod that restarts | You read the new instance | `kubectl logs --previous`; `describe` → `Last State` |
+| `kubectl logs` says `waiting to start` | The container has not started | `kubectl events --for pod/<name>` |
+| Pod `1/2` and nothing else looks wrong | One container is down | `describe` for the container; `kubectl logs -c … --previous` |
+| A failure "has no events" | The TTL deleted them, or you read the wrong namespace | `kubectl events -A`; export events next time |
+| `kubectl top` fails with `Metrics API not available` | metrics-server is missing or starting | the metrics-server Deployment in `kube-system` |
+| Dashboards flat, app healthy, `kubectl top` fine | Scrape target DOWN or absent | the scrape port; then the Service endpoints |
+| Prometheus slow and its disk fills | A high-cardinality label | the label set on the busiest metric |
 
 ## Recap
 
-- **Three built-in signals, three questions.** Events = what the *control plane* did; logs = what the *process* said; metrics = how much it's *using* / how it's *behaving*. Match the question to the signal before you start typing, and you skip the hour spent reading the wrong one.
-- **All three are ephemeral** — events expire (~1h TTL), logs die with the Pod, `kubectl top` keeps no history. That impermanence is the whole reason a durable stack (log store, metrics TSDB, tracing backend) exists. `kubectl` reads live; the stack reads history.
-- **Events are structured objects, not text.** Read `type`, `reason`, `involvedObject`, and `count`; `describe` for one object, `get events --field-selector type=Warning --sort-by=.lastTimestamp` to survey. A climbing `count` is an active fire.
-- **The logging contract is stdout/stderr only.** An app that logs to a file is invisible to `kubectl logs` — fix it with stdout or a streaming sidecar. And `--previous` (plus `-c` for the right container) is how you read a container that already died.
-- **Metrics are two pipelines.** The Resource Metrics API (metrics-server → `kubectl top`, HPA) is CPU/memory, point-in-time. Application metrics (Prometheus pull, `/metrics` exposition, ServiceMonitor) are everything else. A metrics gap with a healthy `kubectl top` is a scrape problem, not a sick app.
+- **Three signals, three questions.** Events show what the control plane did. Logs show what the process said. Metrics show how much the workload uses. Choose the signal before you type.
+- **All three are ephemeral.** Events expire after the TTL. Logs leave with the Pod. `kubectl top` keeps no history. A durable stack exists to replace all three.
+- **A container that never started has no logs, only events.** `kubectl events --for` and `-A --types=Warning` find the cause.
+- **The logging contract is stdout and stderr.** A file is invisible. `--previous` pins the instance that died, and `-c` pins the container.
+- **Metrics are two pipelines, and a scrape fails in two ways.** `kubectl top` can work while a target is DOWN or absent. Check the endpoints, then the port.
 
 ## Production thinking
 
-- A failure happened at 02:00, self-healed by 02:20, and paged no one; at 09:00 you're asked what happened. The Pod's logs are gone (it was replaced), its events have aged out, and `kubectl top` has no history. Which of the three signals *could* have told the story if it had been shipped somewhere durable, and what would you stand up so next time it isn't a guess?
-- A workload's `/metrics` endpoint adds a label keyed on `call_id`. Within a day Prometheus is slow and its disk is filling. What happened, why is unbounded label cardinality so expensive in a time-series database, and what's the review rule that keeps it from recurring?
-- You standardize on "everything logs to stdout" so one node-level collector ships the whole fleet. A vendored component only writes to a file and can't be changed. What do you add for just that Pod, what does it cost, and why is that the exception rather than the default?
+- A failure happened at 02:00 and healed by 02:20. At 09:00 the Pod is gone, its events are past the TTL, and `kubectl top` has no history. Which signal would have told the story if you had shipped it? What do you stand up so the next review is not a guess?
+- An alert on `up == 0` stays quiet while a workload's dashboards are blank. What state could produce this, and which expression would catch it?
+- You standardize on "log to stdout" so a node collector ships the fleet. One vendored component only writes to a file. What do you add for that Pod, what does it cost, and why is it the exception?
 
 ## References
 
-1. Kubernetes — Event API reference: https://kubernetes.io/docs/reference/kubernetes-api/cluster-resources/event-v1/
+1. Kubernetes — `kubectl events` reference: https://kubernetes.io/docs/reference/kubectl/generated/kubectl_events/
 2. Kubernetes — Logging Architecture: https://kubernetes.io/docs/concepts/cluster-administration/logging/
-3. Kubernetes — Debug Running Pods: https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/
+3. Kubernetes — `kube-apiserver` reference (`--event-ttl`): https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/
 4. Kubernetes — `kubectl logs` reference: https://kubernetes.io/docs/reference/kubectl/generated/kubectl_logs/
 5. Kubernetes — Resource Metrics Pipeline: https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/
-6. Prometheus — Data model and metric types: https://prometheus.io/docs/concepts/data_model/
-7. Prometheus Operator — Design (ServiceMonitor/PodMonitor): https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/design.md
-8. OpenTelemetry — Traces (spans, context, the Collector): https://opentelemetry.io/docs/concepts/signals/traces/
+6. Kubernetes — Sidecar Containers: https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/
+7. Prometheus — Exposition formats: https://prometheus.io/docs/instrumenting/exposition_formats/
+8. Prometheus — Metric and label naming: https://prometheus.io/docs/practices/naming/
+9. Prometheus — Configuration (`kubernetes_sd_config`): https://prometheus.io/docs/prometheus/latest/configuration/configuration/
+10. Prometheus Operator — API reference (ServiceMonitor): https://prometheus-operator.dev/docs/api-reference/api/
+11. Prometheus — Jobs and instances (`up`): https://prometheus.io/docs/concepts/jobs_instances/
+12. W3C — Trace Context: https://www.w3.org/TR/trace-context/
+13. OpenTelemetry — Traces: https://opentelemetry.io/docs/concepts/signals/traces/

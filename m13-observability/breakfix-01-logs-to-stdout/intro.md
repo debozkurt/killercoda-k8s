@@ -1,9 +1,9 @@
-# M13 — Break/fix 01: Logs — an app that writes to a file
+# M13 — Break/fix 01: an app that writes to a file
 
-> Pre-req: the M13 baseline tour. You've read `kubectl logs` on a workload that logs to stdout; this one doesn't.
+> Pre-req: the M13 baseline tour. There you read `kubectl logs` on a workload that logs to stdout. This one does not.
 
-A new workload, `session-logger`, was rolled out to the `app-services` namespace to record per-session activity. It's `Running 1/1` and healthy by every status check — but when the on-call tried to see what it was doing, `kubectl logs` came back nearly empty: one startup line and nothing else. The app is clearly *doing* something; you just can't see it.
+A new workload, `session-logger`, runs in the `app-services` namespace and records per-session activity. It is Running 1/1 and healthy by every status check. When the on-call engineer ran `kubectl logs`, one startup line came back and nothing else. The app is working, and you cannot see what it does.
 
-Your job: figure out why a healthy, running workload produces an empty log, and restore visibility so its activity shows up in `kubectl logs`. The clue is in the one line it *does* print. This is about the container logging contract — what the kubelet captures, and what it doesn't.
+Your job: find why a healthy Pod has an empty log, then make its activity appear in `kubectl logs`. The one line it prints is the clue. This is the container logging contract: what the kubelet captures, and what it does not.
 
 The cluster takes 60–120 seconds to come up. Click **Start** when ready.

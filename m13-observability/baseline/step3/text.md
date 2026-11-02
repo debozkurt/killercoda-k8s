@@ -1,33 +1,34 @@
 # Step 3 — Resource metrics: `kubectl top`
 
-The first metrics pipeline is the **Resource Metrics API**: `metrics-server` scrapes each kubelet for live CPU and memory and serves it on `metrics.k8s.io`. `kubectl top` reads it.
+The first metrics pipeline is the **Resource Metrics API**. **metrics-server** collects live CPU and memory from each kubelet and serves them on `metrics.k8s.io`. `kubectl top` reads it.
 
-## Node and Pod usage, right now
+## Usage right now
 
 ```bash
 kubectl top nodes
 ```{{exec}}
 
-(If it says "Metrics API not available," metrics-server is still starting — wait ~30s and retry.) CPU and memory in use per node, against capacity.
+If it reports that the Metrics API is not available, metrics-server is still starting. Wait 30 seconds and run it again. The output shows CPU and memory in use per node.
 
 ```bash
 kubectl top pods -A --sort-by=memory | head -12
 ```{{exec}}
 
-Live per-Pod memory, biggest first. This is the same data the **HPA** scales on — it divides a Pod's live usage by its **request** to get utilization (M09), which is why a metric is only meaningful measured against the request you set in M06.
+The biggest memory users are first. The **HPA** (Horizontal Pod Autoscaler) scales on this same data.
 
-## Read one workload against its request
+## Read usage against the request
+
+A **request** is the CPU and memory a Pod asks the scheduler to reserve. Usage means little without it:
 
 ```bash
 kubectl top pod -n media -l app=session-broker
-kubectl get pod -n media -l app=session-broker \
-  -o jsonpath='{.items[0].spec.containers[0].resources.requests}'; echo
+kubectl describe deployment session-broker -n media | grep -A2 Requests
 ```{{exec}}
 
-Usage from `top`, the request from the spec — "how loaded is this" is the ratio of the two.
+The first command prints usage. The second prints the request. "How loaded is this" is the ratio of the two. The HPA divides them the same way.
 
-## Know the pipeline's limits
+## The limits of this pipeline
 
-This pipeline is deliberately minimal: **CPU and memory only**, **right now only**, no history, no custom numbers. It answers "how loaded is this?" and feeds the HPA — nothing more. No metrics-server, and both `kubectl top` and the HPA go dark (the HPA reads `<unknown>`) — same pipeline, same failure.
+The pipeline reports CPU and memory only, and only the present. It keeps no history and no custom numbers. Without metrics-server both `kubectl top` and the HPA fail.
 
-Anything richer — calls per second, queue depth, error rate — comes from a *different* pipeline, the one your workloads publish about themselves. That's next.
+Anything richer, such as calls per second or queue depth, comes from a different pipeline that the workload publishes itself. That is next.

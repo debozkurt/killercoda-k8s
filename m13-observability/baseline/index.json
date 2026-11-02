@@ -1,6 +1,6 @@
 {
   "title": "M13 — Observability — Baseline",
-  "description": "Tour the three built-in signals on a healthy fleet: the event stream (type/reason/count, field-selector surveys), container logs (--tail/--since/-c/--previous and the stdout contract), resource metrics (kubectl top), and a healthy application-metrics target (a /metrics exposition endpoint with prometheus.io scrape annotations).",
+  "description": "Tour the three built-in signals on a healthy fleet: the event stream (kubectl events), container logs and the stdout contract, resource metrics (kubectl top), a healthy application-metrics target with its Service endpoints, and a container restart where --previous reads the instance that died.",
   "details": {
     "intro": {
       "text": "intro.md",
@@ -8,12 +8,35 @@
       "foreground": "foreground.sh"
     },
     "steps": [
-      { "title": "Events: the control plane's own signal", "text": "step1/text.md", "verify": "step1/verify.sh" },
-      { "title": "Logs: what the process said", "text": "step2/text.md", "verify": "step2/verify.sh" },
-      { "title": "Resource metrics: kubectl top", "text": "step3/text.md", "verify": "step3/verify.sh" },
-      { "title": "Application metrics: the scrape model", "text": "step4/text.md", "verify": "step4/verify.sh" }
+      {
+        "title": "Events: the control plane's own signal",
+        "text": "step1/text.md",
+        "verify": "step1/verify.sh"
+      },
+      {
+        "title": "Logs: what the process said",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      },
+      {
+        "title": "Resource metrics: kubectl top",
+        "text": "step3/text.md",
+        "verify": "step3/verify.sh"
+      },
+      {
+        "title": "Application metrics: the scrape model",
+        "text": "step4/text.md",
+        "verify": "step4/verify.sh"
+      },
+      {
+        "title": "Restarts: read the instance that died",
+        "text": "step5/text.md",
+        "verify": "step5/verify.sh"
+      }
     ],
-    "finish": { "text": "finish.md" }
+    "finish": {
+      "text": "finish.md"
+    }
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"

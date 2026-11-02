@@ -697,14 +697,14 @@ for ns in media signaling app-services edge; do
   kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=60s >/dev/null 2>&1
 done
 
-# >>> breakfix-02 mutation: layer sip-monitor in signaling — a 2-container Pod.
+# >>> breakfix-02 mutation: layer sip-monitor in signaling, a 2-container Pod.
 #     Container `app` (nginx) is healthy. Container `metrics-agent` (a telemetry
-#     sidecar) has a command that execs /usr/local/bin/metrics-agent, a path that
-#     doesn't exist in the busybox image, so it exits 127 and CrashLoopBackOffs.
-#     The Pod sits at 1/2: the app serves fine, but its telemetry export is dark.
-#     The diagnosis is reading WHICH container the events name, then
-#     `logs -c metrics-agent --previous` to see the dead instance's error. Fix =
-#     correct the sidecar's command to one the image can actually run.
+#     sidecar) prints a banner, runs 15 seconds, then exits 1 because
+#     COLLECTOR_ENDPOINT is not set. It signals readiness (/tmp/ready) only after
+#     that check passes, so the broken sidecar is never Ready. The kubelet restarts it with back-off, so the
+#     Pod sits at 1/2 and the agent's log shows only the banner while a new
+#     instance runs. `logs -c metrics-agent --previous` pins the instance that
+#     died and shows the fatal line. Fix = set COLLECTOR_ENDPOINT on the sidecar.
 cat <<'EOF' | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -732,7 +732,20 @@ spec:
           args:
             - |
               echo "[metrics-agent] starting; exporting sip-monitor telemetry"
-              exec /usr/local/bin/metrics-agent --export /var/run/telemetry.sock  # MUTATED (baseline: a command the busybox image provides; this path isn't in the image → exit 127, CrashLoopBackOff)
+              sleep 15
+              if [ -z "$COLLECTOR_ENDPOINT" ]; then
+                echo "[metrics-agent] fatal: COLLECTOR_ENDPOINT is not set" >&2
+                exit 1
+              fi
+              touch /tmp/ready
+              while true; do
+                echo "[metrics-agent] exported telemetry batch to $COLLECTOR_ENDPOINT"
+                sleep 30
+              done
+          readinessProbe:
+            exec: { command: ["cat", "/tmp/ready"] }
+            periodSeconds: 3
+          # MUTATED (baseline: env COLLECTOR_ENDPOINT=collector.platform.svc:4317 is set on this container)
           resources:
             requests: { cpu: 25m, memory: 32Mi }
             limits:   { cpu: 100m, memory: 64Mi }
