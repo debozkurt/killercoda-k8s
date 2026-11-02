@@ -706,7 +706,7 @@ done
 # claimed. This is the controller install (not the mutated workload) — the image pull
 # can be slow on first boot, hence the longer ceiling.
 kubectl wait --namespace ingress-nginx \
-  --for=condition=Available deployment/ingress-nginx-controller --timeout=180s >/dev/null 2>&1
+  --for=condition=Available deployment/ingress-nginx-controller --timeout=120s >/dev/null 2>&1
 
 # >>> breakfix-03 mutation: the portal Ingress forwards to portal-ui on port 8080,
 #     but the portal-ui Service only exposes port 80. The controller claims the Ingress

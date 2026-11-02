@@ -1,26 +1,26 @@
-# Step 3 — Cross-namespace peer selection
+# Step 3 — Cross-namespace peers
 
-The allow in step 2 reached *across* namespaces — a policy in `media` permitting a source in `app-services`. That only works because of how the peer is written. Get this wrong and a policy that looks right allows nothing.
+The allow in step 2 reaches across namespaces: a policy in media permits a caller in app-services. The way the peer is written makes that work. A wrong peer allows nothing.
 
-## Read the `from` peer
+## Read the peer
 
 ```bash
-kubectl get networkpolicy allow-broker-from-app -n media -o yaml | grep -A6 ingress:
+kubectl describe networkpolicy allow-broker-from-app -n media
 ```{{exec}}
 
-The `from` peer is a `namespaceSelector` matching `kubernetes.io/metadata.name: app-services`. Two things matter here:
+Find the From section. It holds one entry: a NamespaceSelector that matches `kubernetes.io/metadata.name=app-services`. Two rules follow:
 
-- **`namespaceSelector` reaches across namespaces.** A bare `podSelector` under `from` would mean "pods in `media`" — the policy's *own* namespace — and would never match a caller in `app-services`. Cross-namespace allow always needs a `namespaceSelector`.
-- **Namespaces are selected by label, not by name string.** The selector matches namespace *labels*, so the namespace has to carry one.
+- A **namespaceSelector** selects the Pods in every namespace whose labels match. This is how a peer crosses a namespace boundary.
+- A bare **podSelector** selects Pods in the policy's own namespace. Written alone, this peer would mean "Pods in media" and would never match a caller in app-services.
 
-## See the label the selector matches
+## Read the label it matches
 
 ```bash
 kubectl get namespace app-services --show-labels
 ```{{exec}}
 
-Every namespace automatically carries `kubernetes.io/metadata.name=<its-name>`, applied by the control plane. That is the reliable handle for "namespace X" in a `namespaceSelector` — you don't have to label namespaces yourself to reference them by name.
+The control plane puts the label kubernetes.io/metadata.name on every namespace. That label is the reliable handle for "namespace X". You do not label namespaces yourself to select them by name.
 
 ## The instinct to build
 
-`podSelector` is namespace-local; `namespaceSelector` is how you cross the boundary. When a cross-namespace call is blocked despite an allow that "looks correct," the first thing to check is whether the `from` peer names the *namespace* at all — or only a pod, which silently stays inside the policy's own namespace.
+When a cross-namespace call is blocked by an allow that "looks right", read the From entry. Check whether it names a namespace or only a pod.

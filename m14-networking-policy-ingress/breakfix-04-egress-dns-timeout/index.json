@@ -1,0 +1,19 @@
+{
+  "title": "M14 — Break/fix 04: egress policy breaks DNS",
+  "description": "Every name lookup in the media namespace times out while CoreDNS is healthy. An egress policy allows only the namespace's own Pods and never allows DNS. Prove that a ClusterIP call works, read the policy, and add the DNS allow.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the failed lookups", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

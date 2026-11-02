@@ -1,13 +1,11 @@
 # Step 2 — Fix it and verify
 
-The allow needs a `namespaceSelector` so its peer reaches into `app-services`. Combine it with the existing `podSelector` in one `from` element — that's an **AND**, and it means exactly "`sip-app` pods in `app-services`."
+Add a namespaceSelector to the peer. Keep the podSelector in the same list entry. Two selectors in one entry mean AND: Pods labeled app=sip-app in the app-services namespace.
 
 ## Correct the peer
 
-Re-apply the policy with both selectors in a single peer element:
-
 ```bash
-cat <<'EOF' | kubectl apply -f -
+cat <<'YAML' | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -22,24 +20,26 @@ spec:
           podSelector:       { matchLabels: { app: sip-app } }
       ports:
         - { protocol: TCP, port: 80 }
-EOF
+YAML
 ```{{exec}}
 
-The two selectors sit under one `-` (one list element), so both must match: a pod that is `app=sip-app` **and** in the `app-services` namespace. Watch the YAML shape — split them into two `-` elements and you'd get an OR (any pod in `app-services`, plus any `sip-app` pod in `media`), which is a different, looser policy.
+Both selectors sit under one dash, so both must match. Put them under two dashes and you get an OR: any Pod in app-services, plus any sip-app Pod in media. That is a looser policy.
 
 ## Verify
+
+Wait five seconds first, because the plugin needs a moment to apply the policy.
 
 ```bash
 kubectl run sip-app --rm -i --restart=Never --labels app=sip-app \
   --image=busybox:1.36 -n app-services -- \
-  wget -qO- --timeout=5 http://session-broker.media/
+  wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local/
 ```{{exec}}
 
-nginx's HTML comes back — the cross-namespace path is open. Check the precision you just wrote: a client in `app-services` *without* the `sip-app` label is still denied, because the AND requires both.
+nginx answers. Now check the precision. A client in app-services without the label must still fail, because the AND needs both selectors:
 
 ```bash
 kubectl run other --rm -i --restart=Never --image=busybox:1.36 -n app-services -- \
-  wget -qO- --timeout=5 http://session-broker.media/
+  wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local/
 ```{{exec}}
 
-That one times out — the allow is scoped to `sip-app` only, exactly as intended. For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m14-networking-policy-ingress/ANSWER-KEY.md). You're done — see `finish.md`.
+That call times out, as intended. Read `finish.md`, then check [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m14-networking-policy-ingress/ANSWER-KEY.md).

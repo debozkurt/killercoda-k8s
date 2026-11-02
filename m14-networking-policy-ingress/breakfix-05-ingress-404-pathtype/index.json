@@ -1,0 +1,19 @@
+{
+  "title": "M14 — Break/fix 05: Ingress 404 from pathType",
+  "description": "The portal home page loads but a deep link returns 404, while the backend serves that path. The rule uses pathType Exact on path /. Compare a direct call with an Ingress call, read the rule, and change the pathType.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "Diagnose the 404", "text": "step1/text.md" },
+      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

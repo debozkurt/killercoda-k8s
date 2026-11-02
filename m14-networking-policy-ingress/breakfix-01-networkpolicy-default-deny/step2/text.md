@@ -1,13 +1,13 @@
 # Step 2 — Fix it and verify
 
-The default-deny is correct — a locked-down namespace is the *goal*. What's missing is the companion allow. So add one; don't delete the deny (that would throw away the isolation you want to keep).
+The default-deny is correct. A locked-down namespace is the goal. The missing piece is an allow. Add one beside the deny.
 
 ## Add the allow
 
-`session-broker` needs to accept traffic from its callers in the `media` namespace. Add a policy selecting it and allowing ingress from the same namespace:
+Let session-broker accept connections from the Pods in its own namespace:
 
 ```bash
-cat <<'EOF' | kubectl apply -f -
+cat <<'YAML' | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -18,26 +18,28 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - from:
-        - podSelector: {}          # any pod in this namespace (media)
+        - podSelector: {}
       ports:
         - { protocol: TCP, port: 80 }
-EOF
+YAML
 ```{{exec}}
 
-`from: [{ podSelector: {} }]` means "any pod in the policy's own namespace" — the idiom for allowing intra-namespace traffic. Policies are additive, so this *adds* a permitted path on top of the deny; the deny still blocks everyone else. (If only a specific caller should reach it, narrow the `podSelector` — e.g. `matchLabels: { app: transcoder }` — instead of `{}`.)
+An empty podSelector inside from means "every Pod in the policy's own namespace". Policies are additive, so this adds one allowed path and the deny still blocks everyone else. To narrow the allow, replace the empty selector with a label match such as app=transcoder.
 
 ## Verify
 
+Wait five seconds first, because the plugin needs a moment to apply the policy.
+
 ```bash
 kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n media -- \
-  wget -qO- --timeout=5 http://session-broker.media/
+  wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local/
 ```{{exec}}
 
-You get nginx's HTML — the intra-namespace path works again. Confirm the isolation you kept is intact: a caller from *outside* `media` is still denied.
+nginx answers. Now confirm the isolation survived. A caller outside media must still fail:
 
 ```bash
 kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n signaling -- \
-  wget -qO- --timeout=5 http://session-broker.media/
+  wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local/
 ```{{exec}}
 
-That one still times out — exactly right. You restored the legitimate path and left the lockdown in place. For self-grading and the full differential, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m14-networking-policy-ingress/ANSWER-KEY.md). You're done — see `finish.md`.
+That call times out, as intended. You restored one path and kept the lockdown. Read `finish.md`, then check [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m14-networking-policy-ingress/ANSWER-KEY.md).

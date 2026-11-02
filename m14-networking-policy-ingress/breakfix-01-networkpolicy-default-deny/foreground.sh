@@ -11,5 +11,5 @@ echo "session-broker (media) has gone dark — callers time out, but its Pods ar
 echo "healthy. A hang (not refused, not NXDOMAIN) points at policy. Reproduce it:"
 echo ""
 echo "  kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n media -- \\"
-echo "    wget -qO- --timeout=5 http://session-broker.media/"
+echo "    wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local/"
 echo ""

@@ -12,5 +12,5 @@ echo "even though an allow policy naming sip-app exists. Reproduce it as sip-app
 echo ""
 echo "  kubectl run sip-app --rm -i --restart=Never --labels app=sip-app \\"
 echo "    --image=busybox:1.36 -n app-services -- \\"
-echo "    wget -qO- --timeout=5 http://session-broker.media/"
+echo "    wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local/"
 echo ""

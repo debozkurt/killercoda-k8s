@@ -1,52 +1,57 @@
 # M14 — Networking II: Policy & Ingress
 
-> Two controls that shape traffic the Service layer leaves wide open: NetworkPolicy, which turns a flat, default-open pod network into segmented east-west lanes, and Ingress, the L7 front door for north-south HTTP — plus the failure signatures each one adds.
+> Two controls shape traffic that a Service leaves open. **NetworkPolicy** splits the flat pod network into lanes. **Ingress** routes outside HTTP to Services. Each control fails in a quiet way that the top-level objects do not show.
 
 ## What you'll learn
 
-- Explain the NetworkPolicy model precisely: a pod is default-*allow* until a policy selects it, at which point it becomes default-*deny* for the covered direction — and every policy after that only *adds* permissions, never removes them
-- Read a NetworkPolicy the way you read a Service: `podSelector` (who it governs), `policyTypes` (Ingress/Egress), and the `from`/`to` peers (`podSelector`, `namespaceSelector`, `ipBlock`) and `ports` that define what's allowed
-- Get the peer-selector semantics right — `podSelector` alone is namespace-local, `namespaceSelector` reaches across namespaces, and the two combined in one list element is an **AND**, not an OR
-- Recognize the policy-drop signature: a dropped packet *hangs to a timeout*, distinct from DNS `NXDOMAIN` and from `connection refused` — the fourth branch of M04's connectivity differential
-- Explain what an Ingress is and what it is not: an L7 HTTP routing object that is inert data until an **Ingress controller** claims it via an `IngressClass` and forwards matched requests to a backend Service
-- Work an Ingress failure top to bottom (no ADDRESS, `404`, or `503`): from controller present, to class matched, to the backend Service's port and endpoints
+- State the NetworkPolicy model: a pod is **isolated** for one direction only when a policy selects it for that direction. Policies add permissions and never remove them.
+- Read a NetworkPolicy: `podSelector` (who it governs), `policyTypes` (which directions), and `from`/`to` peers with `ports`
+- Write peers correctly: a bare `podSelector` stays in the policy's namespace, `namespaceSelector` crosses namespaces, and both in one list element mean AND
+- Explain why an egress restriction breaks DNS, and write the allow that fixes it
+- Recognize a policy drop: the client **hangs to a timeout**. That is a new branch of M04's connectivity differential.
+- Explain what an Ingress is and is not: routing rules that stay inert until an **Ingress controller** claims them through an **IngressClass**
+- Work an Ingress failure from the status code. In ingress-nginx, `404` means no rule matched and `503` means a rule matched and the backend failed
 
 ## Why it matters
 
-M04 gave every workload a stable name and got traffic flowing. What it left in place is a flat network: by default, any pod can open a connection to any other pod, in any namespace. That's fine until it isn't — a compromised `sip-app` that reaches `cdr-storage` and `provisioning` directly, a noisy tenant hammering another's service, an auditor asking "prove only the billing plane can reach the billing database." **NetworkPolicy is the in-cluster segmentation control** that answers those. It is also the control most likely to cause a self-inflicted outage, because turning it on changes the default: the first policy you apply to a pod stops being additive and starts *denying everything you didn't explicitly allow*. That includes, famously, the pod's own DNS lookups, if you reach for egress.
+M04 gave every workload a stable name. It also left the network flat. By default any pod can open a connection to any other pod in any namespace. A compromised `sip-app` can then reach `cdr-storage` directly. An auditor can ask you to prove that only the billing plane reaches the billing database, and you have no object to show. **NetworkPolicy** is the in-cluster segmentation control that answers those questions.
 
-Ingress is the other half. A ClusterIP Service is reachable only inside the cluster; something has to accept HTTP from the outside world and route it to the right Service by hostname and path. **Ingress is that L7 front door**, and its defining trap is that the object does nothing on its own — it is a routing spec that a separate controller has to pick up and act on. An Ingress that looks perfect in `kubectl get ingress` routes nothing if no controller claimed it, and returns `503` if the Service it names has no endpoints. Both controls fail quietly, in ways the top-line objects don't show, which is exactly why an SRE has to know where to look.
+NetworkPolicy also causes self-inflicted outages. A policy changes a pod's default from allow to deny for one direction. An engineer who locks down egress forgets that every name lookup is egress. The pod then reports "DNS is broken" while CoreDNS is healthy.
+
+**Ingress** is the north-south half. A ClusterIP Service is reachable only inside the cluster. Something must accept outside HTTP and route it by hostname and path. An Ingress object that looks perfect in `kubectl get ingress` routes nothing when no controller claims it. It returns `404` when no rule matches and `503` when the backend has no endpoints. Both controls fail quietly. An SRE needs to know where to look.
 
 ## Scope
 
-**Covers:** the NetworkPolicy object end to end — `podSelector`, `policyTypes`, `ingress`/`egress` rules, the three peer kinds (`podSelector`, `namespaceSelector`, `ipBlock`) and the `ports` they gate; the default-allow → default-deny transition and the additive-allow model; that enforcement is the CNI's job, not the API server's (so a policy on a non-enforcing CNI is a silent no-op); cross-namespace and multi-tenant isolation patterns; the egress-breaks-DNS trap. On the north-south side: the Ingress object (`ingressClassName`, rules, `host`, `path`, `pathType`, backend Service + port), the Ingress controller and `IngressClass`, and the request path controller → Service → EndpointSlice → Pod. Throughout: the timeout / refused / `NXDOMAIN` / `404` / `503` differential.
+**Covers:** the NetworkPolicy object. Per-direction isolation, `policyTypes`, ingress and egress rules, the three peer kinds (`podSelector`, `namespaceSelector`, `ipBlock`), `ports`, additive rules, and the rule that both ends of a connection must allow it. Enforcement by the CNI, and what policy does not cover. The egress and DNS trap. On the north-south side: the Ingress object (`ingressClassName`, `host`, `path`, `pathType`, backend Service and port), the controller, the IngressClass, and the `404` and `503` signatures. The IngressClass link is diagnosed from the ADDRESS column and the class check.
 
-**Doesn't cover:** the CNI's own L3 dataplane (the overlay, routing, and pod-to-pod plumbing *beneath* policy), assumed working here → M22; service mesh and L7 mTLS / traffic policy (Istio, Linkerd) → M15; the Gateway API in depth (named here as Ingress's successor); admission-time policy engines that validate or mutate objects rather than shape packets (Kyverno, OPA Gatekeeper) → M20–M21; and cloud LoadBalancer provisioning specifics (M04 covered the Service *types*).
+**Doesn't cover:** the CNI dataplane below policy → M22. Service mesh and L7 mTLS → M15. TLS termination on an Ingress and certificate issuance → M12. The Gateway API beyond a named successor. Admission-time policy engines → M20 and M21. CNI-specific policy CRDs such as Cilium or Calico policies. Cloud load balancer provisioning (M04 covered the Service types).
 
-**Assumes:** M04 is load-bearing — Services, selectors, the EndpointSlice, ClusterIP, cluster DNS, and the connectivity differential (`NXDOMAIN` / empty-endpoints / refused). This module adds two more failure branches to that same differential. M01 labels and selectors are the vocabulary NetworkPolicy peers are written in; M00 namespaces are the boundary both controls operate across.
+**Assumes:** M04 is load-bearing: Services, selectors, EndpointSlices, cluster DNS, and the connectivity differential. M01 labels and selectors are the language that peers use. M00 namespaces are the boundary both controls cross.
 
 ## Vocabulary
 
+Capital-I **Ingress** is the object. Lowercase ingress is the traffic direction.
+
 | Term | Definition |
 |------|------------|
-| **NetworkPolicy** | A namespaced object listing which traffic is *allowed* to or from a set of pods. A whitelist: selecting a pod denies everything not listed. |
-| **`podSelector`** (of the policy) | The label selector choosing which pods in the policy's namespace it governs. Empty `{}` matches **every** pod in the namespace. |
-| **`policyTypes`** | The directions governed: `Ingress`, `Egress`, or both. A direction listed with no matching rules means "deny all in that direction." |
-| **ingress / egress rule** | An allow rule. `ingress` lists sources (`from`) permitted to connect *to* the pods; `egress` lists destinations (`to`) they may connect *out to*. Each carries optional `ports`. |
-| **peer** | An entry under `from`/`to`: `podSelector` (pods in *this* namespace), `namespaceSelector` (pods in matching namespaces), or `ipBlock` (a CIDR, for non-pod IPs). `podSelector` + `namespaceSelector` in one element is an **AND**. |
-| **default-deny** | A policy that selects pods (often `podSelector: {}`) and names a direction with no allow rules — denying all traffic that way. The baseline before adding specific allows. |
-| **additive-allow** | Multiple policies on the same pod are **unioned** — allowed if *any* policy allows it. Nothing *subtracts* an allow; there is no "deny rule." |
-| **CNI enforcement** | Policy is enforced by the network plugin (Calico, Cilium, Weave, …), not the API server. On a plugin that doesn't implement it (e.g. plain Flannel), policies are stored but never enforced. |
-| **Ingress** | A namespaced object of L7 (HTTP/HTTPS) routing rules — by `host` and `path` — to backend Services. A spec only; a controller does the routing. |
-| **Ingress controller** | A running workload (e.g. ingress-nginx) that watches Ingress objects and proxies external HTTP to backends. Without one, Ingress objects do nothing. |
-| **IngressClass** | Names a controller. An Ingress's `ingressClassName` selects which controller claims it; an unclassed Ingress no controller defaults to is claimed by nobody. |
-| **`pathType` / backend** | `pathType` (`Prefix`, `Exact`, `ImplementationSpecific`) decides how a rule's `path` matches. The `backend.service` names the target Service and **port**. |
+| **NetworkPolicy** | A namespaced object that lists the traffic allowed to or from a set of pods. It contains allow rules only. |
+| **isolated** | A pod is isolated for a direction when a NetworkPolicy selects it and lists that direction in `policyTypes`. The word "isolation" means "some restrictions apply".<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup> |
+| **`podSelector`** (of the policy) | The label selector that chooses the pods in the policy's namespace that it governs. An empty `{}` selects every pod in the namespace. |
+| **`policyTypes`** | The directions the policy governs: `Ingress`, `Egress`, or both. If you omit it, `Ingress` is always set, and `Egress` is set only when the policy has egress rules. |
+| **peer** | An entry under `from` or `to`: `podSelector`, `namespaceSelector`, or `ipBlock`. A `podSelector` and a `namespaceSelector` in one entry mean AND. |
+| **default-deny** | A policy that selects pods and lists a direction with no allow rules. It isolates those pods for that direction. |
+| **additive** | Policies on one pod combine as a union. Order does not matter, and no rule subtracts an allow. |
+| **CNI enforcement** | The network plugin enforces policy. The API server only stores it. On a plugin that does not implement policy, the object has no effect. |
+| **Ingress** | A namespaced object with HTTP and HTTPS routing rules by `host` and `path`. It is a spec. A controller does the routing. |
+| **Ingress controller** | A workload, such as ingress-nginx, that watches Ingress objects and proxies matching requests to backend Services. |
+| **IngressClass** | The object that names a controller. An Ingress selects one with `ingressClassName`. |
+| **`pathType`** | How a rule's `path` matches: `Exact`, `Prefix` or `ImplementationSpecific`. |
 
 ## Mental model
 
-Hold the two controls as two axes of traffic. **East-west** is pod-to-pod, inside the cluster; NetworkPolicy shapes it at L3/L4 (IPs and ports). **North-south** is outside-to-inside HTTP; Ingress shapes it at L7 (hostnames and paths). They are independent — a request from the internet through the Ingress becomes east-west pod traffic the moment the controller forwards it, and a NetworkPolicy can block that second hop even when the Ingress is perfect.
+Two axes of traffic. **East-west** is pod to pod, and NetworkPolicy shapes it at L3 and L4 (IPs and ports). **North-south** is outside HTTP, and Ingress shapes it at L7 (hostnames and paths). They are independent. The controller forwards an Ingress request to a Pod, and that hop is east-west traffic. A NetworkPolicy can block that hop even when the Ingress is perfect.
 
-For NetworkPolicy, the one idea that prevents most outages: **a policy is a whitelist that switches on the moment it selects a pod.** Before any policy selects a pod, everything is allowed. The instant one does (even a policy that allows a single source), that pod is default-deny for the covered direction, and *only* the listed peers get through. More policies only ever *add* to the allowed set.
+For NetworkPolicy, hold one rule: **a policy is a whitelist that switches on when it selects a pod for a direction.** Before any policy selects the pod, that direction is open. After one does, only the listed peers get through.
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {
@@ -56,37 +61,43 @@ For NetworkPolicy, the one idea that prevents most outages: **a policy is a whit
   'background':'#0f0f0f'
 }}}%%
 flowchart TD
-    A[Connection arrives at a Pod] --> B{Any NetworkPolicy<br/>selects this Pod<br/>for this direction?}
-    B -->|no policy selects it| ALLOW1[ALLOWED<br/>default-allow]
-    B -->|yes → now default-deny| C{Does a rule's peer<br/>match the other end?}
-    C -->|no match| DROP[DROPPED<br/>client hangs → timeout]
-    C -->|match| ALLOW2[ALLOWED]
+    A[Connection from pod S to pod D] --> B{Egress at S:<br/>policy selects S<br/>for Egress?}
+    B -->|no| C
+    B -->|yes| B2{Rule allows D?}
+    B2 -->|no| DROP[DROPPED<br/>client hangs]
+    B2 -->|yes| C{Ingress at D:<br/>policy selects D<br/>for Ingress?}
+    C -->|no| OK[ALLOWED]
+    C -->|yes| C2{Rule allows S,<br/>or S is on D's node?}
+    C2 -->|no| DROP
+    C2 -->|yes| OK
 ```
 
-The red leaf is the signature that matters: a NetworkPolicy drop is *silent*. The packet is discarded, no RST comes back, and the client waits until it times out. That's the fourth branch of the M04 differential — `NXDOMAIN` (name didn't resolve), `connection refused` (reached a pod, no listener), empty-endpoints (Service had no backends), and now **timeout with everything else healthy** (a policy is dropping it)<sup><a href="https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/">[7]</a></sup>.
+The two checks are independent, and their order does not matter. Both ends must allow the connection. If either side refuses, the connection does not happen.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup> Most plugins drop silently. The packet is discarded, no reset returns, and the client waits for a timeout. That adds a branch to the M04 differential: `NXDOMAIN` (the name did not resolve), empty endpoints (the Service had no backends), `connection refused` (a pod answered with no listener), and now **a timeout with everything else healthy** (a policy dropped it).<sup><a href="https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/">[7]</a></sup>
 
-North-south, an Ingress request walks a fixed chain, and each link has its own failure code:
+North-south, an Ingress request walks a fixed chain. Each link has its own failure code:
 
 ```text
-client ──HTTP, Host: portal.polyphone.example──▶ Ingress controller (claims class "nginx")
-                                                   │  no rule matches host/path?  → 404
+client ──HTTP, Host: portal.polyphone.example──▶ Ingress controller (class "nginx")
+                                                   │  no rule matches host and path? → 404
                                                    │  rule matches → backend Service:port
                                                    ▼
                                            Service ───▶ EndpointSlice
-                                                   │  no endpoints / wrong port?  → 503
+                                                   │  no endpoints for that port?    → 503
                                                    ▼
-                                             backend Pod  (:80)
+                                             backend Pod (:80)
 ```
 
-`get ingress` shows an ADDRESS only once a controller has claimed the object; a `404` means the request reached the controller but no rule matched; a `503` means a rule matched but the backend Service had nothing to send to. The M04 reflex holds — the client's status code says it broke; the Ingress rules and the backend's endpoints say *where*.
+A `404` means the request reached the controller and no rule matched. A `503` means a rule matched and the backend had nothing to receive the request. The client's status code names the half. The Ingress rules and the backend endpoints name the spot.
 
 ## Concept walkthrough
 
-### The NetworkPolicy model: default-allow until you say otherwise
+### The NetworkPolicy model: isolation per direction
 
-A NetworkPolicy is a namespaced whitelist for pod traffic<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup>. It has three moving parts: a `podSelector` that chooses which pods it governs (empty `{}` = the whole namespace), a `policyTypes` list naming the directions it controls (`Ingress`, `Egress`), and the `ingress`/`egress` rules listing allowed peers. The behavior that trips everyone: **selecting a pod for a direction flips that pod's default for that direction from allow to deny.** A pod that no policy selects accepts traffic from anywhere; the first policy to select it accepts traffic only from the peers that policy (and any other policy selecting it) lists.
+A NetworkPolicy is a namespaced list of allowed pod traffic.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup> It has three parts. A `podSelector` chooses the pods it governs. A `policyTypes` list names the directions. The `ingress` and `egress` rules list allowed peers.
 
-That gives the canonical baseline — a *default-deny* — as a policy with no rules at all<sup><a href="https://kubernetes.io/docs/tasks/administer-cluster/declare-network-policy/">[2]</a></sup>:
+Isolation is **per direction**. A pod is isolated for ingress when a policy selects it and lists `Ingress` in `policyTypes`. Egress works the same way and is independent. A pod that no policy selects for a direction stays open in that direction.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup> A policy with only `Ingress` in `policyTypes` leaves egress open.
+
+The canonical default-deny is a policy with no rules:<sup><a href="https://kubernetes.io/docs/tasks/administer-cluster/declare-network-policy/">[2]</a></sup>
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -94,73 +105,68 @@ kind: NetworkPolicy
 metadata: { name: default-deny-ingress, namespace: media }
 spec:
   podSelector: {}          # every pod in `media`
-  policyTypes: [Ingress]   # governs ingress…
-  # …with no `ingress:` rules → deny all ingress
+  policyTypes: [Ingress]   # isolate for ingress, with no rules: deny all ingress
 ```
 
-Apply that and every pod in `media` stops accepting connections. You then *open* specific paths by adding more policies. Here is the second load-bearing fact: **policies are additive.** Multiple policies selecting the same pod are unioned; a connection is allowed if *any* of them allows it. There is no deny rule and no ordering: you cannot write "allow X but not Y," only "allow X" and "allow Z"<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup>. Isolation comes from the *absence* of an allow, never from a deny. So the default-deny above plus an "allow from the app plane" policy yields exactly: app-plane pods in, everything else dropped.
+Policies are **additive**. A connection is allowed when any applicable policy allows it. There is no deny rule and no ordering. You cannot write "allow X but not Y". Isolation comes from the absence of an allow. The default-deny plus an "allow from the app plane" policy yields exactly: app-plane pods in, everything else dropped.
 
-The direction distinction matters more than it looks. `policyTypes: [Ingress]` controls who may connect *to* these pods; it says nothing about what these pods may connect *out to*. Egress is a separate direction with its own trap, below. And one hard boundary: **enforcement is the CNI's job.** The API server accepts and stores a NetworkPolicy regardless of whether anything acts on it; the cluster's network plugin is what actually programs the drops<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup>. On a plugin that doesn't implement policy, your carefully-written default-deny is a stored object that changes nothing — a false sense of security that only a real connectivity test exposes. Confirm your CNI supports NetworkPolicy before you rely on one for isolation.
+Five facts complete the model. Each one explains a surprise:
 
-### Peers and selectors: the AND/OR trap, and the DNS landmine
+- **The node is always allowed.** An ingress-isolated pod still accepts connections from its own node. Upstream states this as the current behavior of conformant plugins.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup> The kubelet's probes come from the node, so a deny-all policy does not fail readiness.
+- **Replies are implicit.** When a policy allows a connection, the reply traffic is allowed too.
+- **Policy sees TCP, UDP and SCTP.** For other protocols, such as ICMP, the behavior depends on the network plugin.
+- **A new pod may start unprotected.** A policy applies "eventually". A pod that starts before the plugin finishes its work can run for a moment with different rules.
+- **The CNI enforces.** The API server accepts and stores a NetworkPolicy whether or not anything acts on it. On a plugin that does not implement policy, a stored default-deny changes nothing, and only a connection test shows it. Prove enforcement on every cluster you inherit with one allowed call and one denied call.
 
-An allow rule lists *peers* — the other end of connections it permits. There are three kinds, and mixing them up is the most common way a policy that "looks right" still drops traffic<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup>:
+### Peers and selectors: the AND and OR trap
 
-- **`podSelector`** — pods, *in the policy's own namespace*, matching these labels. It does not reach across namespaces. On its own it means "these pods, here."
-- **`namespaceSelector`** — pods in any namespace whose labels match. Namespaces need labels for this to select them; every namespace automatically carries `kubernetes.io/metadata.name: <name>`, which is the reliable handle for "namespace X"<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup>.
-- **`ipBlock`** — a CIDR range, for traffic whose source isn't a pod (external clients, node IPs, a VPN range).
+An allow rule lists peers, the other end of the permitted connections:<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup>
 
-The trap is the difference between one peer element and two. YAML list structure encodes AND vs OR:
+- **`podSelector`** selects pods in the policy's own namespace. It never crosses a namespace.
+- **`namespaceSelector`** selects all pods in the namespaces whose labels match. Every namespace carries `kubernetes.io/metadata.name: <name>`, so that label is the reliable handle for "namespace X".
+- **`ipBlock`** selects a CIDR range. Use it for cluster-external addresses, not for pod IPs, which change.
+
+The YAML list shape encodes AND and OR:
 
 ```yaml
-# AND — sip-app pods that are ALSO in the app-services namespace
+# AND: sip-app pods that are ALSO in the app-services namespace
 from:
   - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: app-services } }
     podSelector:       { matchLabels: { app: sip-app } }
 
-# OR — anything in app-services, PLUS any sip-app pod in THIS namespace
+# OR: any pod in app-services, PLUS any sip-app pod in THIS namespace
 from:
   - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: app-services } }
   - podSelector:       { matchLabels: { app: sip-app } }
 ```
 
-The first is a single `from` element with two selectors — both must match, so it means "`sip-app` pods in `app-services`." The second is two elements: a union. The failure mode this produces: someone wants to allow `sip-app` from another namespace, writes `from: [{ podSelector: { app: sip-app } }]`, and it silently allows nothing, because a bare `podSelector` never leaves the policy's namespace and there's no `sip-app` pod there. The fix is to add the `namespaceSelector` (as an AND) so the peer actually reaches across the boundary. Cross-namespace allow *always* needs a `namespaceSelector`; a `podSelector` alone is a namespace-local statement.
+The first form has one `from` entry with two selectors, so both must match. The second has two entries, so the result is a union. The classic bug follows from this. An engineer wants `sip-app` from another namespace and writes `from: [{ podSelector: { matchLabels: { app: sip-app } } }]`. The policy silently allows nothing, because there is no `sip-app` pod in the policy's namespace. A cross-namespace allow always needs a `namespaceSelector`. When in doubt, run `kubectl describe` on the policy to see how Kubernetes read it.
 
-Egress carries the landmine. The moment you add `Egress` to a pod's `policyTypes` with restrictive rules, you have to remember that DNS is egress too. A pod resolving `session-broker.media` sends a UDP/TCP packet to the CoreDNS Service on port 53; if your egress policy doesn't allow that, every name lookup times out and the symptom looks like "DNS is broken" when it's your own policy. A policy that governs only ingress never hits this — it doesn't touch the pod's outbound path — but any real egress lockdown must allow `kube-dns` explicitly.
+### Egress and the DNS trap
 
-<details>
-<summary>📖 Going deeper: the egress default-deny that breaks every lookup<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup></summary>
+A pod that resolves `session-broker.media` sends a UDP packet to CoreDNS on port 53. That packet is egress. The moment a policy isolates a pod for egress, the pod can send only what a rule allows. A rule that allows the pod's own namespace does not include `kube-system`, where CoreDNS runs. Every lookup then times out.
 
-A default-deny that includes egress is the single most common self-inflicted NetworkPolicy outage. This selects all pods and denies all outbound traffic:
+The symptom misleads. The application reports a name failure. CoreDNS is healthy and other namespaces resolve. Calls to a Service by its ClusterIP still work when the rule allows the backend, so the failure looks like DNS and is policy. Remember the both-ends rule: egress at the caller and ingress at the destination are separate checks, and each needs an allow.
 
-```yaml
-spec:
-  podSelector: {}
-  policyTypes: [Ingress, Egress]   # note: Egress too
-```
-
-Every pod it covers can now reach *nothing* outbound — including CoreDNS. Applications don't report "egress policy blocked me"; they report timeouts and DNS failures, because their first outbound act (a name lookup) is dropped. You debug it as a DNS incident in `kube-system` before realizing the block is a policy in the app's own namespace. The companion allow every egress lockdown needs:
+The companion allow that every egress lockdown needs:
 
 ```yaml
 egress:
   - to:
       - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+        podSelector:       { matchLabels: { k8s-app: kube-dns } }
     ports:
       - { protocol: UDP, port: 53 }
       - { protocol: TCP, port: 53 }
 ```
 
-The lesson generalizes: **an egress policy is only as complete as its list of allowed dependencies**, and DNS is a dependency of nearly everything. Reach for ingress isolation first (lower blast radius); add egress only when you've enumerated what the workload actually calls, DNS included.
+An egress policy is as complete as its list of dependencies, and DNS is a dependency of nearly everything. Isolate for ingress first, because its blast radius is smaller. Add egress when you have listed what the workload calls, DNS included.
 
-</details>
+### Ingress: an L7 router that stays inert without a controller
 
-### Ingress: an L7 router that's inert without a controller
+An Ingress is a set of HTTP routing rules: host `portal.polyphone.example`, path `/`, send to Service `portal-ui` port 80.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/ingress/">[3]</a></sup> It does nothing by itself. The Service layer has a proxy that every cluster runs, usually kube-proxy or the CNI. An Ingress has an **Ingress controller**, an ordinary workload that someone installs and that many clusters lack.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/">[4]</a></sup> The controller watches Ingress objects and programs its proxy for each rule.
 
-An Ingress object is a set of HTTP routing rules — "host `portal.polyphone.example`, path `/`, send to Service `portal-ui:80`"<sup><a href="https://kubernetes.io/docs/concepts/services-networking/ingress/">[3]</a></sup>. What makes it different from every object so far is that **it does nothing by itself.** A Service is acted on by kube-proxy, which every cluster runs; an Ingress is acted on by an **Ingress controller**, which is an ordinary workload someone has to install and which many clusters don't have<sup><a href="https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/">[4]</a></sup>. The controller watches Ingress objects, and for each rule programs its proxy (nginx, in ingress-nginx's case) to accept the named host/path and forward to the backend Service.
-
-The link between object and controller is the **IngressClass**. An Ingress sets `ingressClassName: nginx`; the controller claims Ingresses whose class names it. Set no class, and unless a controller is marked default, *nobody* claims the object — it sits there with no ADDRESS and routes nothing. That empty ADDRESS column is the first diagnostic: no ADDRESS means no controller took ownership (missing/unknown class, or no controller running at all).
-
-Once a controller owns the Ingress, the request path is the M04 path with an L7 hop bolted on the front:
+The **IngressClass** links the two. An Ingress sets `ingressClassName: nginx`, and the controller that owns the class claims it. If you set no class, the cluster can assign a default. An IngressClass with the annotation `ingressclass.kubernetes.io/is-default-class: "true"` becomes that default. With no class and no default, no controller claims the Ingress. It stays inert. With ingress-nginx, an unclaimed Ingress gets no ADDRESS, and a claimed one shows the controller's address. Other controllers report status in their own way.
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -176,57 +182,67 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: portal-ui      # a real Service in this namespace…
-                port: { number: 80 } # …and a port the Service actually exposes
+                name: portal-ui      # a Service in this namespace
+                port: { number: 80 } # a port that Service exposes
 ```
 
-The controller resolves `backend.service` to that Service's EndpointSlice and load-balances across the Ready pods behind it, so an Ingress inherits every Service failure mode from M04. If the backend Service name is wrong, or the port doesn't match one the Service exposes, or the Service has no Ready endpoints, the controller has nowhere to forward the matched request and answers **`503`**. A **`404`** is different and earlier: the request reached the controller but no rule matched its host or path (wrong `host`, wrong `pathType`, a typo in `path`). Reading `503` vs `404` tells you which half to inspect: `503` is a backend problem (Service/port/endpoints), `404` is a routing-rule problem (host/path).
+Both the host and the path must match before the controller forwards a request.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/ingress/">[3]</a></sup> The controller resolves the backend to the Service's EndpointSlice and balances across Ready pods. `kubectl get endpoints` shows the same addresses through the older Endpoints object. An Ingress therefore inherits every Service failure from M04. A wrong Service name, a port the Service does not expose, or no Ready endpoints leaves the controller nothing to forward to. ingress-nginx then answers **`503`**. In ingress-nginx, a **`404`** is earlier: no rule matched the request. The cause is a wrong `host`, a wrong `path`, or a `pathType` that does not match.
+
+`pathType` is required on every path.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/ingress/">[3]</a></sup> `Exact` matches the whole URL path, case sensitive. `Prefix` matches by path element: `/foo/bar` matches `/foo/bar/baz` and does not match `/foo/barbaz`. A rule with `Exact` and path `/` matches only `/`. A request for `/index.html` matches no rule and gets a `404`, while the backend would serve it. `ImplementationSpecific` leaves matching to the controller.
+
+When a `404` could come from the rule or the backend, read the controller's access log. Each line names the upstream that served the request.<sup><a href="https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/log-format/">[6]</a></sup> A request that matched no rule goes to the default backend. A request that matched a rule names the backend Service and port.
 
 <details>
-<summary>📖 Going deeper: `pathType`, and why Ingress is being succeeded by the Gateway API<sup><a href="https://kubernetes.io/docs/concepts/services-networking/gateway/">[5]</a></sup></summary>
+<summary>📖 Going deeper: why Ingress is frozen and what replaces it<sup><a href="https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/">[4]</a></sup></summary>
 
-`pathType` decides how `path` matches, and getting it wrong yields a `404` that looks like a backend outage. `Prefix` matches by path-segment prefix (`/api` matches `/api/v1`); `Exact` matches the whole path and nothing else (`/api` does *not* match `/api/`); `ImplementationSpecific` hands matching to the controller and varies between them. A rule with `pathType: Exact` and `path: /` matches only `/` — a request to `/login` gets no rule and a `404`.
+The Kubernetes project recommends the **Gateway API** over Ingress. The Ingress API is frozen: it stays generally available under the stability guarantees, and it receives no new features.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/">[4]</a></sup> Ingress handles HTTP and HTTPS by host and path. Anything more, such as rewrites, canaries or authentication, lives in controller-specific annotations that do not port between controllers.
 
-Ingress has real limits: HTTP/HTTPS-centric, host/path routing only, everything else (rewrites, canaries, auth) pushed into controller-specific annotations that don't port between controllers. The **Gateway API** is the successor the project is steering toward — a role-split, extensible replacement (`GatewayClass` / `Gateway` / `HTTPRoute`) that models L4/L7 routing as first-class typed resources instead of annotation soup<sup><a href="https://kubernetes.io/docs/concepts/services-networking/gateway/">[5]</a></sup>. Ingress is still the most widely deployed north-south control and what you'll meet on existing clusters, so know it cold. But new designs should evaluate Gateway API, and note that the long-dominant reference controller, ingress-nginx, entered retirement in 2026<sup><a href="https://kubernetes.github.io/ingress-nginx/">[6]</a></sup>, which makes migration concrete rather than theoretical.
+The Gateway API models routing as typed resources with separate roles (`GatewayClass`, `Gateway`, `HTTPRoute`).<sup><a href="https://kubernetes.io/docs/concepts/services-networking/gateway/">[5]</a></sup> It is an add-on that you install, and many implementations support it.
+
+ingress-nginx, the long-standing reference controller, ended best-effort maintenance in March 2026. Existing installations keep running, and no fixes follow.<sup><a href="https://github.com/kubernetes/ingress-nginx">[8]</a></sup> It needs no cloud load balancer, which makes it common on small clusters. A new design should evaluate another controller or the Gateway API. Every skill here transfers: the class links object to controller, `404` means no rule matched, and `503` means no backend.
 
 </details>
 
 ## Hands-on
 
-Four steps in the baseline, three break/fix scenarios — all on the full Polyphone fleet. The baseline installs an Ingress controller (ingress-nginx) and applies a healthy policy set so you can see enforcement working before the differential breaks it; traffic is driven from throwaway in-cluster clients (`kubectl run --rm … busybox`), since the fleet's own pods don't originate calls.
+The baseline has five steps. Five break/fix scenarios follow. Each runs on the full Polyphone fleet. The baseline installs ingress-nginx and applies a healthy policy set. Throwaway `busybox` pods drive the traffic, because the fleet's own pods do not originate calls.
 
-- **`baseline/`** — the two controls healthy: a `default-deny` plus an allow in `media` (a call from an allowed source succeeds, a call from a denied one hangs, proving the CNI enforces), a cross-namespace allow written correctly, and an Ingress routing external HTTP to `portal-ui`. What "shaped, working traffic" looks like.
-- **`breakfix-01-networkpolicy-default-deny/`** — a service that went dark after a lockdown. Tests the model: a `default-deny` selects the pods and *no* allow was added, so every caller times out. The fix adds the allow, without deleting the deny.
-- **`breakfix-02-networkpolicy-cross-namespace/`** — an allow that allows nothing. Tests peer semantics: the policy permits `sip-app` with a bare `podSelector`, so the cross-namespace caller is silently denied. The fix adds the `namespaceSelector`.
-- **`breakfix-03-ingress-misrouting/`** — an Ingress that returns `503` with a healthy backend. Tests the controller → Service → port chain: the rule forwards to a port the Service doesn't expose. The fix corrects the port.
+- **`baseline/`** — the two controls working. Read a default-deny and an allow. Prove enforcement with a call that succeeds and a call that hangs. Read a cross-namespace peer and route an Ingress request. Then prove two guarantees: the node is always allowed, and a second policy adds access without touching the first.
+- **`breakfix-01-networkpolicy-default-deny`** — a service went dark after a lockdown. A default-deny has no companion allow. Add the allow and keep the deny.
+- **`breakfix-02-networkpolicy-cross-namespace`** — an allow that allows nothing. Its peer is a bare `podSelector`. Add the `namespaceSelector`.
+- **`breakfix-03-ingress-misrouting`** — an Ingress returns `503` while the backend is healthy. The rule names a port the Service does not expose.
+- **`breakfix-04-egress-dns-timeout`** — every name lookup in a namespace times out while CoreDNS is healthy. An egress policy does not allow DNS.
+- **`breakfix-05-ingress-404-pathtype`** — the home page loads and a deep link returns `404`. The rule uses `Exact`.
 
-The three scenarios add two branches to M04's differential (silent timeout = policy drop) and one L7 signature (`503` = Ingress backend). Check yourself against `ANSWER-KEY.md` after each.
+Check yourself against `ANSWER-KEY.md` after each scenario.
 
 ## Common failure modes
 
 | Symptom | Likely cause | Where to look |
 |---------|--------------|---------------|
-| Connection **times out**; endpoints populated, DNS resolves, pods Ready | A NetworkPolicy is dropping it (selects the pod, no allow matches the source) | `kubectl get netpol -n <ns>`; `describe` the policy; compare its `from` peers to the caller's labels/namespace |
-| Worked same-namespace, blocked cross-namespace | Allow peer is a bare `podSelector` (namespace-local), or the source namespace isn't labeled | add/fix `namespaceSelector`; check `kubectl get ns --show-labels` |
-| Whole namespace lost connectivity right after a policy landed | `default-deny` applied with missing or insufficient allows (often egress → DNS) | check for a `podSelector: {}` policy; confirm an egress allow to `kube-dns:53` if egress is governed |
-| Policy applied, traffic unchanged (still wide open) | CNI doesn't enforce NetworkPolicy | `kubectl get pods -n kube-system` for the network plugin; confirm it supports policy |
-| Ingress shows **no ADDRESS** | No controller claimed it — missing/unknown `ingressClassName`, or no controller running | `kubectl get pods -n ingress-nginx`; `kubectl get ingressclass`; the Ingress's `ingressClassName` |
-| Ingress returns **503** | Backend Service is missing, has no endpoints, or the rule's port doesn't match the Service | `kubectl describe ingress`; `kubectl get endpoints <backend-svc>`; Service `ports` vs the rule's `backend.service.port` |
-| Ingress returns **404** | No rule matched the request's host or path (wrong `host`, `path`, or `pathType`) | the rule's `host`/`path`/`pathType` vs the request; the controller's access log |
+| Connection **times out**; endpoints populated, DNS resolves, pods Ready | A NetworkPolicy drops it | `kubectl get netpol -n <ns>`; `describe` the policy; compare `from` peers with the caller's labels and namespace |
+| Works in the same namespace, blocked across namespaces | The peer is a bare `podSelector`, or the source namespace lacks the label | add `namespaceSelector`; `kubectl get ns --show-labels` |
+| Every name lookup in a namespace fails after a policy landed; ClusterIP calls work | Egress isolation without a DNS allow | policies with `Egress` in `policyTypes`; add an allow to `kube-dns` on port 53 |
+| A whole namespace lost connectivity after a policy landed | A default-deny with missing allows | any policy with `podSelector: {}`; check both directions |
+| Policy applied, traffic unchanged | The CNI does not enforce policy | the network plugin pods in `kube-system`; run an allowed and a denied call |
+| Ingress has **no ADDRESS** | No controller claimed it: wrong or missing `ingressClassName`, or no controller | `kubectl get ingressclass`; the controller pods; the Ingress `Ingress Class` line |
+| Ingress returns **503** | The Service is missing, has no endpoints, or the rule names a port it does not expose | `kubectl get svc,endpoints`; the Service `PORT(S)` against the rule port |
+| Ingress returns **404** | No rule matched the host or path | `describe ingress` rule against the request; `pathType`; the controller access log |
 
 ## Recap
 
-- **A NetworkPolicy is a whitelist that switches on the instant it selects a pod.** No policy = default-allow; the first policy to select a pod (even one that allows a single source) makes that pod default-deny for the covered direction. Isolation comes from the absence of an allow, never from a deny — there are no deny rules.
-- **Policies are additive and CNI-enforced.** Multiple policies on one pod are unioned (allowed if *any* allows it); nothing subtracts. And the network plugin does the enforcing — a policy on a non-enforcing CNI is a stored no-op, so verify support before trusting isolation.
-- **Peer selectors are exact, and cross-namespace needs `namespaceSelector`.** A bare `podSelector` is namespace-local; combining `namespaceSelector` + `podSelector` in one `from` element is an AND. The classic silent bug is a cross-namespace allow written with `podSelector` only.
-- **An Ingress is inert without a controller.** It's an L7 routing spec; a controller claims it by `IngressClass` and does the proxying. No ADDRESS = no controller claimed it; the rule is only as good as the backend Service and port it names.
-- **The differential now has six branches.** `NXDOMAIN` (DNS) · empty-endpoints (Service has no backends) · `connection refused` (reached a pod, no listener) · **timeout** (a NetworkPolicy dropped it) · **`503`** (Ingress backend broken) · **`404`** (no Ingress rule matched). The client's error names the class; the policies, endpoints, and rules name the spot.
+- **A policy is a whitelist that switches on when it selects a pod for a direction.** An unselected direction stays open. Isolation comes from the absence of an allow, and no deny rule exists.
+- **Policies add up, and both ends must allow.** The egress policy at the caller and the ingress policy at the destination are separate checks. The pod's own node is always allowed. The CNI enforces all of it, so prove enforcement with a test.
+- **Peers are exact.** A bare `podSelector` stays in the policy's namespace. A cross-namespace allow needs a `namespaceSelector`. Two selectors in one entry mean AND.
+- **Egress isolation needs a DNS allow.** Lookups are egress to `kube-dns` on port 53. Without the allow, names fail while IP calls work.
+- **An Ingress is inert without a claiming controller.** `404` means no rule matched (host, path or `pathType`). `503` means a rule matched and the backend failed (name, port or endpoints).
+- **The differential now has six branches.** `NXDOMAIN`, empty endpoints, `connection refused`, a **timeout** (policy drop), **`503`** and **`404`**. The client's error names the class. Policies, endpoints and rules name the spot.
 
 ## Production thinking
 
-- A security review asks you to lock a tenant's namespace to "only its own pods, plus DNS." You apply a `default-deny` for ingress and egress. Within a minute, half the namespace's workloads are erroring — but *not* the ones you'd expect. What did the egress half of the policy break first, and what's the minimum allow that restores the namespace to working-but-isolated?
-- You inherit a cluster where every namespace has a tidy set of NetworkPolicies, and someone insists traffic is "properly segmented." Before you trust that claim, what one test would tell you whether the policies are actually *enforced* — and what property of the cluster would make every one of those policies a no-op?
-- A team exposes a new service through the shared Ingress. It works from a curl on their laptop but `503`s for real users about 30 seconds after each deploy, then recovers. No Ingress or policy config changed. What's the interaction between rolling updates, readiness, and the Ingress backend's endpoints that produces a transient `503` — and which M04 mechanism makes it self-heal?
+- A security review asks you to lock a tenant namespace to "only its own pods, plus DNS". You apply a default-deny for ingress and egress. Half the workloads fail within a minute. What did the egress half break first, and what is the smallest allow that restores a working, isolated namespace?
+- You inherit a cluster where every namespace has tidy NetworkPolicies, and someone says traffic is "properly segmented". Which test shows whether the policies are enforced? Which property of the cluster would turn every one of them into a no-op?
+- A team exposes a service through the shared Ingress. It works for them and returns `503` for users for about 30 seconds after each deploy, then recovers. No Ingress or policy changed. Which interaction between rolling updates, readiness and endpoints produces the `503`, and which M04 mechanism heals it?
 
 ## References
 
@@ -235,5 +251,6 @@ The three scenarios add two branches to M04's differential (silent timeout = pol
 3. Kubernetes — Ingress: https://kubernetes.io/docs/concepts/services-networking/ingress/
 4. Kubernetes — Ingress Controllers: https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/
 5. Kubernetes — Gateway API: https://kubernetes.io/docs/concepts/services-networking/gateway/
-6. Ingress-NGINX Controller documentation: https://kubernetes.github.io/ingress-nginx/
+6. Ingress-NGINX — Log format: https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/log-format/
 7. Kubernetes — Debug Services: https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/
+8. Ingress-NGINX — project repository (retirement notice): https://github.com/kubernetes/ingress-nginx

@@ -698,7 +698,7 @@ EOF
 # Wait for the fleet to come up
 # ---------------------------------------------------------------------------
 
-kubectl wait --for=condition=Available deployment --all -A --timeout=240s >/dev/null 2>&1
+kubectl wait --for=condition=Available deployment --all -A --timeout=120s >/dev/null 2>&1
 # StatefulSets don't have an Available condition; wait for at least one ready pod
 for ns in media signaling app-services edge; do
   kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=120s >/dev/null 2>&1
@@ -737,7 +737,7 @@ EOF
 # Ingress: route external HTTP for portal.polyphone.example to the portal-ui Service.
 # Wait for the controller to be ready first so the object is claimed and gets an ADDRESS.
 kubectl wait --namespace ingress-nginx \
-  --for=condition=Available deployment/ingress-nginx-controller --timeout=180s >/dev/null 2>&1
+  --for=condition=Available deployment/ingress-nginx-controller --timeout=120s >/dev/null 2>&1
 cat <<'EOF' | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -757,6 +757,31 @@ spec:
                 name: portal-ui       # a real Service in admin-portal…
                 port: { number: 80 }  # …on a port it actually exposes
 EOF
+# <<< M14 addition ends
+
+# >>> M14 addition: probe-demo, a Pod that starts AFTER default-deny-ingress is in
+#     place. Its readinessProbe comes from the node (the kubelet). A pod's own node is
+#     always allowed, so the probe passes and the Pod reads 1/1 despite the deny.
+cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe-demo
+  namespace: media
+  labels: { app: probe-demo, plane: media, tier: lab }
+spec:
+  containers:
+    - name: app
+      image: nginx:1.25
+      ports: [{ containerPort: 80 }]
+      readinessProbe:
+        httpGet: { path: /, port: 80 }
+        periodSeconds: 5
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits:   { cpu: 50m, memory: 32Mi }
+EOF
+kubectl wait --for=condition=Ready pod/probe-demo -n media --timeout=60s >/dev/null 2>&1
 # <<< M14 addition ends
 
 touch /tmp/.setup-complete

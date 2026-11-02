@@ -7,7 +7,7 @@ if ! kubectl get networkpolicy default-deny-ingress -n media >/dev/null 2>&1; th
   exit 1
 fi
 OUT=$(kubectl run bf01-verify --rm -i --restart=Never --image=busybox:1.36 -n media -- \
-  wget -qO- --timeout=8 http://session-broker.media/ 2>/dev/null)
+  wget -qO- --timeout=8 http://session-broker.media.svc.cluster.local/ 2>/dev/null)
 if echo "$OUT" | grep -qi "nginx\|Welcome"; then
   echo "✓ session-broker reachable from within media again, and the default-deny is still present (allow added, not removed)"
   exit 0

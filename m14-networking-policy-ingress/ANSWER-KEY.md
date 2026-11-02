@@ -1,57 +1,59 @@
 # M14 — Networking II: Policy & Ingress — Answer Key
 
-> Self-grading reference. Try each scenario first, then check your diagnostic path against the canonical one. Instructors running the lab live can use the same sections as a teaching script.
-> Environment: Killercoda `kubernetes-kubeadm-2nodes` with the Polyphone baseline, plus the ingress-nginx controller. The scenarios apply NetworkPolicies to the `media` namespace and an Ingress in `admin-portal`; traffic is driven from throwaway `busybox` clients. NetworkPolicy enforcement depends on the cluster's CNI — the labs assume a policy-enforcing plugin.
+> Self-grading reference. Work each scenario first, then compare your diagnostic path with the canonical one here. An instructor who runs the lab live can read the same sections as a teaching script.
+> Environment: Killercoda `kubernetes-kubeadm-2nodes` with the Polyphone baseline. Each break/fix changes one policy or one Ingress field. Nothing else is broken. The network plugin enforces NetworkPolicy. Every test call comes from a throwaway `busybox` client.
 
 ## Lesson summary
 
-M14 adds the two controls that shape the traffic M04 left open. **NetworkPolicy** segments east-west, pod-to-pod traffic: a pod is default-allow until a policy selects it, then default-deny for the covered direction, and policies only ever add allows. **Ingress** is the north-south L7 front door: an HTTP routing spec that's inert until a controller claims it by `IngressClass` and forwards to a backend Service. The three break/fix scenarios add three failure signatures to the M04 differential:
+M14 teaches two controls over traffic that a Service leaves open. **NetworkPolicy** isolates a pod for one direction at a time. Policies add up, both ends of a connection must allow it, and the network plugin enforces them. **Ingress** is a set of routing rules that stay inert until a controller claims them through an IngressClass.
 
-- `breakfix-01-networkpolicy-default-deny` — **silent timeout**: a `default-deny` selected the pods and no allow was added
-- `breakfix-02-networkpolicy-cross-namespace` — **silent timeout, cross-namespace only**: the allow's peer is a bare `podSelector`, which never leaves its own namespace
-- `breakfix-03-ingress-misrouting` — **`503`**: the Ingress rule forwards to a port the backend Service doesn't expose
+The baseline shows both controls healthy. The five break/fix scenarios each break one link:
 
-The through-line: **a NetworkPolicy drop is a quiet timeout, not a refusal; an Ingress backend failure is a `503`, a routing miss is a `404`.** The client's symptom names the class of failure; the policies, endpoints, and Ingress rules name the spot. Two of the three never produce an error the app logs — the workloads are healthy throughout, which is itself the tell.
+- `breakfix-01-networkpolicy-default-deny`: **a service that went dark.** A default-deny has no allow.
+- `breakfix-02-networkpolicy-cross-namespace`: **an allow that allows nothing.** The peer is a bare `podSelector`.
+- `breakfix-03-ingress-misrouting`: **a 503 with a healthy backend.** The rule names a port the Service does not expose.
+- `breakfix-04-egress-dns-timeout`: **every lookup in a namespace fails.** An egress policy never allows DNS.
+- `breakfix-05-ingress-404-pathtype`: **a 404 for a path the backend serves.** The rule uses `Exact`.
+
+The reflexes: a timeout with healthy DNS, endpoints and Pods is a policy drop. A cross-namespace allow needs a `namespaceSelector`. A failed lookup next to a working ClusterIP call is an egress policy without a DNS allow. A `503` is a backend problem. A `404` is a rule problem.
 
 ## Baseline tour reference
 
 No broken state. Expected output per step:
 
-- **Step 1 (default-allow → default-deny flip):** `kubectl get networkpolicy -n media` lists two — `default-deny-ingress` and `allow-broker-from-app`. `describe` on the first shows `PodSelector: <none>` (selects all pods in the namespace) and a `policyTypes: Ingress` with no allow rules — deny all ingress. Teaching point: selecting a pod flips its default from allow to deny.
-- **Step 2 (enforcement, both ways):** a `busybox` client in `app-services` `wget`'ing `http://session-broker.media/` returns nginx's HTML (the allow permits it). The same request from `signaling` **hangs to a timeout** — the packet is silently dropped. Same Service, same endpoints, same DNS; the outcome is decided by where the caller sits, which proves the CNI enforces the policy.
-- **Step 3 (cross-namespace peer):** `allow-broker-from-app`'s `from` peer is a `namespaceSelector` matching `kubernetes.io/metadata.name: app-services`. `kubectl get namespace app-services --show-labels` shows that label is present automatically. Teaching point: `namespaceSelector` crosses namespaces; a bare `podSelector` would not.
-- **Step 4 (Ingress front door):** `kubectl get pods -n ingress-nginx` shows the controller Running; `kubectl get ingressclass` shows `nginx`. The `portal` Ingress (`CLASS nginx`) routes `portal.polyphone.example` → `portal-ui:80`. A `wget` to the controller's ClusterIP with `Host: portal.polyphone.example` returns portal-ui's nginx HTML.
+- **Step 1 (the policies):** `describe` on `default-deny-ingress` shows `PodSelector: <none> (Allowing the specific traffic to all pods in this namespace)` and `<none> (Selected pods are isolated for ingress connectivity)`. `allow-broker-from-app` selects `app=session-broker` and allows TCP 80 from the `app-services` namespace.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup>
+- **Step 2 (enforcement):** the call from `app-services` returns the nginx page. The call from `signaling` hangs and fails with `wget: download timed out`. If both calls succeed, the network plugin does not enforce policy.
+- **Step 3 (peers):** `describe` shows `NamespaceSelector: kubernetes.io/metadata.name=app-services` under From. The namespace carries that label automatically.
+- **Step 4 (Ingress):** the controller Pod runs in `ingress-nginx`, and the IngressClass `nginx` exists. `get ingress` shows CLASS `nginx` and an ADDRESS. The call with `Host: portal.polyphone.example` returns the nginx page. The call with an unknown host returns `404 Not Found`.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/ingress/">[3]</a></sup>
+- **Step 5 (guarantees):** `probe-demo` reads `1/1 Running` although the default-deny selects it, because the kubelet's probe comes from the Pod's own node. A call out of `media` succeeds, because `default-deny-ingress` isolates ingress only. After the learner applies `allow-broker-from-signaling`, the `signaling` call succeeds. After the learner deletes it, the call hangs again.
 
 ---
 
-## Break/fix 01 — NetworkPolicy default-deny
+## Break/fix 01 — a default-deny with no allow
 
-**Symptom:** `session-broker` in `media` is unreachable — callers hang and time out. Its Pods are `Running` and `Ready`, `kubectl get endpoints session-broker -n media` lists the Pod IPs, and DNS for `session-broker.media` resolves. Nothing is refused, nothing is `NXDOMAIN`, nothing logs an error.
+**Symptom:** `session-broker` in `media` is Running and Ready. Calls to it hang and end with `wget: download timed out`. Endpoints exist and DNS resolves.
 
-**Root cause:** A `default-deny-ingress` policy (empty `podSelector`, `policyTypes: [Ingress]`, no rules) selects every pod in `media` and denies all ingress. It is the *only* policy present — the companion allow that the baseline had is missing. Selecting a pod flips it to default-deny, and with no allow, every caller (including ones in `media` itself) is dropped<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup>. Ingress-only policies don't touch egress, so DNS still works — which is why the path looks healthy right up to the silent drop.
+**Root cause:** The only policy in `media` is `default-deny-ingress`. It selects every Pod and lists `Ingress` with no rules. Every Pod is isolated for ingress, and nothing allows a caller.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup> The baseline had a second policy that allowed a source. That policy is missing.
 
-**Diagnostic commands (the canonical path):**
+**Diagnostic commands:**
 
 ```bash
-# 1. Reproduce — a hang, not a refusal or NXDOMAIN
 kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n media -- \
-  wget -qO- --timeout=5 http://session-broker.media/     # times out
-
-# 2. Rule out the M04 layers: endpoints present, DNS resolves
-kubectl get endpoints session-broker -n media            # lists PodIPs:80
+  wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local/   # hangs
+kubectl get endpoints session-broker -n media                           # Pod IPs on :80
 kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n media -- \
-  nslookup session-broker.media                          # resolves
-
-# 3. A silent drop with a healthy path == NetworkPolicy
-kubectl get networkpolicy -n media                       # only default-deny-ingress
+  nslookup session-broker.media.svc.cluster.local                       # resolves
+kubectl get networkpolicy -n media                                      # one policy
 kubectl describe networkpolicy default-deny-ingress -n media
-#    PodSelector: <none>   policyTypes: Ingress   (no allow rules) → deny all ingress
+#   isolated for ingress, no allowed source
 ```
 
-**Fix:** Add an allow that selects `session-broker` and permits its callers — do **not** delete the deny (the lockdown is intended):
+A timeout with a healthy name and healthy endpoints leaves the policy as the cause.
+
+**Fix:** Add an allow. Keep the deny.
 
 ```bash
-cat <<'EOF' | kubectl apply -f -
+cat <<'YAML' | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata: { name: allow-session-broker-internal, namespace: media }
@@ -59,61 +61,54 @@ spec:
   podSelector: { matchLabels: { app: session-broker } }
   policyTypes: [Ingress]
   ingress:
-    - from: [ { podSelector: {} } ]          # any pod in this namespace
-      ports: [ { protocol: TCP, port: 80 } ]
-EOF
+    - from: [{ podSelector: {} }]
+      ports: [{ protocol: TCP, port: 80 }]
+YAML
 ```
 
 **Verify:**
 
 ```bash
 kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n media -- \
-  wget -qO- --timeout=5 http://session-broker.media/     # nginx HTML
-# and the isolation you kept is intact — a caller from outside still can't:
+  wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local/   # nginx page
 kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n signaling -- \
-  wget -qO- --timeout=5 http://session-broker.media/     # still times out
+  wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local/   # still times out
 ```
 
-**What this scenario tests:** Recognizing the silent-timeout signature and the default-deny model. Self-grading questions:
+**What this scenario tests:** the isolation model and the additive rule. Self-grading questions:
 
-- Did you read the **hang** (vs `NXDOMAIN` / `connection refused`) as a policy drop, rather than restarting the healthy Pods?
-- Did you rule out endpoints and DNS *before* concluding "policy," so it was a diagnosis and not a guess?
-- Did you **add an allow** rather than delete the deny — keeping the namespace isolated?
+- Did you rule out DNS and endpoints before you named the policy?
+- Did you add an allow instead of deleting the deny?
+- Can you say why the second policy does not weaken the first?
 
-**Expected time:** 3–6 min once the timeout signature is a reflex; 10–15 min the first time (lost time usually goes to restarting Pods and re-reading a Service that was never broken).
+**Expected time:** 4–7 minutes with the reflex. 15–25 minutes the first time, spent on the Service and the Pods.
 
-**Production thinking:** This ships the moment someone applies a hardening `default-deny` and forgets the allows, or deletes an allow during a refactor. No Pod is unhealthy and nothing logs an error, so alert on it at the connectivity layer — synthetic probes between the pairs that are *supposed* to talk, not Pod health. And prefer ingress-only lockdowns first: an egress `default-deny` additionally breaks the namespace's DNS, turning one outage into two.
+**Production thinking:** Roll out a default-deny with its allows in one change. Review the allows against real traffic before you apply the deny. A namespace that loses traffic after a policy lands should send you to `kubectl get networkpolicy` before the application.
 
 ---
 
-## Break/fix 02 — NetworkPolicy cross-namespace
+## Break/fix 02 — an allow that allows nothing
 
-**Symptom:** `sip-app` in `app-services` can't reach `session-broker` in `media` — the call times out, the same hang as breakfix-01. But an allow policy *exists* (`allow-broker-from-app`) and it names `sip-app`. On paper the traffic is permitted.
+**Symptom:** A caller with the label `app=sip-app` in `app-services` times out against `session-broker` in `media`. A policy named `allow-broker-from-app` exists and names `sip-app`.
 
-**Root cause:** The allow's `from` peer is a bare `podSelector: { app: sip-app }` with **no `namespaceSelector`**. A `podSelector` on its own is evaluated in the policy's *own* namespace — here `media` — so it means "pods labeled `app=sip-app` in `media`," of which there are none. The allow matches an empty set; the `default-deny-ingress` denies everything else; the cross-namespace caller is dropped<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup>. The policy looks correct and allows nothing.
+**Root cause:** The allow's `from` entry is a single `podSelector: { matchLabels: { app: sip-app } }`. A bare `podSelector` selects Pods in the policy's own namespace.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup> `media` holds no `sip-app` Pod, so the peer matches an empty set. The default-deny drops the real caller.
 
-**Diagnostic commands (the canonical path):**
+**Diagnostic commands:**
 
 ```bash
-# 1. Reproduce AS the caller — sip-app's namespace and label
 kubectl run sip-app --rm -i --restart=Never --labels app=sip-app \
   --image=busybox:1.36 -n app-services -- \
-  wget -qO- --timeout=5 http://session-broker.media/     # times out
-
-# 2. An allow exists — read its peer
-kubectl get networkpolicy allow-broker-from-app -n media -o yaml | grep -A8 ingress:
-#    from:
-#      - podSelector: { matchLabels: { app: sip-app } }   # no namespaceSelector!
-
-# 3. Prove the peer matches nothing: no sip-app pod in the policy's namespace
-kubectl get pods -n media -l app=sip-app                 # none
-kubectl get pods -n app-services -l app=sip-app          # the real one is here
+  wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local/   # hangs
+kubectl describe networkpolicy allow-broker-from-app -n media
+#   From: PodSelector: app=sip-app      (no NamespaceSelector)
+kubectl get pods -n media -l app=sip-app                                # none
+kubectl get pods -n app-services -l app=sip-app                         # the real one
 ```
 
-**Fix:** Add a `namespaceSelector` so the peer reaches into `app-services`. Combine it with the `podSelector` in **one** `from` element (an AND — "`sip-app` pods in `app-services`"):
+**Fix:** Add a `namespaceSelector` in the same list entry.
 
 ```bash
-cat <<'EOF' | kubectl apply -f -
+cat <<'YAML' | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata: { name: allow-broker-from-app, namespace: media }
@@ -124,8 +119,8 @@ spec:
     - from:
         - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: app-services } }
           podSelector:       { matchLabels: { app: sip-app } }
-      ports: [ { protocol: TCP, port: 80 } ]
-EOF
+      ports: [{ protocol: TCP, port: 80 }]
+YAML
 ```
 
 **Verify:**
@@ -133,77 +128,184 @@ EOF
 ```bash
 kubectl run sip-app --rm -i --restart=Never --labels app=sip-app \
   --image=busybox:1.36 -n app-services -- \
-  wget -qO- --timeout=5 http://session-broker.media/     # nginx HTML
-# precision check — an app-services client WITHOUT the label is still denied:
+  wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local/   # nginx page
 kubectl run other --rm -i --restart=Never --image=busybox:1.36 -n app-services -- \
-  wget -qO- --timeout=5 http://session-broker.media/     # still times out
+  wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local/   # still times out
 ```
 
-**What this scenario tests:** Peer-selector semantics — `podSelector` vs `namespaceSelector`, and the AND-in-one-element rule. Self-grading questions:
+**What this scenario tests:** peer semantics and list shape. Self-grading questions:
 
-- Did you reproduce from the **caller's** namespace and label, not a random client? (A test from the wrong place would mislead.)
-- Did you spot that the `from` peer had no `namespaceSelector`, and know that makes it namespace-local?
-- Did you put both selectors in **one** `from` element (AND), understanding that splitting them into two elements would be a looser OR?
+- Did you test as the real caller, with its namespace and label?
+- Can you explain why a bare `podSelector` matched nothing?
+- Can you say what the policy allows when the two selectors sit in two list entries?
 
-**Expected time:** 3–6 min; 10–18 min the first time (lost time goes to trusting the allow because it names `sip-app`, and not reading the peer structure).
+**Expected time:** 5–8 minutes with the reflex. 15–25 minutes the first time, spent re-reading a policy that "looks right".
 
-**Production thinking:** This is the most common NetworkPolicy authoring bug, and it fails *open-looking but closed* — the policy is present, so a reviewer skims past it. Two guards: templatize cross-namespace allows (Kustomize/Helm, M16–M17) so the `namespaceSelector` can't be dropped by hand, and test policies with a real cross-namespace probe in CI, since the object applying cleanly proves nothing about whether it allows the intended traffic. Mind the AND/OR shape too — one misplaced list dash turns a scoped allow into a namespace-wide one, which is a silent widening of a security boundary.
+**Production thinking:** The AND and OR difference is one dash of YAML and a security boundary. Run `kubectl describe` on every new policy and read the From section aloud. Test a denied caller as well as an allowed one, because a policy that allows too much passes the allowed test too.
 
 ---
 
-## Break/fix 03 — Ingress misrouting
+## Break/fix 03 — a 503 with a healthy backend
 
-**Symptom:** `portal.polyphone.example` returns `503 Service Temporarily Unavailable` from outside. But `portal-ui` in `admin-portal` is healthy: Pods `Running`/`Ready`, a ClusterIP, and `kubectl get endpoints portal-ui` lists the Pod IPs on `:80`. Reached directly by its Service, `portal-ui` answers fine.
+**Symptom:** Requests for `portal.polyphone.example` return `503 Service Temporarily Unavailable`. The `portal-ui` Pods are Ready. The Service has endpoints. A direct call to the Service succeeds.
 
-**Root cause:** The `portal` Ingress rule forwards to `portal-ui` on port **8080**, but the Service exposes only **80**. The controller claims the Ingress (class `nginx`)<sup><a href="https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/">[3]</a></sup> and matches the host — so routing works — but it resolves the backend `portal-ui:8080` to *zero* endpoints and has nothing to forward to, returning `503`<sup><a href="https://kubernetes.io/docs/concepts/services-networking/ingress/">[2]</a></sup>. The Service, Pods, and endpoints are all healthy on 80; only the port the rule names is wrong. (A `404` would be the other failure — no rule matched the host/path at all.)
+**Root cause:** The Ingress rule sends traffic to `portal-ui` port `8080`. The Service exposes only port `80`. The controller matched the rule, found no endpoints for that port, and answered `503`. Both the Ingress controller and the Service layer are healthy.
 
-**Diagnostic commands (the canonical path):**
+**Diagnostic commands:**
 
 ```bash
-# 1. Reproduce through the controller — a 503 (rule matched, backend didn't resolve)
-CIP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.spec.clusterIP}')
 kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n admin-portal -- \
-  wget -O- --timeout=5 --header "Host: portal.polyphone.example" "http://$CIP/"
-#    wget: server returned error: HTTP/1.1 503 Service Temporarily Unavailable
-
-# 2. Prove the backend is healthy — this is NOT a Service/endpoints outage
-kubectl get endpoints portal-ui -n admin-portal          # PodIPs:80
+  wget -qO- --timeout=5 --header 'Host: portal.polyphone.example' \
+  http://ingress-nginx-controller.ingress-nginx.svc.cluster.local/       # 503
+kubectl get endpoints portal-ui -n admin-portal                          # Pod IPs on :80
 kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n admin-portal -- \
-  wget -qO- --timeout=5 http://portal-ui.admin-portal/   # nginx HTML
-
-# 3. Read the rule against the Service — the port doesn't line up
-kubectl describe ingress portal -n admin-portal          # backend portal-ui:8080
-kubectl get svc portal-ui -n admin-portal                # PORT(S): 80/TCP only
+  wget -qO- --timeout=5 http://portal-ui.admin-portal.svc.cluster.local/ # nginx page
+kubectl describe ingress portal -n admin-portal                          # Backends: portal-ui:8080
+kubectl get svc portal-ui -n admin-portal                                # PORT(S): 80/TCP
 ```
 
-**Fix:** Point the backend port at 80 (what the Service exposes):
+**Sharp edge:** `kubectl describe ingress` can list Pod IPs next to `portal-ui:8080`. In the kubectl source, the Backends column matches endpoints by port name. This Service's port has no name, so the empty name matches the endpoint port and the list appears for any number. Compare the rule's number with the Service's `PORT(S)`. Do not read the parentheses as proof.
+
+**Fix:** Point the rule at port `80`.
 
 ```bash
 kubectl patch ingress portal -n admin-portal --type=json \
-  -p '[{"op":"replace","path":"/spec/rules/0/http/paths/0/backend/service/port/number","value":80}]'
-# or: kubectl edit ingress portal -n admin-portal   → backend.service.port.number: 80
+  -p='[{"op":"replace","path":"/spec/rules/0/http/paths/0/backend/service/port/number","value":80}]'
+```
+
+**Verify:** the call through the controller returns the nginx page.
+
+**What this scenario tests:** reading `503` as a backend problem. Self-grading questions:
+
+- Did you read the status code first and name the half that broke?
+- Did you prove the backend healthy before you read the rule?
+- Did you compare the rule's port with the Service's `PORT(S)`?
+
+**Expected time:** 4–7 minutes with the reflex. 15–25 minutes the first time, spent on the Pods.
+
+**Production thinking:** An Ingress inherits every Service failure. Alert on Services behind an Ingress that have zero ready endpoints. Lint manifests so that a rule's port names a port of the Service in the same change. Use a named port, so a renumbered Service port does not break the rule silently.
+
+---
+
+## Break/fix 04 — an egress policy that breaks DNS
+
+**Symptom:** Name lookups from `media` fail with `wget: bad address`. CoreDNS Pods are Running. The same name resolves from `signaling`. A call by ClusterIP from `media` succeeds.
+
+**Root cause:** `restrict-egress-to-namespace` isolates every Pod in `media` for egress and allows only `podSelector: {}`, the Pods of `media`. A DNS query goes to CoreDNS in `kube-system` on port 53.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">[1]</a></sup> No rule allows it, so every lookup times out. The ClusterIP call worked because its backend Pod is in the allowed namespace.
+
+**Diagnostic commands:**
+
+```bash
+kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local./  # bad address
+kubectl run dns --rm -i --restart=Never --image=busybox:1.36 -n signaling -- \
+  nslookup session-broker.media.svc.cluster.local.                       # resolves
+kubectl get pods -n kube-system -l k8s-app=kube-dns                      # Running
+kubectl get svc session-broker -n media                                  # read CLUSTER-IP
+kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  wget -qO- --timeout=5 http://<CLUSTER-IP>/                             # nginx page
+kubectl describe networkpolicy restrict-egress-to-namespace -n media
+#   Policy Types: Egress; To: PodSelector: <none>  (only media)
+```
+
+The three tests split the cause: DNS is healthy, the network path works, and only the lookup fails.
+
+**Why the trailing dot:** A short name tries every search domain from `resolv.conf` before it tries the name as given, and each try waits for a timeout. An absolute name (trailing dot) skips the search domains. The blocked query then fails in seconds instead of looking like a long hang.
+
+**Fix:** Add an egress allow to the CoreDNS Pods. Keep the lockdown.
+
+```bash
+cat <<'YAML' | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: allow-dns-egress, namespace: media }
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector:       { matchLabels: { k8s-app: kube-dns } }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+YAML
 ```
 
 **Verify:**
 
 ```bash
-CIP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.spec.clusterIP}')
-kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n admin-portal -- \
-  wget -qO- --timeout=5 --header "Host: portal.polyphone.example" "http://$CIP/"   # nginx HTML
+kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  wget -qO- --timeout=5 http://session-broker.media.svc.cluster.local./  # nginx page
+kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n media -- \
+  wget -qO- --timeout=5 http://portal-ui.admin-portal.svc.cluster.local./ # download timed out
 ```
 
-**What this scenario tests:** Telling an Ingress backend failure (`503`) from a routing miss (`404`), and reading the rule's `backend.service.port` against the Service. Self-grading questions:
+The second call proves the lockdown survived: the name resolves and the connection to `admin-portal` stays blocked. The error text changed from `bad address` to `download timed out`.
 
-- Did the **`503`** (vs `404`) tell you the rule matched and the *backend* was the problem, so you inspected the Service/port rather than the host/path?
-- Did you prove `portal-ui` was healthy directly before touching the Ingress, so you knew the break was in the rule?
-- Did you compare `backend.service.port` to the Service's actual `ports`, rather than assuming the Service or its endpoints were down?
+**What this scenario tests:** egress isolation and the DNS dependency. Self-grading questions:
 
-**Expected time:** 3–6 min; 8–15 min the first time (lost time goes to chasing the Service and endpoints, which are fine, or restarting the controller).
+- Did you separate "DNS is down" from "the DNS query is blocked"?
+- Did you use the ClusterIP call to prove the path works?
+- Can you say why the allow needs both UDP and TCP?
+- Can you say what would break if the allow listed only the namespace and not the Pod label?
 
-**Production thinking:** Port mismatches ship when an Ingress and a Service are edited by different people or at different times — the app moved its listener, or a copied Ingress kept another workload's port. Named ports remove the class of bug: have the Service declare `ports: [{ name: http, port: 80 }]` and the Ingress reference `port: { name: http }`, so the number lives in one place. And distinguish a **steady** `503` (config: wrong port/service) from a **transient** `503` right after a deploy (the backend's endpoints briefly empty during a rollout) — the second self-heals via readiness (M04, M09) and is not an Ingress bug.
+**Expected time:** 5–8 minutes with the reflex. 20–30 minutes the first time, spent in CoreDNS logs and `kube-system`.
+
+**Production thinking:** Every egress lockdown needs a DNS allow in the same change. Enumerate the workload's dependencies before you isolate egress: DNS, the metrics scraper, the tracing collector, the cloud metadata endpoint. If you run NodeLocal DNSCache, the DNS target is a node-local address and the allow differs. Test an egress policy on one workload before a namespace.
+
+---
+
+## Break/fix 05 — a 404 for a path the backend serves
+
+**Symptom:** `portal.polyphone.example/` returns the nginx page. `portal.polyphone.example/index.html` returns `404 Not Found`. A direct call to the Service for `/index.html` succeeds.
+
+**Root cause:** The rule has `path: /` with `pathType: Exact`. `Exact` matches the whole URL path, case sensitive, and nothing else.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/ingress/">[3]</a></sup> A request for `/index.html` matches no rule, so the controller answers `404` from its default backend. The backend never sees the request.
+
+**Diagnostic commands:**
+
+```bash
+kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n admin-portal -- \
+  wget -qO- --timeout=5 --header 'Host: portal.polyphone.example' \
+  http://ingress-nginx-controller.ingress-nginx.svc.cluster.local/index.html   # 404
+kubectl run client --rm -i --restart=Never --image=busybox:1.36 -n admin-portal -- \
+  wget -qO- --timeout=5 http://portal-ui.admin-portal.svc.cluster.local/index.html  # nginx page
+kubectl logs -n ingress-nginx deploy/ingress-nginx-controller --tail=30 | grep index.html
+#   [upstream-default-backend]  no rule handled the request
+kubectl get ingress portal -n admin-portal -o yaml
+#   path: /   pathType: Exact
+```
+
+The same path works directly and fails through the Ingress, so the backend is not at fault. The default controller log format puts the upstream name in square brackets.<sup><a href="https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/log-format/">[6]</a></sup> A request that a rule handled names the namespace, Service and port there.
+
+**Fix:** Change `pathType` to `Prefix`.
+
+```bash
+kubectl patch ingress portal -n admin-portal --type=json \
+  -p='[{"op":"replace","path":"/spec/rules/0/http/paths/0/pathType","value":"Prefix"}]'
+```
+
+**Verify:** the call for `/index.html` through the controller returns the nginx page.
+
+**What this scenario tests:** reading `404` as a rule problem and `pathType` semantics. Self-grading questions:
+
+- Did you call the backend directly to rule it out?
+- Did you read `pathType` and not only `path`?
+- Can you say what `Prefix` with `/foo/bar` matches, and what it does not?
+
+**Expected time:** 4–7 minutes with the reflex. 15–25 minutes the first time, spent in the portal Pods.
+
+**Production thinking:** Default to `Prefix` and use `Exact` only when you mean it. Where two rules both match, the controller applies its own precedence, so avoid overlapping paths. A synthetic check that requests a deep link, and not only `/`, catches this class of fault. The Ingress API is frozen, and ingress-nginx ended best-effort maintenance in March 2026. Plan the move to another controller or the Gateway API before the next incident.<sup><a href="https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/">[4]</a></sup>
+
+---
 
 ## References
 
 1. Kubernetes — Network Policies: https://kubernetes.io/docs/concepts/services-networking/network-policies/
-2. Kubernetes — Ingress: https://kubernetes.io/docs/concepts/services-networking/ingress/
-3. Kubernetes — Ingress Controllers: https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/
+2. Kubernetes — Declare Network Policy (walkthrough): https://kubernetes.io/docs/tasks/administer-cluster/declare-network-policy/
+3. Kubernetes — Ingress: https://kubernetes.io/docs/concepts/services-networking/ingress/
+4. Kubernetes — Ingress Controllers: https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/
+5. Kubernetes — Gateway API: https://kubernetes.io/docs/concepts/services-networking/gateway/
+6. Ingress-NGINX — Log format: https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/log-format/
+7. Kubernetes — Debug Services: https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/
+8. Ingress-NGINX — project repository (retirement notice): https://github.com/kubernetes/ingress-nginx

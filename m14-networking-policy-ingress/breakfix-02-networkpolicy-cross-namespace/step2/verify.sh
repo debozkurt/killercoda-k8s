@@ -4,7 +4,7 @@
 # allow's peer gained a namespaceSelector reaching across the boundary.
 OUT=$(kubectl run bf02-verify --rm -i --restart=Never --labels app=sip-app \
   --image=busybox:1.36 -n app-services -- \
-  wget -qO- --timeout=8 http://session-broker.media/ 2>/dev/null)
+  wget -qO- --timeout=8 http://session-broker.media.svc.cluster.local/ 2>/dev/null)
 if echo "$OUT" | grep -qi "nginx\|Welcome"; then
   echo "✓ sip-app (app-services) reaches session-broker (media) — the allow now crosses namespaces via a namespaceSelector"
   exit 0
