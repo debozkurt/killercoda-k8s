@@ -1,33 +1,33 @@
 # Step 2 — Fix it and verify
 
-`session-broker` needs a sidecar. The namespace already enables injection; the workload opted out. Reverse the opt-out and let the Deployment roll new pods — they'll be admitted through the injector.
+Do not change the PeerAuthentication or the DestinationRule. They are correct. Put `session-broker` back in the mesh.
 
-## Re-enroll the workload
+## Remove the opt-out
 
-Set the injection annotation back to `"true"` on the Deployment's pod template. Changing the template triggers a rollout, and the replacement pod is created with a sidecar:
+The label lives in the Deployment's pod template. A merge patch with `null` deletes the key, and the template change starts a rollout:
 
 ```bash
 kubectl patch deployment session-broker -n media \
-  -p '{"spec":{"template":{"metadata":{"annotations":{"sidecar.istio.io/inject":"true"}}}}}'
+  -p '{"spec":{"template":{"metadata":{"labels":{"sidecar.istio.io/inject":null}}}}}'
 kubectl rollout status deployment session-broker -n media
 ```{{exec}}
 
-(Removing the annotation entirely — `kubectl edit deployment session-broker -n media` and delete the line — works too, since the namespace default is "inject." Setting it to `"true"` is explicit.)
+The webhook admits the replacement pod with a sidecar.
 
-## Confirm it's in the mesh now
+## Confirm membership
 
 ```bash
 kubectl get pods -n media -l app=session-broker
-istioctl proxy-status | grep session-broker
+istioctl proxy-status
 ```{{exec}}
 
-The new pod is `2/2`, and it now shows up in `proxy-status` with `SYNCED` config. It has a sidecar to terminate the callers' mTLS.
+The new pod reads 2/2 and has a `SYNCED` row.
 
-## Verify the calls succeed
+## Verify the call
 
 ```bash
 kubectl exec -n media deploy/mesh-client -c curl -- \
   curl -s -o /dev/null -w "HTTP %{http_code}\n" --max-time 5 http://session-broker.media/
 ```{{exec}}
 
-`HTTP 200`. The caller's mTLS now terminates on `session-broker`'s sidecar, the request reaches the app, and you fixed it without touching the PeerAuthentication or DestinationRule — the mesh's mTLS is intact for everyone. For self-grading and the full path, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m15-service-mesh/ANSWER-KEY.md). You're done — see `finish.md`.
+HTTP 200. The caller's mTLS now ends at `session-broker`'s sidecar. For self-grading and the full path, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m15-service-mesh/ANSWER-KEY.md).

@@ -1,24 +1,20 @@
 # Step 2 — Fix it and verify
 
-The server requires mTLS and that's the intent — STRICT is the security posture you want to keep. So fix the *client* side: tell callers to send mTLS. Don't downgrade the server to PERMISSIVE to make plaintext work; that throws away the encryption everyone else relies on.
-
-## Align the client to mTLS
-
-Set the DestinationRule's `tls.mode` to `ISTIO_MUTUAL`:
+`STRICT` is the required posture. Fix the client side. A change of the server to `PERMISSIVE` also stops the 503, but it makes the hop accept plaintext.
 
 ```bash
 kubectl patch destinationrule session-broker -n media --type=json \
   -p '[{"op":"replace","path":"/spec/trafficPolicy/tls/mode","value":"ISTIO_MUTUAL"}]'
 ```{{exec}}
 
-(Or `kubectl edit destinationrule session-broker -n media` and change `mode: DISABLE` to `mode: ISTIO_MUTUAL`. Removing the `tls` block entirely also works — automatic mTLS then negotiates it.) Now both halves agree: server requires mTLS, client sends mTLS.
+(Removing the `tls` block also works. Automatic mTLS then sends mTLS to any destination that has a sidecar.)
 
-## Verify the calls succeed — and STRICT is intact
+## Verify
 
 ```bash
 kubectl exec -n media deploy/mesh-client -c curl -- \
   curl -s -o /dev/null -w "HTTP %{http_code}\n" --max-time 5 http://session-broker.media/
-kubectl get peerauthentication default -n media -o jsonpath='{.spec.mtls.mode}{"\n"}'
+kubectl get peerauthentication -n media
 ```{{exec}}
 
-`HTTP 200`, and the PeerAuthentication is still `STRICT`. You fixed the mismatch by bringing the client up to mTLS, not by weakening the server — the traffic is encrypted and authenticated end to end. For self-grading and the full path, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m15-service-mesh/ANSWER-KEY.md). You're done — see `finish.md`.
+HTTP 200, and `MODE` still reads `STRICT`. For self-grading and the full path, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m15-service-mesh/ANSWER-KEY.md).

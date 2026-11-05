@@ -1,49 +1,48 @@
-# Step 1 — Diagnose the failing calls
+# Step 1 — Diagnose the 503
 
-A `503` in a mesh has several causes. Walk the request path and let the evidence pick one.
-
-## Reproduce the failure
+## Reproduce from the in-mesh client
 
 ```bash
 kubectl exec -n media deploy/mesh-client -c curl -- \
-  curl -s -o /dev/null -w "HTTP %{http_code}\n" --max-time 5 http://session-broker.media/
+  curl -s -w "\nHTTP %{http_code}\n" --max-time 5 http://session-broker.media/
 ```{{exec}}
 
-`HTTP 503`. The caller reached its own Envoy but got no usable response from upstream.
+HTTP 503, with a body that starts `upstream connect error or disconnect/reset before headers` and ends with a `TLS_error` reason. The caller's Envoy answered; it could not finish a TLS handshake with the server.
 
-## Rule out the Service layer
-
-Is this an endpoints/DNS problem, like M04?
+## Read the caller's access log
 
 ```bash
-kubectl get endpoints session-broker -n media
-kubectl exec -n media deploy/mesh-client -c curl -- nslookup session-broker.media
+kubectl logs -n media deploy/mesh-client -c istio-proxy --tail=1
 ```{{exec}}
 
-The Service has a Pod IP on `:80` and the name resolves. The backend exists. This isn't the Service layer.
+Read three fields:
+
+- `503 URX,UF`: upstream connection failure (`UF`), after the retry limit (`URX`)
+- `WRONG_VERSION_NUMBER`: the far end did not answer in TLS
+- the upstream address: the request reached the pod IP on port 80
+
+The client sent Istio mTLS, and something that does not speak TLS answered. A meshed server terminates mTLS in its sidecar. Check whether the server has one.
 
 ## Count the containers
-
-Now look at the pods in `media` — read the `READY` column carefully:
 
 ```bash
 kubectl get pods -n media
 ```{{exec}}
 
-`transcoder`, the `media-engine` pods, and `mesh-client` are `2/2`. `session-broker` is **`1/1`**. In a meshed namespace, `1/1` means no sidecar — this pod isn't in the mesh. Confirm from Istio's side:
+`mesh-client` reads 2/2. `session-broker` reads 1/1: no sidecar. Confirm from Istio's side:
 
 ```bash
-istioctl proxy-status | grep session-broker
+istioctl proxy-status
 ```{{exec}}
 
-Nothing — a pod with no sidecar never registers with istiod. Read why the injector skipped it:
+There is no `session-broker` row. A pod without a sidecar never connects to `istiod`.
+
+## Find why the injector skipped it
+
+The namespace has `istio-injection=enabled`, so look at the pod's own labels:
 
 ```bash
-kubectl get pod -n media -l app=session-broker -o yaml | grep -A2 'annotations:'
+kubectl get pods -n media -l app=session-broker --show-labels
 ```{{exec}}
 
-There it is: `sidecar.istio.io/inject: "false"`. That pod-level annotation overrides the namespace's `istio-injection=enabled`, so `session-broker` was admitted without a proxy.
-
-## Why the 503
-
-`session-broker`'s app is healthy, but every caller's sidecar originates Istio mTLS to it (per the DestinationRule). With no sidecar on `session-broker` to terminate that mTLS, the caller's Envoy can't complete the connection and returns `503`. The fix isn't to touch mTLS — it's to put `session-broker` back in the mesh.
+The labels include `sidecar.istio.io/inject=false`. That pod label overrides the namespace label, so the webhook admitted the pod without a proxy. The DestinationRule still tells every caller to send `ISTIO_MUTUAL` mTLS, and plain nginx receives it.

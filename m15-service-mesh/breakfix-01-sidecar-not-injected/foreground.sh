@@ -1,16 +1,14 @@
 #!/bin/bash
 
-echo "Waiting for the Polyphone baseline + Istio to finish spinning up..."
+echo "Waiting for Istio and the Polyphone fleet to start (about 3 to 5 minutes)..."
 while [ ! -f /tmp/.setup-complete ]; do
   sleep 3
   echo -n "."
 done
 echo ""
 echo ""
-echo "Calls to session-broker (media) are failing with 503, but its Pods are healthy."
-echo "Reproduce it from the in-mesh client, then look at how many containers it has:"
+echo "Alert: callers of session-broker (media) get 503. Reproduce it from the in-mesh client:"
 echo ""
 echo "  kubectl exec -n media deploy/mesh-client -c curl -- \\"
-echo "    curl -s -o /dev/null -w 'HTTP %{http_code}\\n' --max-time 5 http://session-broker.media/"
-echo "  kubectl get pods -n media"
+echo "    curl -s -w '\\nHTTP %{http_code}\\n' --max-time 5 http://session-broker.media/"
 echo ""

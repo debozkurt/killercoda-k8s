@@ -42,26 +42,27 @@ WORKER=$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' \
 kubectl label node "$WORKER" disktype=ssd --overwrite >/dev/null 2>&1
 
 # >>> M15 addition: install Istio (the service mesh) and enable sidecar injection on
-#     the `media` namespace BEFORE the fleet's media workloads are created, so those
-#     pods are born with an Envoy sidecar (injection happens at admission time — a pod
-#     created before the namespace is labeled never gets one). We install the `minimal`
-#     profile (istiod only, no gateways — this module drives east-west traffic in-cluster)
-#     and tune the control-plane + sidecar resource requests down to fit the single
-#     schedulable worker. Pinned to a known-good release.
+#     `media` BEFORE the fleet creates its media workloads. Injection happens at pod
+#     creation only, so a pod created before the namespace label never gets a sidecar.
+#     The `minimal` profile installs istiod only (no gateways; this module drives
+#     east-west traffic). Resource requests are tuned down for the single worker.
+#     meshConfig.accessLogFile turns on the Envoy access log in every sidecar: one line
+#     per request with the status, the response flag, and the upstream cluster.
 ISTIO_VERSION=1.24.2
 curl -sL "https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/istioctl-${ISTIO_VERSION}-linux-amd64.tar.gz" \
   | tar xz -C /usr/local/bin istioctl 2>/dev/null
 istioctl install --set profile=minimal -y \
+  --set meshConfig.accessLogFile=/dev/stdout \
   --set values.pilot.resources.requests.cpu=100m \
   --set values.pilot.resources.requests.memory=256Mi \
   --set values.global.proxy.resources.requests.cpu=15m \
   --set values.global.proxy.resources.requests.memory=64Mi >/dev/null 2>&1
-# Wait for istiod (and therefore its injection webhook) to be ready before any meshed
-# pod is created; otherwise the first workloads race the webhook and come up sidecar-less.
-kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=180s >/dev/null 2>&1
+# Wait for istiod (and its injection webhook) before any meshed pod is created.
+# Otherwise the first workloads race the webhook and start without a sidecar.
+kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=120s >/dev/null 2>&1
 
-# Create `media` and label it for injection now, so every media workload the fleet
-# section applies below is admitted through the sidecar injector (comes up 2/2).
+# Create `media` and label it for injection now, so the webhook admits every media
+# workload of the fleet section below with a sidecar (2/2).
 kubectl create namespace media --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl label namespace media istio-injection=enabled --overwrite >/dev/null 2>&1
 # <<< M15 addition ends
@@ -713,19 +714,31 @@ EOF
 # Wait for the fleet to come up
 # ---------------------------------------------------------------------------
 
-# Keep these fleet waits short — Killercoda caps background-script runtime. This mutation
-# only re-points a route (all pods stay 2/2 and Ready), so every workload still becomes
-# Available/Ready; the waits return promptly.
 kubectl wait --for=condition=Available deployment --all -A --timeout=120s >/dev/null 2>&1
 # StatefulSets don't have an Available condition; wait for at least one ready pod
 for ns in media signaling app-services edge; do
-  kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=60s >/dev/null 2>&1
+  kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=120s >/dev/null 2>&1
 done
 
-# >>> M15 addition: the healthy mesh config for `media` (this is the known-good tour).
-# A persistent in-mesh client to originate calls from: a sidecar'd pod that runs a
-# Job/`kubectl run --rm` client won't terminate cleanly (its Envoy keeps running), so
-# we bake in a long-lived curl Deployment and `kubectl exec` into it for traffic.
+# >>> M15 addition: the healthy mesh config for `media` (the known-good tour).
+# Name the session-broker Service port `http`. Istio selects the protocol from the
+# port name; an HTTP port gets one shared listener per port number with routes matched
+# by the Host header, so `istioctl proxy-config routes --name 80` shows the route.
+cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: session-broker
+  namespace: media
+  labels: { app: session-broker, plane: media, tier: lab }
+spec:
+  selector: { app: session-broker }
+  ports: [{ name: http, port: 80, targetPort: 80 }]
+EOF
+
+# A long-lived in-mesh client to originate calls from. A sidecar keeps running after a
+# run-to-completion client exits, so a `kubectl run --rm` client in a meshed namespace
+# never finishes. Learners `kubectl exec` into this Deployment instead.
 cat <<'EOF' | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -794,13 +807,12 @@ spec:
       labels: { version: canary }
 EOF
 
-# VirtualService: L7 routing for session-broker.
-# >>> breakfix-02 mutation: the route points at subset `canary` instead of `stable`.
-#     The DestinationRule defines `canary` as { version: canary } — a version nobody has
-#     deployed — so istiod builds an Envoy cluster for it with ZERO endpoints. The route
-#     matches, Envoy picks the canary cluster, finds no healthy upstream, and returns 503.
-#     session-broker's pods are 2/2 and healthy; the Service has endpoints; mTLS is fine —
-#     the route just aims at an empty subset. Fix = route back to `stable`.
+# >>> breakfix-02 mutation: the route targets subset `canary`, not `stable`. The
+#     DestinationRule defines canary as { version: canary }, which no pod carries, so
+#     istiod builds an Envoy cluster with ZERO endpoints. Callers get 503 "no healthy
+#     upstream" (flag UH) while every pod is 2/2 and Ready. Fix = route to `stable`.
+# VirtualService: L7 routing for session-broker — send traffic to the `stable` subset,
+# with a request timeout and bounded retries (the traffic-management surface).
 cat <<'EOF' | kubectl apply -f -
 apiVersion: networking.istio.io/v1
 kind: VirtualService
@@ -814,7 +826,7 @@ spec:
     - route:
         - destination:
             host: session-broker.media.svc.cluster.local
-            subset: canary          # MUTATED (baseline: stable) — canary has no pods → 503
+            subset: canary          # MUTATED (baseline: stable); canary selects no pods
       timeout: 3s
       retries:
         attempts: 2

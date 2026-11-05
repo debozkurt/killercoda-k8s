@@ -1,40 +1,41 @@
 # Step 3 — Mesh-managed mTLS
 
-The mesh gives every sidecar a short-lived X.509 identity (a SPIFFE identity tied to the pod's ServiceAccount) and can require that all pod-to-pod traffic be mutually authenticated with it. You turn that on with a **PeerAuthentication**. `media` has one in `STRICT` mode, so a meshed server accepts *only* Istio mTLS — plaintext is refused.
-
-## Read the policy
+Each sidecar holds a short-lived certificate for its pod's ServiceAccount. A **PeerAuthentication** tells the server sidecars which traffic to accept. `media` has one in `STRICT` mode: a server sidecar accepts only Istio mTLS.
 
 ```bash
-kubectl get peerauthentication -n media -o yaml
+kubectl get peerauthentication -n media
 ```{{exec}}
 
-`spec.mtls.mode: STRICT`, namespace-wide (no `selector`). Every server sidecar in `media` now demands mTLS on its inbound port.
+The `MODE` column reads `STRICT`. The policy is named `default` and has no selector, so it covers every workload in `media`.
 
-## The mTLS path works (both ends in the mesh)
+## The mTLS path works
 
 ```bash
 kubectl exec -n media deploy/mesh-client -c curl -- \
   curl -s -o /dev/null -w "HTTP %{http_code}\n" --max-time 5 http://session-broker.media/
 ```{{exec}}
 
-`HTTP 200`. `mesh-client`'s sidecar presents its client certificate, `session-broker`'s sidecar verifies it, and the request is allowed. Neither container ran TLS code — the proxies did it. You can see the issued certificate on the client:
+HTTP 200. The `mesh-client` sidecar presented its certificate, and the `session-broker` sidecar verified it. Neither application ran TLS code. See the certificate on the client:
 
 ```bash
-POD=$(kubectl get pod -n media -l app=mesh-client -o jsonpath='{.items[0].metadata.name}')
-istioctl proxy-config secret "$POD" -n media
+istioctl proxy-config secret deployment/mesh-client -n media
 ```{{exec}}
+
+The `default` row is the workload certificate. `NOT AFTER` is about 24 hours after `NOT BEFORE`; the sidecar rotates it before it expires.
 
 ## The plaintext path is rejected
 
-Now call `session-broker` from a pod that is **not** in the mesh — a throwaway client in `signaling` (never labeled for injection, so no sidecar, so plaintext on the wire):
+Call `session-broker` from a pod outside the mesh. The `signaling` namespace has no injection label, so this throwaway pod has no sidecar and sends plaintext:
 
 ```bash
 kubectl run plain --rm -i --restart=Never --image=curlimages/curl:8.11.1 -n signaling -- \
-  curl -s -o /dev/null -w "HTTP %{http_code}\n" --max-time 5 http://session-broker.media/
+  curl -sS -o /dev/null -w "HTTP %{http_code}\n" --max-time 5 http://session-broker.media/
 ```{{exec}}
 
-It fails — the connection is reset / returns no `200`, because `session-broker`'s sidecar drops the unauthenticated plaintext. Same Service, same endpoints; the outcome is decided by whether the caller speaks mTLS.
+The output reads `curl: (56) Recv failure: Connection reset by peer` and HTTP 000. The server's sidecar closed the connection. The caller has no Envoy of its own, so it gets a raw reset instead of an HTTP status. Read the server side:
 
-## The instinct to build
+```bash
+kubectl logs -n media deploy/session-broker -c istio-proxy --tail=1
+```{{exec}}
 
-STRICT mTLS is enforced by the **server's** sidecar. A caller gets in only if it too has a sidecar presenting a valid mesh identity. That single fact explains a whole class of "it worked from inside but not from that one pod" failures — the odd pod out isn't in the mesh.
+The line contains `NR filter_chain_not_found`: the `STRICT` sidecar has no filter chain for plaintext. Same Service, same endpoints. The result depends on whether the caller speaks mTLS.

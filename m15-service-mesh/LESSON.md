@@ -1,48 +1,48 @@
 # M15 — Service Mesh
 
-> A second dataplane, layered inside the pod network: a proxy beside every workload that carries its traffic, so routing, retries, timeouts, circuit breaking, and mutual TLS become platform config instead of application code — plus the new failure signatures that dataplane introduces, and the tool that reads them.
+> A service mesh puts a proxy beside every workload and sends the workload's traffic through it. Routing, retries, timeouts, circuit breaking, and mutual TLS then become platform configuration instead of application code. The mesh also adds a second dataplane with its own failure signatures. Most of them reach the caller as the same `503`.
 
 ## What you'll learn
 
-- Explain what a service mesh *is* structurally: a **control plane** (istiod) that compiles config and a **dataplane** of **Envoy sidecars** it injects next to each workload — and that a pod is "in the mesh" only if it actually carries a sidecar
-- Read how sidecar injection happens: a mutating admission webhook fires for pods in a namespace labeled `istio-injection=enabled`, adds the `istio-proxy` container, and an init container programs the iptables redirect that routes the pod's traffic through it (so `2/2` vs `1/1` is the fastest membership check)
-- Shape L7 traffic with the two core objects: a **VirtualService** (routing, timeout, retries) and a **DestinationRule** (subsets, connection pool, the outlier-detection **circuit breaker**) — and understand that both are enforced by the *caller's* sidecar
-- Reason about **mesh-managed mTLS** as a two-sided contract: a **PeerAuthentication** sets what a *server* accepts; a DestinationRule's `tls` mode sets what a *client* sends; automatic mTLS negotiates it when you don't override
-- Debug the dataplane with `istioctl`: `proxy-status` for config sync, and `proxy-config` to walk Envoy's **listener → route → cluster → endpoint** chain — because the objects you apply are intent, and the compiled Envoy config is what moves packets
+- Describe the two planes of a mesh: the **control plane** (`istiod`) compiles configuration, and the **dataplane** of **Envoy sidecars** carries the traffic
+- Explain sidecar injection: a mutating admission webhook adds the proxy when a pod is created, so `2/2` versus `1/1` is the fastest membership check
+- Shape L7 traffic with a **VirtualService** (routes, timeouts, retries, fault injection) and a **DestinationRule** (subsets, connection pool, outlier detection, client TLS). The caller's sidecar applies both.
+- Treat mesh mTLS as a two-sided contract: a **PeerAuthentication** sets what a server accepts, and the DestinationRule `tls` mode sets what a client sends
+- Read the dataplane with `istioctl proxy-status`, `istioctl proxy-config`, and the sidecar **access log**, whose **response flag** names the failed link
 
 ## Why it matters
 
-M14 shaped traffic with the controls Kubernetes ships: NetworkPolicy at L3/L4, Ingress at the edge. Both stop at the packet. Neither can retry a failed request, enforce a per-call timeout, trip a circuit breaker on a flapping backend, or encrypt and authenticate one pod to another. Historically each service wrote that logic itself, differently, in whatever language it was built in — and got it subtly wrong. A **service mesh** moves that whole layer out of the application and into a proxy that sits beside every workload and intercepts all of its traffic. Retries become a field in a VirtualService. mTLS becomes a one-line policy. The application keeps making a plain HTTP call to `session-broker.media` and never knows a proxy rewrote, secured, and load-balanced it.
+M14 shaped traffic with NetworkPolicy at L3 and L4 and with Ingress at the edge. Neither control can retry a failed request, cap a call with a timeout, remove a failing replica from the pool, or authenticate one pod to another. Without a mesh, each service writes that logic itself, in its own language, with its own bugs. A **service mesh** moves that layer into a proxy. Retries become a field in a VirtualService. mTLS becomes one policy object. The application still makes a plain HTTP call to `session-broker`.
 
-That power has a cost an SRE pays directly: the mesh adds a second dataplane with its own failure modes, and they don't show up in the places you're trained to look. A pod can be `Running`, `Ready`, backed by a healthy Service with populated endpoints, and still return `503` to every caller — because it has no sidecar, or the route points at a subset with no pods, or the two ends disagree about mTLS. `kubectl get pods` says everything is fine; the truth is in the Envoy config the mesh compiled. Knowing a mesh means knowing that config exists, where each failure lands in it, and which `istioctl` command prints the link that broke. This module uses **Istio**, the most widely deployed mesh, whose dataplane is **Envoy** — so "debugging the mesh" is concretely "reading Envoy config."
+The cost lands on the SRE. The mesh adds a dataplane that the usual checks do not see. A pod can be `Running` and `Ready`, with a healthy Service and populated endpoints, and still return `503` to every caller. The cause can be a missing sidecar, a route to a subset with no pods, a TLS disagreement, or a test fault that nobody removed. `kubectl get pods` reports no problem in any of these cases. The evidence is in the Envoy configuration that the mesh compiled and in the line that the sidecar logged for the failed request. This module uses **Istio**, whose dataplane is **Envoy**, so debugging the mesh means reading Envoy configuration and Envoy logs.
 
 ## Scope
 
-**Covers:** the mesh dataplane model — control plane (istiod) vs dataplane (Envoy sidecars); **sidecar injection** via the mutating webhook and the `istio-injection=enabled` namespace label, the injected `istio-proxy` container and the `istio-init` iptables redirect, and mesh membership as a per-pod property (`2/2`, and a line in `proxy-status`). **Traffic management**: the VirtualService (host/route matching, `timeout`, `retries`) and the DestinationRule (`subsets`, `connectionPool`, `outlierDetection` as the circuit breaker), both applied by the caller's sidecar. **Mesh-managed mTLS**: workload identity, PeerAuthentication modes (`STRICT`/`PERMISSIVE`/`DISABLE`) on the server side, DestinationRule `tls` modes (`ISTIO_MUTUAL`/`DISABLE`) on the client side, and automatic mTLS. Throughout: **debugging with `istioctl`** — `proxy-status` and `proxy-config` (clusters/endpoints/routes/listeners), and the `503` differential a mesh introduces.
+**Covers:** the two-plane model (`istiod` and Envoy sidecars); sidecar injection by the mutating webhook, the `istio-injection=enabled` namespace label, the `sidecar.istio.io/inject` pod label, the `istio-init` redirect, and injection at pod creation only; protocol selection by Service port name; the VirtualService (`hosts`, routes, `timeout`, `retries`, `fault`) and the DestinationRule (`subsets`, `connectionPool`, `outlierDetection`, `tls`); PeerAuthentication modes, DestinationRule TLS modes, and automatic mTLS; `istioctl proxy-status`, `proxy-config`, and `analyze`; the Envoy access log and its response flags; the `503` and connection-reset differential.
 
-**Doesn't cover:** the mesh's own installation and upgrade lifecycle, revisions, and canary control-plane upgrades (assumed installed here); north-south ingress *gateways* and the Gateway API binding (this module drives east-west traffic in-cluster) → touched in M14; multi-cluster and multi-primary mesh topologies; **sidecarless / ambient mesh** dataplane (named in a deep dive as the current direction); authorization policy beyond authentication (`AuthorizationPolicy` L7 RBAC) → M20's admission-policy neighbors; and mesh observability dashboards (Kiali, distributed tracing) → M13 covers the telemetry stack the mesh feeds.
+**Doesn't cover:** mesh installation, revisions, and control-plane upgrades (the lab installs Istio for you); ingress and egress gateways, and the Gateway API for mesh traffic (M14 covers north-south Ingress); multi-cluster meshes; `AuthorizationPolicy` and other L7 authorization (no module; read the Istio security docs); Kiali dashboards and distributed tracing (no module; M13 covers the Prometheus scrape model that mesh metrics feed); ambient mode beyond a named alternative.
 
-**Assumes:** M04 is load-bearing — Services, ClusterIP, the EndpointSlice, cluster DNS, and the `503`/refused/`NXDOMAIN` differential the mesh extends. M14's request-path reflex (the client's error names the class of failure; the config names the spot) carries straight over. M10's ServiceAccount is the identity mesh mTLS is built on; M12's mTLS-between-workloads is the same guarantee, here delivered by the mesh instead of hand-rolled certs. M01 labels are the vocabulary subsets and selectors are written in.
+**Assumes:** M04 is load-bearing: Services, ClusterIP, EndpointSlices, cluster DNS, and the connectivity differential. M14's reflex carries over: the client's error names the class of failure, and the configuration names the spot. M10's ServiceAccount is the identity that mesh mTLS is built on. M12 taught workload mTLS with hand-issued certificates; here the mesh issues and rotates them.
 
 ## Vocabulary
 
 | Term | Definition |
 |------|------------|
-| **Service mesh** | An infrastructure layer that puts a proxy beside every workload and routes the workload's traffic through it, so routing, resilience, and mTLS are handled by the platform, not the app. |
-| **Control plane (istiod)** | The mesh's brain. Watches Kubernetes and mesh config, compiles it into Envoy configuration, and pushes it to every sidecar. In Istio it is a single component, `istiod`. |
-| **Dataplane / sidecar** | The Envoy proxies that actually carry traffic. One is injected per pod as a second container (`istio-proxy`); it intercepts the pod's inbound and outbound connections. |
-| **Sidecar injection** | Adding the sidecar to a pod at creation. A mutating admission webhook does it automatically for pods in a namespace labeled `istio-injection=enabled`; a pod annotation `sidecar.istio.io/inject: "false"` opts out. |
-| **VirtualService** | A namespaced object of L7 routing rules for a host: which requests go where, plus per-route `timeout` and `retries`. Applied by the caller's sidecar. |
-| **DestinationRule** | Policy for *how* to talk to a host after routing: named `subsets`, the `connectionPool` limits and `outlierDetection` circuit breaker, and the client-side `tls` mode. |
-| **subset** | A named group of a host's pods, selected by labels (typically a version). A VirtualService routes to a subset; a subset that selects zero pods is a valid rule with an empty backend. |
-| **PeerAuthentication** | Server-side mTLS policy. `STRICT` = accept only mutually-authenticated Istio mTLS; `PERMISSIVE` = accept mTLS or plaintext; `DISABLE` = plaintext only. |
-| **mTLS / `ISTIO_MUTUAL`** | Mutual TLS between sidecars using mesh-issued identities. `ISTIO_MUTUAL` is the DestinationRule `tls` mode telling the *client* to originate it; **automatic mTLS** negotiates it with no DestinationRule at all. |
-| **Envoy config: listener / route / cluster / endpoint** | Envoy's four resource types. A **listener** is a port it accepts on; a **route** maps a request to a **cluster** (an upstream); a cluster's **endpoints** are the real pod IPs. The mesh request path in four links. |
-| **`istioctl proxy-status` / `proxy-config`** | The debugging lens. `proxy-status` shows whether each sidecar has istiod's latest config (`SYNCED`); `proxy-config` dumps the compiled listeners/routes/clusters/endpoints for one pod. |
+| **Service mesh** | An infrastructure layer that runs a proxy beside each workload and sends the workload's traffic through it. The platform then applies routing, resilience, and mTLS. |
+| **Control plane (`istiod`)** | The Istio component that watches Kubernetes and mesh objects, compiles them into Envoy configuration, and pushes that configuration to each sidecar over the xDS API. It does not carry application traffic. |
+| **Dataplane, sidecar** | The Envoy proxies that carry the traffic. Istio injects one per pod as the `istio-proxy` container. It intercepts the pod's inbound and outbound connections. |
+| **Sidecar injection** | The addition of the sidecar to a pod at creation. "Injection occurs at pod creation time."<sup><a href="https://istio.io/latest/docs/setup/additional-setup/sidecar-injection/">[1]</a></sup> |
+| **VirtualService** | A namespaced object with L7 routing rules for a host: which requests go to which destination, with per-route `timeout`, `retries`, and `fault`. |
+| **DestinationRule** | A namespaced object with the policy for traffic to a host after routing: named `subsets`, `connectionPool` limits, `outlierDetection`, and the client-side `tls` mode. |
+| **Subset** | A named group of a host's pods, selected by labels. A VirtualService routes to a subset by name. |
+| **PeerAuthentication** | The server-side mTLS policy: `STRICT` (mTLS only), `PERMISSIVE` (mTLS or plaintext), or `DISABLE` (plaintext only). With no policy, Istio uses `PERMISSIVE`. |
+| **Automatic mTLS** | The default caller behavior when a DestinationRule sets no `tls` mode: the caller's sidecar sends Istio mTLS to destinations that have a sidecar and plaintext to destinations that do not. |
+| **Listener, route, cluster, endpoint** | Envoy's configuration types. A listener accepts connections on an address and port. A route maps a request to a cluster. A cluster is an upstream group. Its endpoints are pod IPs. |
+| **Response flag** | A short code in the Envoy access log that states why Envoy answered the way it did, for example `UH` (no healthy upstream) or `FI` (fault injected).<sup><a href="https://www.envoyproxy.io/docs/envoy/latest/configuration/observability/access_log/usage">[2]</a></sup> |
 
 ## Mental model
 
-A mesh is two planes. The **control plane** (`istiod`) never touches your traffic — it watches Kubernetes plus the mesh objects you write, compiles them into Envoy configuration, and pushes that to the sidecars. The **dataplane** is those sidecars: an Envoy next to each pod, carrying every byte in and out. You configure the control plane declaratively; the dataplane is what actually moves packets. Almost every mesh mystery resolves to one question: *does the dataplane's compiled config match what you meant?*
+The control plane, `istiod`, compiles the objects that you apply into Envoy configuration and pushes it to every sidecar. It never touches application traffic. Each request leaves through the caller's Envoy and enters through the server's Envoy. The objects state intent. The compiled configuration decides what happens to each request.
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {
@@ -51,112 +51,163 @@ A mesh is two planes. The **control plane** (`istiod`) never touches your traffi
   'secondaryColor':'#3a3a3a', 'tertiaryColor':'#1f1f1f',
   'background':'#0f0f0f'
 }}}%%
-flowchart TD
-    ISTIOD[istiod — control plane<br/>compiles config, pushes to sidecars]
-    ISTIOD -. xDS push .-> EC[caller pod<br/>app + Envoy sidecar]
-    ISTIOD -. xDS push .-> ES[session-broker pod<br/>app + Envoy sidecar]
-    EC -->|"1 app calls session-broker"| ECP[caller Envoy<br/>route + retry + timeout, originate mTLS]
-    ECP -->|"2 mTLS over the wire"| ESP[server Envoy<br/>verify mTLS, enforce policy]
-    ESP -->|"3 plaintext to localhost"| ES
+flowchart LR
+    ISTIOD[istiod<br/>compiles and pushes config]
+    subgraph CALLER[caller pod]
+      CA[app] --> CE[Envoy<br/>route, retry, timeout,<br/>fault, client TLS]
+    end
+    subgraph SERVER[server pod]
+      SE[Envoy<br/>PeerAuthentication] --> SA[app]
+    end
+    ISTIOD -. xDS .-> CE
+    ISTIOD -. xDS .-> SE
+    CE -->|mTLS| SE
 ```
 
-Two facts do most of the diagnostic work. First, **the caller's sidecar enforces routing and client-side policy** (which subset, the timeout, the retry budget, whether to send mTLS), and **the server's sidecar enforces admission** (does it require mTLS). A `503` therefore has a *side*: a routing or connect failure is usually the caller's config; a rejected connection is usually the server's policy. Second, **a pod that has no sidecar is not in the mesh at all** — none of this applies to it, which is its own failure class.
+Two facts do most of the diagnostic work. First, **the caller's sidecar applies the traffic rules**: the route, the subset, the timeout, the retries, any injected fault, and the TLS mode that the caller sends. **The server's sidecar applies admission**: it accepts or rejects the connection by its PeerAuthentication. A failure therefore has a side. Second, **a pod without a sidecar is outside the mesh**. No mesh rule applies to its traffic.
 
-The mesh request path is four Envoy links, and each module failure is a broken link:
+Each failure in this module breaks one link on the request path. The response flag in the caller's access log names the link:
 
 ```text
-app ──▶ caller Envoy ──[ LISTENER :80 ]──▶ [ ROUTE match host ]──▶ [ CLUSTER subset ]──▶ [ ENDPOINTS pod IPs ] ──mTLS──▶ server Envoy ──▶ app
-                              │                     │                      │                        │                         │
-              no sidecar? not in mesh        wrong host → 404      subset has 0 pods → 503    empty/unhealthy → 503     mTLS mismatch → 503
+app ─▶ caller Envoy ─▶ route ─▶ cluster (subset) ─▶ endpoint ─▶ server Envoy ─▶ app
+         │               │          │                              │
+         │               │          │                              └─ plaintext into STRICT: UC, server logs filter_chain_not_found
+         │               │          │                                 TLS into a pod with no sidecar: UF, TLS_error
+         │               │          └─ subset selects 0 pods: UH, no healthy upstream
+         │               └─ fault left in the route: FI, fault filter abort
+         └─ caller has no sidecar: no Envoy, no 503. The caller sees a connection reset.
 ```
-
-`istioctl proxy-config` prints exactly these links for a given pod. When the object you applied and the compiled config disagree, the config wins — so you read the config. The M14 reflex holds and sharpens: the client's status code names the class of failure; `proxy-config` names the link.
 
 ## Concept walkthrough
 
-### The dataplane: sidecar injection
+### The dataplane: injection and mesh membership
 
-A workload joins the mesh by gaining a sidecar, and that happens at pod-creation time through a **mutating admission webhook**<sup><a href="https://istio.io/latest/docs/setup/additional-setup/sidecar-injection/">[1]</a></sup>. Label a namespace `istio-injection=enabled`, and every pod created in it afterward is intercepted by the webhook, which rewrites the pod spec to add two things: an `istio-proxy` container (the Envoy sidecar) and an `istio-init` init container. The init container runs first and installs iptables rules inside the pod's network namespace that redirect all inbound and outbound TCP through Envoy<sup><a href="https://istio.io/latest/docs/ops/deployment/architecture/">[2]</a></sup>. The application container is unchanged and unaware; it still binds `:80` and makes ordinary calls, but the kernel now routes those through the proxy. The visible tell is the container count: a meshed pod reports `2/2`, a bare pod `1/1`.
+A workload joins the mesh when its pod gets a sidecar. Istio adds the sidecar through a **mutating admission webhook**<sup><a href="https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/">[3]</a></sup>. When a namespace carries the label `istio-injection=enabled`, the webhook intercepts every new pod in it and adds two containers. The `istio-proxy` container is the Envoy sidecar. The `istio-init` init container runs first and installs iptables rules in the pod's network namespace. Those rules redirect the pod's inbound and outbound TCP through Envoy<sup><a href="https://istio.io/latest/docs/ops/deployment/architecture/">[4]</a></sup>. The application container does not change. It still listens on port 80 and still makes ordinary calls. The kernel sends those calls through the proxy. The visible sign is the container count: a meshed pod reports `2/2`, and a pod with no sidecar reports `1/1`.
 
-Two properties of injection cause most of its incidents. It is **admission-time**, so it applies only to pods created *after* the namespace is labeled — label an existing namespace and nothing changes until the workloads roll. And it is **per-pod overridable**: the annotation `sidecar.istio.io/inject: "false"` on a pod template opts that workload out even in an enabled namespace<sup><a href="https://istio.io/latest/docs/setup/additional-setup/sidecar-injection/">[1]</a></sup>. A workload that skipped injection is not "partly in the mesh" — it is entirely outside it. No traffic policy, retry, or mTLS applies to it, and it never registers with istiod, so `istioctl proxy-status` — which lists every sidecar and its config-sync state — simply doesn't show it<sup><a href="https://istio.io/latest/docs/ops/diagnostic-tools/proxy-cmd/">[3]</a></sup>. When a workload behaves as if mesh config is being ignored, the first check is always whether it has a sidecar at all.
+Two properties of injection cause most injection incidents.
+
+- **Injection happens at pod creation only.** A label on an existing namespace changes nothing for the pods that already run. They stay `1/1` until something recreates them, for example `kubectl rollout restart`.
+- **A pod can opt out.** The pod label `sidecar.istio.io/inject: "false"` on a pod template disables injection, even in an enabled namespace. Istio's rule: "If either label (`istio-injection` or `sidecar.istio.io/inject`) is disabled, the pod is not injected."<sup><a href="https://istio.io/latest/docs/setup/additional-setup/sidecar-injection/">[1]</a></sup> Istio deprecates the older annotation of the same name.
+
+A pod that skipped injection is not partly in the mesh. It is fully outside it. No route, retry, or mTLS rule applies to its traffic, and it never connects to `istiod`. `istioctl proxy-status` lists every sidecar that `istiod` knows, so a pod without a sidecar is absent from that list<sup><a href="https://istio.io/latest/docs/ops/diagnostic-tools/proxy-cmd/">[5]</a></sup>. When a workload behaves as if the mesh ignores it, count its containers first.
+
+The direction of the failure depends on which end lost its sidecar. A server without a sidecar receives Istio mTLS from a caller sidecar that was told to send it, cannot answer in TLS, and the caller's Envoy returns `503`. A caller without a sidecar sends plaintext straight to the server's Envoy. Under `STRICT`, the server's Envoy closes the connection. The caller has no Envoy to turn that into an HTTP response, so the caller sees a connection reset (`curl: (56) Recv failure: Connection reset by peer`). A `503` means a caller sidecar answered. A reset means no caller sidecar was there.
 
 <details>
-<summary>📖 Going deeper: what the injector actually writes, and the sidecarless alternative<sup><a href="https://istio.io/latest/docs/overview/dataplane-modes/">[4]</a></sup></summary>
+<summary>📖 Going deeper: what the injector writes, native sidecars, and ambient mode<sup><a href="https://istio.io/latest/docs/overview/dataplane-modes/">[6]</a></sup></summary>
 
-The webhook doesn't just append a container. It injects `istio-init` (or, in CNI-plugin installs, a node-level component) to program the iptables redirect; it sets the Envoy container to run as UID 1337 and excludes that UID from redirection, so Envoy's own traffic doesn't loop back through itself; and it wires in the pod's mesh identity. That identity is the crux of security: Envoy is issued a short-lived X.509 certificate whose SPIFFE name encodes the pod's ServiceAccount (`spiffe://<trust-domain>/ns/<namespace>/sa/<serviceaccount>`), which is what the other side authenticates.
+The webhook does more than append a container. The injection template runs Envoy as UID 1337, and `istio-init` excludes that UID from the redirect, so Envoy's own outbound traffic does not loop back into Envoy. The template also mounts the pod's mesh identity. The Istio agent in the sidecar requests a certificate for that identity from `istiod`. The certificate carries a SPIFFE ID built from the ServiceAccount, `spiffe://<trust-domain>/ns/<namespace>/sa/<serviceaccount>`, and the default lifetime is 24 hours. The agent rotates it before expiry. `istioctl proxy-config secret` shows the current certificate and its `NOT AFTER` time.
 
-The sidecar-per-pod model has a real cost — a proxy's memory and CPU on every workload, and pod startup ordering to manage. Istio's **ambient** mode is the response: a sidecarless dataplane that moves L4 into a per-node component and makes L7 proxies opt-in, so workloads join the mesh without a container injected into each pod<sup><a href="https://istio.io/latest/docs/overview/dataplane-modes/">[4]</a></sup>. The sidecar model remains the most widely deployed and is what you'll meet on existing clusters, so know it cold — `2/2` is still the membership test there — but new large deployments should evaluate ambient for the resource math.
+Kubernetes **native sidecars** are init containers with `restartPolicy: Always` that run for the whole pod lifetime<sup><a href="https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/">[7]</a></sup>. Istio can inject `istio-proxy` that way. In Istio 1.24 this mode is off by default. Istio 1.27 turned it on by default. In native mode, `kubectl describe pod` lists `istio-proxy` under `Init Containers:`, and the `READY` column still counts it.
+
+**Ambient mode** is Istio's sidecarless dataplane. A per-node component carries L4 traffic and mTLS, and optional per-namespace proxies add L7 features. Istio declared ambient mode generally available in 1.24. It removes the per-pod proxy cost, and its diagnostic tools differ.
 
 </details>
 
 ### Traffic management: VirtualService and DestinationRule
 
-Once a workload is in the mesh, two objects shape traffic to it, and the division between them is worth memorizing. A **VirtualService** answers *where does this request go* — it matches on host (and optionally path, headers) and routes to a destination, carrying per-route resilience: a `timeout` that caps how long the caller waits, and a `retries` block with an attempt count, per-try timeout, and the conditions to retry on<sup><a href="https://istio.io/latest/docs/concepts/traffic-management/">[5]</a></sup>. A **DestinationRule** answers *how do we talk to that destination once chosen* — it defines named `subsets` of the host's pods, the `connectionPool` limits, the `outlierDetection` circuit breaker, and the client-side `tls` mode<sup><a href="https://istio.io/latest/docs/reference/config/networking/destination-rule/">[6]</a></sup>. Both are enforced by the **caller's** sidecar, on the way out. This is the single most counter-intuitive fact about mesh traffic management: the rules for reaching `session-broker` live in and are applied by the proxy of whoever is *calling* it, not by `session-broker`'s own proxy.
+Two objects shape traffic to a meshed host, and they divide the work. A **VirtualService** answers *where does this request go*. It matches on host, and optionally on path or headers, and routes to a destination. Each route can carry a `timeout`, which caps how long the caller waits, and a `retries` block with an attempt count, a per-try timeout, and the conditions that trigger a retry<sup><a href="https://istio.io/latest/docs/concepts/traffic-management/">[8]</a></sup>. A **DestinationRule** answers *how does the caller talk to that destination*. It defines named `subsets` of the host's pods, `connectionPool` limits, `outlierDetection`, and the client-side `tls` mode<sup><a href="https://istio.io/latest/docs/reference/config/networking/destination-rule/">[9]</a></sup>. The caller's sidecar applies both objects on the way out. The rules for reaching `session-broker` act in the proxy of each caller, not in the proxy of `session-broker`.
 
-A **subset** is a named label-selected group of a host's pods — usually a version — and it is where routing meets a sharp edge. The DestinationRule declares `subsets: [{ name: stable, labels: {...} }, { name: canary, labels: { version: canary } }]`, and the VirtualService routes to one by name. istiod compiles each subset into a separate Envoy **cluster**. If a subset's labels select zero pods — a canary defined before its build is deployed — the cluster is valid but has **no endpoints**, and a request routed to it has no healthy upstream, so Envoy returns `503`<sup><a href="https://istio.io/latest/docs/concepts/traffic-management/">[5]</a></sup>. Nothing is unhealthy; the route simply aims at an empty set. You see it only in the compiled config: `istioctl proxy-config routes <caller-pod>` shows the route targeting the subset's cluster, and `istioctl proxy-config endpoints <caller-pod>` shows that cluster with no addresses behind it<sup><a href="https://istio.io/latest/docs/ops/diagnostic-tools/proxy-cmd/">[3]</a></sup>.
+A **subset** is a label-selected group of a host's pods, usually one version. The DestinationRule declares subsets such as `stable` and `canary`, and the VirtualService routes to one by name. `istiod` compiles each subset into its own Envoy cluster, named like `outbound|80|canary|session-broker.media.svc.cluster.local`. When a subset's labels select zero pods, the cluster is valid but has no endpoints. Envoy then answers every request routed there with `503` and the body `no healthy upstream`. No pod is unhealthy. The route points at an empty group. `istioctl analyze` reports a route to a subset that no DestinationRule defines, but it does not report a defined subset that selects zero pods. Only the endpoint list shows that case.
 
-The **circuit breaker** is `outlierDetection` in the DestinationRule: eject a backend endpoint from the load-balancing pool after it returns some number of consecutive `5xx`s (`consecutive5xxErrors`), for a `baseEjectionTime`, up to a `maxEjectionPercent` of the pool<sup><a href="https://istio.io/latest/docs/tasks/traffic-management/circuit-breaking/">[7]</a></sup>. Paired with `connectionPool` limits (caps on concurrent connections and pending requests), it stops one slow or failing replica from consuming the caller's resources and turning a partial outage into a total one. Like retries and timeouts, it is caller-side config that the application never sees — resilience the platform applies uniformly instead of each team reinventing it.
+The circuit breaker lives in the DestinationRule. `outlierDetection` ejects an endpoint from the load-balancing pool after `consecutive5xxErrors` errors, for `baseEjectionTime`, up to `maxEjectionPercent` of the pool<sup><a href="https://istio.io/latest/docs/tasks/traffic-management/circuit-breaking/">[10]</a></sup>. `connectionPool` caps concurrent connections and pending requests. Together they stop one failing replica from tying up every caller.
+
+A VirtualService can also inject faults. A `fault.delay` adds latency, and a `fault.abort` returns a chosen status code for a percentage of requests<sup><a href="https://istio.io/latest/docs/tasks/traffic-management/fault-injection/">[11]</a></sup>. The caller's Envoy produces the fault itself. The request never reaches the server, so the server's logs show only the requests that succeeded. Retries do not repeat an injected abort. A fault that stays in a route after a resilience test produces a steady fraction of errors with healthy pods, healthy endpoints, and nothing in the server logs.
+
+Istio needs to know the protocol of a Service port to apply HTTP rules. It reads the port name (`http`, `http-web`, `grpc`) or the `appProtocol` field. When neither is set, Istio tries automatic detection, and treats traffic that it cannot identify as plain TCP<sup><a href="https://istio.io/latest/docs/ops/configuration/traffic-management/protocol-selection/">[12]</a></sup>. A port declared as HTTP gets a shared listener for that port number, with routes matched by the `Host` header. `istioctl analyze` reports an unnamed port as an informational message.
 
 ### Mesh-managed mTLS
 
-The mesh can require that every pod-to-pod hop be mutually authenticated and encrypted, using the per-pod identities from injection — and it delivers this without the application handling a single certificate. The control is **PeerAuthentication**, and it is a **server-side** policy: it sets what a workload's sidecar will *accept*<sup><a href="https://istio.io/latest/docs/tasks/security/authentication/mtls-migration/">[8]</a></sup>. `STRICT` accepts only Istio mTLS and rejects plaintext; `PERMISSIVE` accepts either (the migration setting); `DISABLE` turns it off. Apply a namespace-wide `STRICT` PeerAuthentication and every meshed server in that namespace now demands mTLS on its inbound port.
+The mesh can require that every hop between pods is mutually authenticated and encrypted. The sidecars do the TLS work with the identities from injection, and the application handles no certificate. The control is the **PeerAuthentication**, and it is a **server-side** policy: it sets what a workload's sidecar accepts<sup><a href="https://istio.io/latest/docs/tasks/security/authentication/mtls-migration/">[13]</a></sup>. `STRICT` accepts only Istio mTLS. `PERMISSIVE` accepts mTLS or plaintext. `DISABLE` accepts plaintext only. A PeerAuthentication named `default` with no `selector` applies to every workload in its namespace.
 
-The other half is the **client** side, and this is where mismatches hide. What a caller *sends* is governed by the DestinationRule `tls` mode: `ISTIO_MUTUAL` originates Istio mTLS, `DISABLE` sends plaintext<sup><a href="https://istio.io/latest/docs/reference/config/networking/destination-rule/">[6]</a></sup>. The two must agree. A `STRICT` server with a caller whose DestinationRule says `DISABLE` is a contradiction: the caller sends plaintext into a server that rejects everything but mTLS, the server's sidecar resets the connection, and the caller gets `503`. Both pods are healthy and in the mesh; the transport policies simply disagree, and you find it only by reading the PeerAuthentication and the DestinationRule *together*. The safe repair direction is to raise the client to mTLS, never to drop the server to `PERMISSIVE` — that would silently make the protected hop plaintext again.
+The client side is a separate setting. The DestinationRule `tls` mode sets what a caller's sidecar sends: `ISTIO_MUTUAL` sends Istio mTLS, and `DISABLE` sends plaintext. The two sides must agree. A caller with `tls.mode: DISABLE` sends plaintext to a `STRICT` server. The server's Envoy has no filter chain for plaintext, logs `filter_chain_not_found`, and closes the connection. The caller's Envoy reports the closed connection as `503` with the flag `UC`. Both pods are healthy and meshed. Only reading the PeerAuthentication and the DestinationRule together shows the conflict. Repair the caller's side, not the server. A change of the server to `PERMISSIVE` makes the `503` stop, and it also makes the hop accept plaintext again.
 
 <details>
-<summary>📖 Going deeper: automatic mTLS, and why the mismatch is a self-inflicted wound<sup><a href="https://istio.io/latest/docs/tasks/security/authentication/authn-policy/">[9]</a></sup></summary>
+<summary>📖 Going deeper: automatic mTLS, and the silent downgrade<sup><a href="https://istio.io/latest/docs/tasks/security/authentication/authn-policy/">[14]</a></sup></summary>
 
-You rarely need a DestinationRule `tls` block at all. Istio's **automatic mTLS** negotiates it: when no explicit client-side mode is set, the caller's sidecar detects whether the destination has a sidecar and uses mTLS when it does, plaintext when it doesn't<sup><a href="https://istio.io/latest/docs/tasks/security/authentication/authn-policy/">[9]</a></sup>. Under automatic mTLS a `STRICT` namespace "just works" for meshed callers, and the whole mismatch class disappears — which is why an explicit `tls: DISABLE` override against a `STRICT` server is a self-inflicted wound: someone reached past the automatic behavior to hard-code the wrong thing.
+Most meshes need no DestinationRule `tls` block. Automatic mTLS is on by default: "Istio tracks the server workloads migrated to Istio proxies, and configures client proxies to send mutual TLS traffic to those workloads automatically, and to send plain text traffic to workloads without sidecars."<sup><a href="https://istio.io/latest/docs/tasks/security/authentication/authn-policy/">[14]</a></sup> When a DestinationRule sets a `tls` mode, that mode always wins. So a `tls.mode: DISABLE` against a `STRICT` server is self-inflicted: someone replaced the automatic behavior with the wrong value.
 
-Automatic mTLS also explains a quieter danger from the injection section. If a *server* has no sidecar, automatic mTLS on the caller downgrades to plaintext (nothing on the far end can terminate mTLS) — so a missing sidecar can turn a `STRICT`-intended hop into an *unencrypted* one with no error at all. An explicit `ISTIO_MUTUAL` DestinationRule instead makes that same missing sidecar fail loudly with a `503`, because it forces mTLS regardless. This is the standard migration path in reverse: you roll `STRICT` out safely by first setting `PERMISSIVE` (accept both) while workloads gain sidecars, watch telemetry until all traffic is mTLS, then flip to `STRICT`<sup><a href="https://istio.io/latest/docs/tasks/security/authentication/mtls-migration/">[8]</a></sup>. Skipping the `PERMISSIVE` step is how a namespace-wide `STRICT` takes out every not-yet-meshed caller at once.
+Automatic mTLS also creates a quiet hazard. When a server loses its sidecar, no Envoy is left to enforce its PeerAuthentication, and automatic mTLS on each caller switches to plaintext. The hop works, and it is unencrypted. Nothing returns an error. An explicit `ISTIO_MUTUAL` makes the same missing sidecar fail loudly with `503`, because the caller must send mTLS. Automatic mTLS favors availability. An explicit mode favors a guarantee that fails visibly.
+
+The safe rollout of `STRICT` follows the same logic. Start in `PERMISSIVE`, which accepts both. Inject every workload. Confirm in telemetry that all traffic to the namespace is mTLS. Then switch to `STRICT`. A direct switch to `STRICT` resets every caller that is still outside the mesh at the same moment.
 
 </details>
 
+### Reading the dataplane
+
+The objects that you apply are intent. Three tools show what the dataplane does with them.
+
+**`istioctl proxy-status`** lists every sidecar and its configuration state per xDS type: `CDS` (clusters), `LDS` (listeners), `EDS` (endpoints), and `RDS` (routes)<sup><a href="https://istio.io/latest/docs/ops/diagnostic-tools/proxy-cmd/">[5]</a></sup>. `SYNCED` means Envoy acknowledged the last configuration that `istiod` sent. `NOT SENT` means `istiod` sent nothing of that type. `STALE` means `istiod` sent an update and Envoy has not acknowledged it. Version 1.24 adds an age in parentheses, such as `SYNCED (9s)`, and shows `IGNORED` for types that the sidecar does not use. A pod that is not in the list has no sidecar.
+
+**`istioctl proxy-config`** prints the compiled configuration of one sidecar. It accepts a pod name or `deployment/<name>`. `clusters` lists the upstream groups, one per subset. `endpoints` lists the pod IPs in each cluster with `HEALTHY` or `UNHEALTHY`, and a cluster with no rows has no endpoints. `routes` shows which VirtualService produced a route. `listeners` shows the ports that Envoy accepts on. `istioctl analyze` adds a static check of the objects themselves, for example a reference to an undefined subset.
+
+**The access log** is the fastest of the three. When the mesh sets `accessLogFile`, every sidecar writes one line per request to its `istio-proxy` container log. The line carries the status code, the response flag, a detail string, and the upstream cluster. `kubectl logs <pod> -c istio-proxy` on the caller shows why Envoy answered `503`, before any other command:
+
+| Response flag | Meaning in Envoy | Typical mesh cause |
+|---|---|---|
+| `UH` | no healthy upstream hosts | the routed subset selects zero pods |
+| `UF` | upstream connection failure | TLS sent to a pod that has no sidecar; the detail names a `TLS_error` |
+| `UC` | upstream connection termination | plaintext sent to a `STRICT` server |
+| `URX` | retry limit reached | added beside `UF` or `UC` when the route retries |
+| `FI` | request aborted by fault injection | a `fault.abort` in the VirtualService |
+| `NR` | no route configured | no route matched; on a server inbound listener, `filter_chain_not_found` |
+
+The client receives the same information as the response body, for example `no healthy upstream` or `fault filter abort`.
+
 ## Hands-on
 
-Four steps in the baseline, three break/fix scenarios — all on the full Polyphone fleet with Istio installed and the `media` namespace enrolled in the mesh. Traffic is driven from a long-lived in-mesh `mesh-client` pod via `kubectl exec` (a throwaway `kubectl run` client would get a sidecar that never terminates, so a persistent one is baked in).
+The baseline has four steps. Five break/fix scenarios follow. Each runs on the full Polyphone fleet with Istio 1.24 installed, access logging on, and the `media` namespace in the mesh. Traffic comes from a long-lived `mesh-client` pod through `kubectl exec`, because a sidecar keeps a run-to-completion client pod alive after its command ends.
 
-- **`baseline/`** — a healthy mesh: meshed pods at `2/2`, a VirtualService and DestinationRule shaping `session-broker` (timeout, retries, subsets, circuit breaker), `STRICT` mTLS proven by a plaintext caller getting rejected, and the `istioctl proxy-status` / `proxy-config` toolkit for reading the compiled Envoy config.
-- **`breakfix-01-sidecar-not-injected/`** — a workload opted out of injection (`1/1`), so it's not in the mesh; with mTLS required upstream, callers `503`. The fix re-enrolls it (`2/2`), not touching mTLS.
-- **`breakfix-02-virtualservice-subset/`** — a route pointed at a subset with no pods. The pod is healthy and in the mesh; the Envoy cluster is empty, so `503`. The fix routes back to a subset that exists, read straight from `proxy-config`.
-- **`breakfix-03-mtls-mode-mismatch/`** — the DestinationRule tells callers to send plaintext while the PeerAuthentication requires mTLS. Everything is healthy; the two ends disagree, so `503`. The fix aligns the client to mTLS.
+- **`baseline/`** — a healthy mesh. Read injection and `2/2`, the VirtualService and DestinationRule, `STRICT` mTLS with a rejected plaintext caller, and the `istioctl` toolkit.
+- **`breakfix-01-sidecar-not-injected`** — callers get `503`; the server pod is `1/1` because its template opts out of injection. Remove the opt-out.
+- **`breakfix-02-virtualservice-subset`** — callers get `503 no healthy upstream`; the route targets a subset with no pods. Route to `stable`.
+- **`breakfix-03-mtls-mode-mismatch`** — callers get `503`; the DestinationRule sends plaintext to a `STRICT` server. Set the client to mTLS.
+- **`breakfix-04-injection-not-restarted`** — a caller in `signaling` gets a connection reset, not a `503`. Its namespace was enrolled after the pod started. Restart the caller.
+- **`breakfix-05-fault-injection-left-on`** — about half the calls fail with `fault filter abort`. A test fault is still in the route. Remove it.
 
-All three produce the same `503` from three different roots — no sidecar, empty subset, mTLS mismatch — and the diagnosis is which `istioctl` output localizes the break. Check yourself against `ANSWER-KEY.md` after each.
+Check yourself against `ANSWER-KEY.md` after each scenario.
 
 ## Common failure modes
 
 | Symptom | Likely cause | Where to look |
-|---------|--------------|---------------|
-| Workload ignores all mesh config (no mTLS, no routing, no metrics) | It has no sidecar — not in the mesh | `kubectl get pods` for `1/1` vs `2/2`; `istioctl proxy-status` (absent); pod annotations for `sidecar.istio.io/inject: "false"` |
-| `503`, backend Pods `Running`/`Ready`, Service has endpoints, workload is `1/1` | No sidecar to terminate the callers' mTLS | container count; `istioctl proxy-status`; re-enroll and roll the Deployment |
-| `503`, pods `2/2` and healthy, endpoints present | Route targets a subset/cluster with no endpoints | `istioctl proxy-config routes <caller>` (which cluster) then `proxy-config endpoints <caller>` (is it empty); the VirtualService `subset` and matching pod labels |
-| `503`, pods `2/2`, route correct, endpoints present | Client and server disagree on mTLS | PeerAuthentication `mtls.mode` (server) vs DestinationRule `tls.mode` (client) — read both |
-| Config change applied but behavior unchanged | The sidecar hasn't received the new config | `istioctl proxy-status` for `STALE`/`NOT SENT`; check istiod health |
-| Meshed hop is plaintext when you expected `STRICT` | Server missing a sidecar + automatic mTLS downgraded the caller | server pod `1/1`; enforce with explicit `STRICT` + `ISTIO_MUTUAL`, and re-enroll the server |
-| `404` (not `503`) through the mesh | No route matched the request's host/path | the VirtualService `hosts`/match rules vs the request; `istioctl proxy-config routes` |
+|---|---|---|
+| A workload ignores all mesh rules | It has no sidecar | `READY` column (`1/1`); `istioctl proxy-status`; pod labels for `sidecar.istio.io/inject` |
+| Namespace is labeled for injection, pods are still `1/1` | Pods started before the label | pod age versus the label; `kubectl rollout restart` |
+| `503`, flags `URX,UF`, detail `TLS_error` | Caller sends mTLS; server has no sidecar | server pod `READY`; DestinationRule `tls` |
+| `503 no healthy upstream`, flag `UH` | Route targets a subset with zero pods | VirtualService `subset`; DestinationRule subset labels; `proxy-config endpoints` |
+| `503`, flags `URX,UC`; server log `filter_chain_not_found` | Caller sends plaintext to a `STRICT` server | PeerAuthentication mode and DestinationRule `tls` mode, read together |
+| Connection reset (`curl` exit 56), no HTTP status | Caller has no sidecar; server is `STRICT` | caller `READY`; namespace label; PeerAuthentication |
+| A fixed fraction of calls fail, flag `FI` | A fault injection stayed in the route | VirtualService `fault` |
+| A change applied, behavior unchanged | The sidecar did not take the new configuration | `istioctl proxy-status` for `STALE` or `NOT SENT`; `istiod` health |
+| `404` through the mesh, flag `NR` | No route matched the request path | VirtualService `match` rules; `proxy-config routes` |
 
 ## Recap
 
-- **A pod is in the mesh only if it has a sidecar.** Injection is an admission-time webhook keyed on the `istio-injection=enabled` namespace label; `2/2` (and a line in `istioctl proxy-status`) means mesh policy applies, `1/1` means none of it does. Check the container count first.
-- **The control plane is intent; the dataplane is truth.** istiod compiles your VirtualService / DestinationRule / PeerAuthentication into Envoy config and pushes it to the sidecars. When behavior and config disagree, read the compiled config with `istioctl proxy-config` — listener → route → cluster → endpoint.
-- **Traffic management is caller-side, and subsets can be empty.** The VirtualService (routing, timeout, retries) and DestinationRule (subsets, connection pool, circuit breaker) are applied by the *caller's* sidecar. A route to a subset that selects zero pods is a valid rule with no backend — a `503` with everything healthy.
-- **mTLS is a two-sided contract.** PeerAuthentication sets what the *server* accepts (`STRICT`/`PERMISSIVE`/`DISABLE`); the DestinationRule `tls` mode sets what the *client* sends. They must agree — and automatic mTLS makes them agree for free, so an explicit override that mismatches is self-inflicted. Repair upward (client to mTLS), never downward.
-- **The mesh adds `503` branches to the M04 differential.** No sidecar, empty subset, mTLS mismatch — same client-visible `503`, three different links in the Envoy path. The client's code names the class; `istioctl` names the link.
+- **A pod is in the mesh only if it has a sidecar, and injection happens at creation.** `2/2` and a line in `istioctl proxy-status` mean that mesh rules apply. A namespace label does nothing for pods that already run.
+- **The caller's sidecar applies traffic rules; the server's sidecar applies admission.** Routes, subsets, retries, faults, and client TLS act on the way out. PeerAuthentication acts on the way in.
+- **The objects are intent; the compiled Envoy configuration is behavior.** `istioctl proxy-config` shows the clusters and endpoints, and a subset with no endpoints is a valid rule that returns `503`.
+- **mTLS is a two-sided contract.** PeerAuthentication sets what the server accepts. The DestinationRule `tls` mode sets what the caller sends. Repair a mismatch on the client side.
+- **The access log names the link.** `UH`, `UF`, `UC`, and `FI` are four causes behind one `503`. A reset with no status means the caller has no sidecar.
 
 ## Production thinking
 
-- A team enables `istio-injection=enabled` on their namespace and reports "the mesh isn't doing anything — no mTLS, no metrics." Every pod predates the label. What one operation makes injection take effect, and why did labeling the namespace alone change nothing? What's the risk of doing that operation to every Deployment at once during business hours?
-- You're asked to turn on `STRICT` mTLS across a namespace that currently has a mix of meshed and not-yet-meshed workloads. Applying `STRICT` directly would `503` every plaintext caller instantly. What's the staged migration that gets you to `STRICT` with zero downtime, and which telemetry tells you it's safe to flip the final switch?
-- A canary rollout shifts 10% of `session-broker` traffic to `subset: canary`, and 10% of requests immediately start returning `503` while the other 90% are fine. The canary Deployment shows `0/0` ready. Walk the Envoy path that produces exactly a *fractional* `503`, and explain why the VirtualService applying cleanly told you nothing about whether the subset had pods.
+- A team labels its namespace for injection and reports that "the mesh does nothing." Every pod predates the label. What recreates the pods with sidecars, and what is the risk of doing it to every Deployment in the namespace at once during business hours?
+- You must move a namespace to `STRICT` while some of its callers are still outside the mesh. Which signal tells you that every caller now sends mTLS, and what happens to a caller you missed at the moment you switch?
+- A canary route sends 10% of `session-broker` traffic to `subset: canary`, and 10% of requests return `503`. The canary Deployment has zero ready pods. Which response flag do you expect in the caller's access log, and why did the VirtualService apply without an error?
 
 ## References
 
-1. Istio — Sidecar injection: https://istio.io/latest/docs/setup/additional-setup/sidecar-injection/
-2. Istio — Architecture (istiod and the Envoy dataplane): https://istio.io/latest/docs/ops/deployment/architecture/
-3. Istio — Debugging Envoy with istioctl proxy-config / proxy-status: https://istio.io/latest/docs/ops/diagnostic-tools/proxy-cmd/
-4. Istio — Dataplane modes (sidecar and ambient): https://istio.io/latest/docs/overview/dataplane-modes/
-5. Istio — Traffic management concepts (VirtualService, subsets, timeouts, retries): https://istio.io/latest/docs/concepts/traffic-management/
-6. Istio — DestinationRule reference: https://istio.io/latest/docs/reference/config/networking/destination-rule/
-7. Istio — Circuit breaking (outlier detection): https://istio.io/latest/docs/tasks/traffic-management/circuit-breaking/
-8. Istio — Mutual TLS migration (PeerAuthentication, PERMISSIVE → STRICT): https://istio.io/latest/docs/tasks/security/authentication/mtls-migration/
-9. Istio — Authentication policy and automatic mutual TLS: https://istio.io/latest/docs/tasks/security/authentication/authn-policy/
+1. Istio — Installing the sidecar (automatic injection, injection labels): https://istio.io/latest/docs/setup/additional-setup/sidecar-injection/
+2. Envoy — Access logging (format, response flags): https://www.envoyproxy.io/docs/envoy/latest/configuration/observability/access_log/usage
+3. Kubernetes — Dynamic admission control (mutating webhooks): https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/
+4. Istio — Architecture (istiod and the Envoy dataplane): https://istio.io/latest/docs/ops/deployment/architecture/
+5. Istio — Debugging Envoy and istiod (proxy-status, proxy-config): https://istio.io/latest/docs/ops/diagnostic-tools/proxy-cmd/
+6. Istio — Dataplane modes (sidecar and ambient): https://istio.io/latest/docs/overview/dataplane-modes/
+7. Kubernetes — Sidecar containers: https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/
+8. Istio — Traffic management (VirtualService, subsets, timeouts, retries): https://istio.io/latest/docs/concepts/traffic-management/
+9. Istio — DestinationRule reference: https://istio.io/latest/docs/reference/config/networking/destination-rule/
+10. Istio — Circuit breaking: https://istio.io/latest/docs/tasks/traffic-management/circuit-breaking/
+11. Istio — Fault injection: https://istio.io/latest/docs/tasks/traffic-management/fault-injection/
+12. Istio — Protocol selection: https://istio.io/latest/docs/ops/configuration/traffic-management/protocol-selection/
+13. Istio — Mutual TLS migration: https://istio.io/latest/docs/tasks/security/authentication/mtls-migration/
+14. Istio — Authentication policy (automatic mutual TLS): https://istio.io/latest/docs/tasks/security/authentication/authn-policy/

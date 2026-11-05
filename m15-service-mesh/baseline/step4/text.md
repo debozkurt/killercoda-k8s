@@ -1,39 +1,45 @@
-# Step 4 — Reading Envoy config with istioctl
+# Step 4 — Reading Envoy configuration with istioctl
 
-When mesh traffic misbehaves, the objects you wrote (VirtualService, DestinationRule, PeerAuthentication) are only the *intent*. What moves packets is the Envoy config istiod compiled and pushed to each sidecar. Debugging the mesh means reading that compiled config. `istioctl` is the lens.
+The objects you apply are intent. The Envoy configuration that `istiod` compiled and pushed to each sidecar is behavior. `istioctl` reads it.
 
-## Is every sidecar in sync?
+## Is every sidecar current?
 
 ```bash
 istioctl proxy-status
 ```{{exec}}
 
-`SYNCED` in every column means the sidecar has istiod's latest config. `STALE` or `NOT SENT` means a push didn't land — the pod is running old config, and your new VirtualService may not be in effect yet. Start here: a config bug you can't reproduce is sometimes just an un-synced proxy.
+`SYNCED` means Envoy acknowledged the last push. `STALE` means `istiod` pushed and Envoy did not acknowledge. `NOT SENT` means nothing of that type was pushed. When a change seems to have no effect, check this first.
 
-## The four config dumps
+## Clusters and endpoints
 
-Envoy's world is four resource types. Read them for the `mesh-client` sidecar:
-
-```bash
-POD=$(kubectl get pod -n media -l app=mesh-client -o jsonpath='{.items[0].metadata.name}')
-istioctl proxy-config clusters "$POD" -n media | grep session-broker
-```{{exec}}
-
-A **cluster** is an upstream Envoy can route to. Note the entries for `session-broker` — including one per subset (`stable`, `canary`). Now the endpoints behind them:
+A **cluster** is a group of upstream hosts that Envoy can route to. The fleet has many Services, so filter the list to one host:
 
 ```bash
-istioctl proxy-config endpoints "$POD" -n media | grep session-broker
+istioctl proxy-config clusters deployment/mesh-client -n media | grep session-broker
 ```{{exec}}
 
-**Endpoints** are the actual pod IPs in each cluster. The `stable` cluster lists healthy IPs on `:80`; the `canary` cluster is **empty** (no pods carry `version: canary`). An empty cluster is the signature you'll chase in break/fix 02.
+Three rows for `session-broker.media.svc.cluster.local`. The `SUBSET` column reads `-` (the Service as a whole), `canary`, and `stable`. `istiod` built one cluster per subset.
 
 ```bash
-istioctl proxy-config listeners "$POD" -n media | head
-istioctl proxy-config routes "$POD" -n media --name 80 | head
+istioctl proxy-config endpoints deployment/mesh-client -n media | grep session-broker
 ```{{exec}}
 
-**Listeners** are the ports Envoy accepts on; **routes** map a request's host/path to a cluster. Together: listener → route → cluster → endpoint. That chain is the mesh's request path, and every break/fix in this module is a break in one link of it.
+**Endpoints** are the pod IPs in each cluster, with a `STATUS` of `HEALTHY`. The `|stable|` cluster has a row. The `|canary|` cluster has no row: no pod carries `version: canary`, so that cluster is empty. A route to it would fail.
 
-## The instinct to build
+## Listener and route
 
-`proxy-status` first (is config current?), then `proxy-config clusters`/`endpoints`/`routes` to walk listener → route → cluster → endpoint. The object you applied says what you *meant*; these dumps say what Envoy is *doing*. When they disagree, the dumps win.
+```bash
+istioctl proxy-config listeners deployment/mesh-client -n media --port 80
+```{{exec}}
+
+A **listener** is an address and port that Envoy accepts on. The 0.0.0.0 row with `Route: 80` sends HTTP on port 80 to the route table named 80, which matches requests by their `Host` header. The Service port is named `http`, which tells Istio to treat the port as HTTP.
+
+The request path in Envoy is listener → route → cluster → endpoint.
+
+## Static checks
+
+```bash
+istioctl analyze -n media
+```{{exec}}
+
+`No validation issues found`. `analyze` checks the objects themselves, for example a route to a subset that no DestinationRule defines. It does not check whether a subset selects any pods. Only the endpoint list shows that.

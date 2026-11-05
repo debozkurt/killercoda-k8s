@@ -1,40 +1,40 @@
-# Step 1 — Diagnose the mTLS mismatch
+# Step 1 — Diagnose the 503
 
-Two `503` causes are already off the table if the pods are `2/2` and the route lands on endpoints. Confirm that, then read the two mTLS settings side by side.
-
-## Reproduce, and rule out 01 and 02
+## Reproduce and read the caller's log
 
 ```bash
 kubectl exec -n media deploy/mesh-client -c curl -- \
-  curl -s -o /dev/null -w "HTTP %{http_code}\n" --max-time 5 http://session-broker.media/
+  curl -s -w "\nHTTP %{http_code}\n" --max-time 5 http://session-broker.media/
 ```{{exec}}
 
-`HTTP 503`. Now rule out the previous two scenarios:
+HTTP 503 with the body `upstream connect error or disconnect/reset before headers. retried and the latest reset reason: connection termination`.
 
 ```bash
-kubectl get pods -n media
-POD=$(kubectl get pod -n media -l app=mesh-client -o jsonpath='{.items[0].metadata.name}')
-istioctl proxy-config endpoints "$POD" -n media | grep 'session-broker' | grep ':80'
+kubectl logs -n media deploy/mesh-client -c istio-proxy --tail=1
 ```{{exec}}
 
-Every pod is `2/2` (so `session-broker` has a sidecar — not break/fix 01), and the `stable` cluster has endpoints on `:80` (so the route isn't landing on an empty subset — not break/fix 02). The workload and the route are both fine.
+The line reads `503 URX,UC` and names the `stable` cluster with a pod IP as the upstream. `UC` means the upstream closed the connection. The route and the endpoint are fine: the request reached the server pod, and the server dropped it.
 
-## Read both halves of mTLS
-
-When the pod and the route check out, the remaining `503` cause is a transport mismatch. Read the server's requirement:
+## Read the server's log
 
 ```bash
-kubectl get peerauthentication default -n media -o yaml | grep -A2 mtls:
+kubectl logs -n media deploy/session-broker -c istio-proxy --tail=3
 ```{{exec}}
 
-`mode: STRICT` — `session-broker`'s sidecar accepts **only** mTLS. Now the client's instruction:
+Three lines with `NR filter_chain_not_found`, one per attempt (the first try and two retries). The server's sidecar had no filter chain for what the client sent.
+
+## Read both sides of mTLS
+
+The server side:
 
 ```bash
-kubectl get destinationrule session-broker -n media -o yaml | grep -A2 'tls:'
+kubectl get peerauthentication -n media
 ```{{exec}}
 
-`mode: DISABLE` — callers are told to send **plaintext**. That's the contradiction: the client sends plaintext, the server accepts only mTLS, so the server's sidecar resets the connection and the caller gets `503`.
+`MODE` reads `STRICT`: the server sidecar accepts only Istio mTLS. The client side:
 
-## Why this is subtle
+```bash
+kubectl describe destinationrule session-broker -n media
+```{{exec}}
 
-Nothing is unhealthy, and each object looks reasonable on its own — you only see the bug by reading them *together*. Note too that with no DestinationRule `tls` block at all, Istio's *automatic* mTLS would have negotiated mTLS correctly here; the explicit `DISABLE` override is what forced the mismatch.
+Under `Traffic Policy:` → `Tls:`, read `Mode:  DISABLE`. Every caller sidecar sends plaintext to `session-broker`. Plaintext into a `STRICT` server matches no filter chain, so the server closes the connection.

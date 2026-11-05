@@ -1,35 +1,37 @@
 # Step 1 — The sidecar: how a pod joins the mesh
 
-A pod is "in the mesh" when it carries an Envoy sidecar. Istio injects that sidecar automatically for any pod created in a namespace labeled `istio-injection=enabled`. The `media` namespace was labeled before its workloads booted, so they all got one.
-
-## See the injection label and the meshed pods
+A pod is in the mesh when it runs an Envoy sidecar. Istio adds the sidecar with a mutating admission webhook (a webhook that changes an object before the API server stores it). The webhook acts on new pods in a namespace labeled `istio-injection=enabled`.
 
 ```bash
 kubectl get namespace media --show-labels
 ```{{exec}}
 
-`istio-injection=enabled` is present. Now the pods:
+The `LABELS` column includes `istio-injection=enabled`.
 
 ```bash
 kubectl get pods -n media
 ```{{exec}}
 
-`session-broker`, `transcoder`, the `media-engine` replicas, and `mesh-client` all read **`2/2`** — two containers, not one. Compare a namespace that was never labeled:
+Each pod reads 2/2 in the `READY` column: the application container plus the sidecar. Compare a namespace without the label:
 
 ```bash
 kubectl get pods -n signaling
 ```{{exec}}
 
-Those are `1/1`. Same image, no mesh — the difference is the injected proxy.
+Those pods read 1/1. Same images, no sidecar.
 
 ## Look inside a meshed pod
 
 ```bash
-kubectl get pod -n media -l app=session-broker \
-  -o jsonpath='{.items[0].spec.containers[*].name}{"\n"}'
+kubectl describe pod -n media -l app=session-broker
 ```{{exec}}
 
-Two containers: `app` and `istio-proxy`. The `istio-proxy` is Envoy. An init container (`istio-init`) also ran first — it programmed iptables rules that redirect the pod's inbound and outbound traffic through Envoy, which is how the proxy intercepts everything transparently without the app knowing.
+Read the two container sections near the top:
+
+- `Init Containers:` lists `istio-init`. It ran first and installed iptables rules that send the pod's inbound and outbound TCP through Envoy.
+- `Containers:` lists `app` (nginx, unchanged) and `istio-proxy` (Envoy).
+
+The application does not know about the proxy. The kernel redirects its traffic.
 
 ## See the pod from Istio's side
 
@@ -37,8 +39,6 @@ Two containers: `app` and `istio-proxy`. The `istio-proxy` is Envoy. An init con
 istioctl proxy-status
 ```{{exec}}
 
-Every sidecar shows up here with its config-sync columns (`CDS`, `LDS`, `EDS`, `RDS`) reading `SYNCED` — meaning Envoy has the current clusters, listeners, endpoints, and routes from istiod. A pod with no sidecar never appears in this list; that absence is the first thing to check when a workload isn't behaving like a mesh member.
+Each sidecar has one row. The `CDS`, `LDS`, `EDS`, and `RDS` columns (clusters, listeners, endpoints, routes) read `SYNCED` with an age, for example `SYNCED (12s)`: Envoy has the latest configuration from `istiod`. `ECDS` reads `IGNORED` because these sidecars use no extension configuration. A pod without a sidecar has no row.
 
-## The instinct to build
-
-Mesh membership is per-pod and decided at admission time. `2/2` and a line in `proxy-status` mean "this pod's traffic goes through Envoy, so mesh policy applies to it." `1/1` means it doesn't — and no amount of VirtualService or mTLS config will touch it.
+Mesh membership is per pod and fixed at creation. 2/2 and a row in `proxy-status` mean that mesh rules apply to the pod. 1/1 means that no mesh rule applies.

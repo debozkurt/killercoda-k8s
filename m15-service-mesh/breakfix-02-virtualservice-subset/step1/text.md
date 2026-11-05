@@ -1,47 +1,51 @@
-# Step 1 — Diagnose the 503 with istioctl
+# Step 1 — Diagnose the 503
 
-The pods are healthy this time, so `kubectl get pods` won't find the break. The route will. Reproduce, rule out the workload, then read what Envoy compiled.
-
-## Reproduce the failure
+## Reproduce and read the caller's log
 
 ```bash
 kubectl exec -n media deploy/mesh-client -c curl -- \
-  curl -s -o /dev/null -w "HTTP %{http_code}\n" --max-time 5 http://session-broker.media/
+  curl -s -w "\nHTTP %{http_code}\n" --max-time 5 http://session-broker.media/
 ```{{exec}}
 
-`HTTP 503`.
+HTTP 503 with the body `no healthy upstream`.
+
+```bash
+kubectl logs -n media deploy/mesh-client -c istio-proxy --tail=1
+```{{exec}}
+
+The line reads `503 UH no_healthy_upstream`. `UH` means the chosen cluster had no healthy endpoint. Read the cluster at the end of the line: `outbound|80|canary|session-broker.media.svc.cluster.local`. The route sent the request to the `canary` subset.
 
 ## Rule out the workload
 
 ```bash
 kubectl get pods -n media
-kubectl get endpoints session-broker -n media
 ```{{exec}}
 
-Every pod is `2/2`; `session-broker` has endpoints on `:80`. It's healthy and in the mesh — so this `503` is not the backend. (Contrast break/fix 01, where `session-broker` was `1/1`.)
+Every pod is 2/2, including `session-broker`. The server is healthy and in the mesh.
 
-## Follow the route in Envoy
-
-The caller's sidecar is what routes the request. Ask it where `session-broker` traffic goes:
+## Read the route and the subset
 
 ```bash
-POD=$(kubectl get pod -n media -l app=mesh-client -o jsonpath='{.items[0].metadata.name}')
-istioctl proxy-config routes "$POD" -n media --name 80 -o json | grep -i '"cluster"'
+kubectl describe virtualservice session-broker -n media
 ```{{exec}}
 
-The route's target cluster is `outbound|80|canary|session-broker.media.svc.cluster.local` — the **canary** subset. Now check that cluster's endpoints:
+Under `Route:` → `Destination:`, read `Subset:  canary`.
 
 ```bash
-istioctl proxy-config endpoints "$POD" -n media | grep session-broker
+kubectl get destinationrule session-broker -n media -o yaml
 ```{{exec}}
 
-The `|stable|` cluster lists healthy Pod IPs; the `|canary|` cluster is **empty**. The route points at a subset with no pods — no healthy upstream, hence `503`.
-
-## Confirm the source
+Under `subsets:`, `canary` selects `version: canary`. Look for pods with that label:
 
 ```bash
-kubectl get virtualservice session-broker -n media -o yaml | grep -A3 route:
 kubectl get pods -n media -l version=canary
 ```{{exec}}
 
-The VirtualService routes to `subset: canary`, and there are no pods labeled `version: canary`. The DestinationRule defines the subset, but nobody ever deployed a canary to fill it. The intent (a canary rollout) got applied before the pods existed.
+`No resources found`. Confirm what Envoy holds for that cluster:
+
+```bash
+istioctl proxy-config endpoints deployment/mesh-client -n media \
+  --cluster "outbound|80|canary|session-broker.media.svc.cluster.local"
+```{{exec}}
+
+Only the header row. The cluster exists and has no endpoints. The route is valid; it points at an empty group.

@@ -1,0 +1,28 @@
+{
+  "title": "M15 — Break/fix 05: Fault Injection Left On",
+  "description": "About half the calls to session-broker return 503 while every pod, endpoint, and mTLS setting is healthy, and the server logs show no errors. Find what answers the failed calls.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      {
+        "title": "Diagnose the partial 503",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
+    ],
+    "finish": {
+      "text": "finish.md"
+    }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}
