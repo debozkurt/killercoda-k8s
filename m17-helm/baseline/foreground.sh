@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "Waiting for the Polyphone baseline + the voicemail Helm release to come up..."
-echo "(installs local-path-provisioner, metrics-server, k9s, the Helm CLI; provisions the fleet and the voicemail release)"
+echo "(installs the fleet, Helm 4 and the voicemail release)"
 echo ""
 
 while [ ! -f /tmp/.setup-complete ]; do

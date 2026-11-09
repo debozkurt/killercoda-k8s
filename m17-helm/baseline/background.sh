@@ -684,38 +684,44 @@ spec:
             limits:   { cpu: 100m, memory: 64Mi }
 EOF
 
+
 # ===========================================================================
-# >>> M17 addition: install the Helm CLI and deploy the `voicemail` chart as
-#     a Helm release. Helm is the Kubernetes package manager: a *chart*
-#     (templates + a default values.yaml) is rendered with the merged values
-#     into plain Kubernetes manifests, applied to the cluster, and recorded as
-#     a versioned *release*. The baseline installs one HEALTHY release so the
-#     tour can walk chart -> values -> render -> release end to end. Pinned to
-#     the current Helm 3 line.
+# >>> M17 addition: the Helm CLI and the `voicemail` chart on disk.
+#     Helm renders a chart (templates + values.yaml) into manifests, applies
+#     them, and records each install, upgrade and rollback as a numbered
+#     revision of a release. Module setup runs BEFORE the fleet settle-wait
+#     (Killercoda caps background runtime; see AGENTS.md setup order).
 # ===========================================================================
 
-# Install the helm v3 binary (same fetch-and-extract pattern as k9s above).
-HELM_VERSION=v3.21.2
-curl -sL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
-  | tar xz -C /tmp linux-amd64/helm 2>/dev/null
-install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm 2>/dev/null
+HELM_VERSION=v4.3.1
+# Download to a file and retry: a truncated stream piped into tar leaves a
+# partial binary that segfaults.
+for _ in 1 2 3; do
+  curl -fsSL --retry 3 -o /tmp/helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+    && tar xzf /tmp/helm.tgz -C /tmp linux-amd64/helm \
+    && install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm \
+    && helm version --short 2>/dev/null | grep -q "^${HELM_VERSION}" && break
+  sleep 3
+done
+if ! helm version --short 2>/dev/null | grep -q "^${HELM_VERSION}"; then
+  echo "FATAL: helm ${HELM_VERSION} did not install" >&2
+  exit 1
+fi
 
-# Write the `voicemail` chart to disk (templates + a default values.yaml). The
-# learner reads, renders, and upgrades this exact chart during the tour.
 CHART=/root/voicemail
 mkdir -p "$CHART/templates"
 
 cat > "$CHART/Chart.yaml" <<'CHART_EOF'
 apiVersion: v2
 name: voicemail
-description: Polyphone voicemail service — lab chart for M17 (Helm Fundamentals)
+description: Polyphone voicemail service
 type: application
 version: 0.1.0
 appVersion: "1.25"
 CHART_EOF
 
 cat > "$CHART/values.yaml" <<'CHART_EOF'
-# Default values for the voicemail chart. Overridden per-release with -f / --set.
+# Default values for the voicemail chart. Override per release with -f or --set.
 replicaCount: 1
 
 image:
@@ -731,9 +737,7 @@ resources:
   limits:   { cpu: 100m, memory: 64Mi }
 
 config:
-  # sipRealm is REQUIRED — the SIP realm the voicemail service registers under.
-  # The Deployment template wraps it in `required`, so an install that omits it
-  # fails to render (see M17 breakfix-03).
+  # The SIP realm the voicemail service registers under. Set it per install.
   sipRealm: ""
   greeting: "You have reached Polyphone voicemail."
 CHART_EOF
@@ -747,9 +751,6 @@ tier: lab
 {{- end -}}
 CHART_EOF
 
-# Deployment: replica count, image, and the SIP realm all come from values.
-# Namespace is intentionally NOT hard-coded — the chart is namespace-portable
-# and lands wherever `--namespace` points (idiomatic Helm).
 cat > "$CHART/templates/deployment.yaml" <<'CHART_EOF'
 apiVersion: apps/v1
 kind: Deployment
@@ -796,22 +797,28 @@ spec:
     - port: {{ .Values.service.port }}
       targetPort: 80
 CHART_EOF
+# <<< M17 addition ends
 
-# Deploy the HEALTHY release into app-services: 2 replicas, required sipRealm set.
+# Healthy release: 2 replicas, the required sipRealm supplied. Revision 1.
 helm install voicemail "$CHART" \
   --namespace app-services \
   --set replicaCount=2 \
-  --set config.sipRealm=polyphone.example >/dev/null 2>&1
-# <<< M17 addition ends
+  --set config.sipRealm=polyphone.example >/dev/null
+kubectl rollout status deployment/voicemail -n app-services --timeout=120s >/dev/null 2>&1
+if ! helm status voicemail -n app-services 2>/dev/null | grep -q '^STATUS: deployed'; then
+  echo "FATAL: voicemail release is not deployed" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
-# Wait for the fleet to come up
+# Wait for the fleet to come up (last, so nothing above sits behind it)
 # ---------------------------------------------------------------------------
 
-kubectl wait --for=condition=Available deployment --all -A --timeout=240s >/dev/null 2>&1
-# StatefulSets don't have an Available condition; wait for at least one ready pod
+kubectl wait --for=condition=Available deployment --all -A --timeout=120s >/dev/null 2>&1
+# StatefulSets don't have an Available condition; wait for at least one ready pod.
+# voicemail is excluded: some scenarios leave one of its Pods unready on purpose.
 for ns in media signaling app-services edge; do
-  kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=120s >/dev/null 2>&1
+  kubectl wait --for=condition=Ready pod -l 'plane,app!=voicemail' -n "$ns" --timeout=60s >/dev/null 2>&1
 done
 
 touch /tmp/.setup-complete

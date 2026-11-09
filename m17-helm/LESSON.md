@@ -1,52 +1,49 @@
 # M17 — Helm Fundamentals
 
-> The Kubernetes package manager. How a chart plus values renders into manifests, what a release actually is, and how to debug the three ways Helm bites you: a value that doesn't take, an upgrade that "succeeds" but breaks, and a render that fails before anything deploys.
+> A chart plus values renders into manifests, Helm applies them, and Helm records the result as a release. How each of those stages fails, and which Helm view shows the failure.
 
 ## What you'll learn
 
-- Explain the Helm pipeline — chart + values → rendered manifests → applied release — and where each step can fail
-- Read a chart on disk: `Chart.yaml`, `values.yaml`, and templates, and know which value keys the templates actually consume
-- Trace a value from your `--set`/`-f` input through the render to the live object with `helm template` and `helm get manifest`
-- Reason about values precedence and why Helm silently keeps override keys it never reads
-- Use the release model — revisions, `helm history`, `helm status`, `helm rollback` — to recover from a bad upgrade
-- Decide when Helm is the right tool and when Kustomize fits better
+- Read a chart on disk (`Chart.yaml`, `values.yaml`, `templates/`) and name the value keys its templates read
+- Trace a value from `-f` or `--set` through the render to the live object with `helm template`, `helm get values` and `helm get manifest`
+- Predict values precedence, and explain why Helm keeps an override key that no template reads
+- Use the release record (`helm status`, `helm history`, `helm rollback`) to recover from a bad upgrade and to clear a release stuck in `pending-upgrade`
+- Explain how Helm claims ownership of an object, why an install refuses an object it does not own, and why Helm 4 refuses to overwrite a field that another tool changed
+- Locate any Helm failure to one stage: **render**, **apply**, **runtime**, or **record**
 
 ## Why it matters
 
-Most of the Kubernetes you operate at Polyphone did not arrive as hand-written YAML you can `kubectl edit`. It arrived as Helm releases — the ingress controller, cert-manager, the metrics stack, and a growing share of the fleet's own services. When one of those breaks, the object in the cluster is the *output* of a render you didn't watch happen, driven by values spread across a chart default, a base values file, an environment overlay, and a `--set` on some CI runner. Debugging it means working backwards through that pipeline.
+Much of what an SRE operates did not arrive as hand-written YAML. The ingress controller, cert-manager and the metrics stack usually arrive as Helm releases, and so does a growing share of Polyphone's own services. When one of them breaks, the object in the cluster is the output of a render that you did not watch. The values behind it come from a chart default, a values file in git, and a `--set` on a CI runner.
 
-Three failures recur, and all three look nothing like a normal Kubernetes problem. A value you know you set has no effect, because it sat at a key the chart doesn't read and Helm never warned you. An upgrade reports `deployed` and the pipeline goes green, but the workload is wedged, because Helm grades itself on "manifest applied," not "pods healthy." An install fails outright with a Go-template error and nothing reaches the cluster, so there's no Pod to `describe`. This module builds the instinct to read Helm's own state — values, manifest, history — instead of only the cluster's.
+Helm failures do not look like ordinary Kubernetes failures. A value that you set can have no effect, and Helm prints no warning. An upgrade can report `deployed` while the new Pods never start. An install can fail before it creates any object, so there is no Pod to `describe`. A release can refuse every change because an earlier deploy job died halfway. Each failure lives in a different stage of the pipeline, and Helm keeps its own record of each stage. This module teaches you to read that record as well as the cluster.
 
 ## Scope
 
-**Covers:** the chart structure (`Chart.yaml` / `values.yaml` / `templates/`), the render pipeline and `helm template`, values precedence and override key paths, the `required` template function, the release/revision model (`helm history`, `helm status`, `helm get`, `helm rollback`), where Helm stores release state, and the decision between Helm and Kustomize.
+**Covers:** chart structure; the render → apply → record pipeline and `helm template`; values merge order and override key paths; the `required` function; the release record (revisions, status, `helm history`, `helm get`, `helm rollback`, storage in Secrets, the pending lock); Helm ownership metadata and adoption; Helm 4 server-side apply and field conflicts; `--wait` and `--rollback-on-failure`; the Helm-versus-Kustomize decision.
 
-**Doesn't cover:** authoring complex charts (named templates, `range`/`with`, subcharts and dependencies beyond a mention → deferred to advanced Helm), chart repositories and OCI registries in depth → M18, running Helm *through* a GitOps controller (Flux `HelmRelease`, Argo CD) → M18, and Kustomize itself as a build tool → M16. This module uses one small local chart throughout so the mechanics stay in view.
+**Doesn't cover:** chart authoring beyond one small chart (named templates, `range`/`with`, library charts, hooks, chart tests) → see the Helm chart template guide; dependencies and subcharts beyond one sentence; chart repositories, OCI registries and signing → M18 for sources, M20 for supply-chain policy; Helm run by a GitOps controller (Flux `HelmRelease`) → M18; Kustomize as a build tool → M16.
 
-**Assumes:** M00–M04 — you can read a Deployment and a Service, run the `get → describe → events → logs` loop, and recognize `ImagePullBackOff`. Helm sits on top of those primitives; it doesn't replace them.
+**Assumes:** you can read a Deployment and a Service and run the `get → describe → events → logs` loop (M00–M04); you know `ImagePullBackOff` (M02) and `Pending` from insufficient resources (M06); you know `kubectl apply` and why a hand edit drifts from source (M16).
 
 ## Vocabulary
 
 | Term | Definition |
 |------|------------|
-| **Helm** | The Kubernetes package manager. A client-side CLI that renders charts into manifests, applies them, and tracks the result as a release<sup><a href="https://helm.sh/docs/topics/charts/">[1]</a></sup>. Since Helm 3 there is no server-side component. |
-| **Chart** | A directory (or packaged `.tgz`) describing a set of Kubernetes resources: `Chart.yaml` (metadata), `values.yaml` (default inputs), and `templates/` (manifests with placeholders)<sup><a href="https://helm.sh/docs/topics/charts/">[1]</a></sup>. |
-| **Template** | A manifest file in `templates/` containing Go template actions (`{{ .Values.replicaCount }}`) that are filled in at render time<sup><a href="https://helm.sh/docs/chart_template_guide/builtin_objects/">[4]</a></sup>. |
-| **Values** | The inputs to a render. Chart defaults from `values.yaml`, overridden by `-f file` and `--set` at install/upgrade time. Exposed to templates as `.Values`. |
-| **Render** | The step where Helm merges values and evaluates templates into plain YAML manifests. Happens before anything is applied; reproducible offline with `helm template`. |
-| **Release** | One installed instance of a chart in a cluster, identified by name + namespace. Helm records it as state in the cluster<sup><a href="https://helm.sh/docs/intro/using_helm/">[3]</a></sup>. |
-| **Revision** | A numbered version of a release. Every `install`, `upgrade`, and `rollback` increments it by one and keeps the prior revision for history<sup><a href="https://helm.sh/docs/intro/using_helm/">[3]</a></sup>. |
-| **`required`** | A template function that aborts the render with a message if the given value is empty or missing — the chart author's way of forcing an input<sup><a href="https://helm.sh/docs/chart_template_guide/functions_and_pipelines/">[5]</a></sup>. |
-| **`--set` / `-f`** | The two override mechanisms. `-f`/`--values` supplies a YAML file; `--set key=value` sets one path on the command line. `--set` has higher precedence<sup><a href="https://helm.sh/docs/chart_template_guide/values_files/">[2]</a></sup>. |
-| **`--reuse-values`** | On upgrade, reuse the previous release's values as the base and merge new overrides on top — so you only state what changes. |
-| **Repository** | A source of charts: a classic HTTP index (`helm repo add`) or an OCI registry. Deferred to M18; this module installs from a local chart directory. |
-| **Kustomize** | A template-free alternative that layers patches (overlays) onto base manifests, built into `kubectl` (`kubectl apply -k`)<sup><a href="https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/">[9]</a></sup>. |
+| **Helm** | The Kubernetes package manager. A client-side CLI that renders charts, applies the result, and records it as a release. Since Helm 3 there is no in-cluster component. |
+| **Chart** | "A collection of files that describe a related set of Kubernetes resources"<sup><a href="https://helm.sh/docs/topics/charts/">[1]</a></sup>: `Chart.yaml` (metadata), `values.yaml` (default inputs) and `templates/` (manifests with Go template actions). |
+| **Values** | The inputs to a render. Templates read them as `.Values.<key path>`. |
+| **Render** | The client-side step that merges values and evaluates the templates into plain YAML. `helm template` runs it without applying anything. |
+| **Release** | One installed instance of a chart, identified by name and namespace. |
+| **Revision** | One numbered entry in a release's history. Every install, upgrade and rollback adds one<sup><a href="https://helm.sh/docs/intro/using_helm/">[2]</a></sup>. |
+| **Release record** | The stored state of one revision: its values, its rendered manifest and its status. Helm keeps it in a Secret in the release namespace by default. |
+| **Status** | The state that Helm records for a revision: `deployed`, `superseded`, `failed`, or `pending-install` / `pending-upgrade` / `pending-rollback`. A status describes the Helm operation, not the health of the Pods. |
+| **`required`** | A template function that stops the render with a message when its value is empty or missing<sup><a href="https://helm.sh/docs/chart_template_guide/function_list/">[3]</a></sup>. |
+| **Ownership metadata** | The label `app.kubernetes.io/managed-by: Helm` and the annotations `meta.helm.sh/release-name` and `meta.helm.sh/release-namespace`. Helm writes them on every object it creates. |
+| **Field manager** | The name that server-side apply records as the owner of each field of an object<sup><a href="https://kubernetes.io/docs/reference/using-api/server-side-apply/">[4]</a></sup>. Helm 4 applies as the manager `helm`. |
 
 ## Mental model
 
-Helm is a rendering-and-bookkeeping layer over ordinary `kubectl apply`. It does two jobs the API server doesn't: it turns one parameterized chart into per-environment manifests, and it remembers what it applied so it can upgrade and roll back as a unit.
-
-The pipeline has three stages, and each failure this module covers lives in one of them:
+Helm is a render step and a bookkeeping step around an apply. It turns one parameterized chart into manifests for each environment. It also records what it applied, so it can upgrade and roll back the set of objects as one unit.
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {
@@ -56,149 +53,176 @@ The pipeline has three stages, and each failure this module covers lives in one 
   'background':'#0f0f0f'
 }}}%%
 flowchart LR
-    vdef[values.yaml<br/>chart defaults]
-    vovr[-f file / --set<br/>overrides]
+    vals[values.yaml<br/>-f files, --set]
     tpl[templates/]
-    vdef --> merge[MERGE]
-    vovr --> merge
-    merge --> render[RENDER<br/>helm template]
+    render[RENDER<br/>client side]
+    rec[RECORD<br/>revision Secret]
+    apply[APPLY<br/>API server]
+    run[RUNTIME<br/>Pods start]
+    vals --> render
     tpl --> render
-    render --> man[manifests]
-    man --> apply[APPLY + record<br/>release revision]
-    apply --> obj[live objects<br/>Deployment, Service]
+    render --> rec
+    rec --> apply
+    apply --> run
 ```
 
-Read it left to right and the failures fall out. A wrong-key override enters at "overrides" but never reaches a template that reads it, so the value is carried but inert. A `required` value missing at "merge" aborts "render", so nothing is applied and no release is recorded. A bad value that renders a valid-but-wrong manifest sails through "apply", so Helm records the revision as `deployed` while the live object misbehaves.
+Each stage has its own failure and its own evidence:
 
-The load-bearing insight: **what runs in the cluster is the render's output, and Helm keeps its own record of that output.** So Helm gives you three views the plain cluster can't. `helm get values` shows the inputs. `helm get manifest` shows the rendered output that was applied. `helm history` shows the timeline of revisions. When a Helm-managed thing is wrong, you compare those three against the live objects, and the discrepancy names the stage that failed.
+- **Render** fails on the client. A missing `required` value stops it, nothing reaches the cluster, and Helm stores no release. A wrong key path does not fail. The render succeeds with the chart default, and the result is valid but wrong.
+- **Record** happens before apply. Helm writes the new revision as `pending-upgrade` first and changes the status when the operation ends. A process that dies in between leaves the lock behind.
+- **Apply** fails at the API server. An object that exists without Helm ownership metadata stops an install. In Helm 4, a field that another manager owns stops an upgrade.
+- **Runtime** fails after Helm is done. By default Helm reports `deployed` once the apply succeeds, whether or not the Pods start.
+
+Helm gives you three views that the cluster does not have. `helm get values` shows the inputs. `helm get manifest` shows the rendered output that Helm applied. `helm history` shows the revisions and their status. Compare those views with `kubectl get`, and the first mismatch names the stage that failed.
 
 ## Concept walkthrough
 
-### Charts and the render pipeline
+### The render: charts, values and key paths
 
-A chart is inputs and templates. `values.yaml` holds the defaults; `templates/` holds manifests with holes. `helm install` merges your overrides over the defaults, evaluates the templates, and applies the result<sup><a href="https://helm.sh/docs/topics/charts/">[1]</a></sup>. A one-line Deployment template makes it concrete:
+A template reads specific key paths. At render time, `{{ .Values.replicaCount }}` becomes the merged value at the path `replicaCount`:
 
 ```yaml
 spec:
   replicas: {{ .Values.replicaCount }}
-  # ...
-    image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+  template:
+    spec:
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
 ```
 
-At render, `{{ .Values.replicaCount }}` becomes whatever the merged values say `replicaCount` is. The template reads *specific key paths*. It has no idea what other keys exist in your values; it pulls the ones it names and ignores the rest. That single fact is behind the most common Helm confusion, addressed below.
+Values merge in a fixed order. The docs list the sources "in order of specificity"<sup><a href="https://helm.sh/docs/chart_template_guide/values_files/">[5]</a></sup>: the chart's `values.yaml`, then a parent chart's values for a subchart, then each `-f` file, then each `--set`. A later source wins a conflict. With several `-f` files, the rightmost file wins. The merge is deep: a file that sets `image.tag` keeps the chart's `image.repository`.
 
-`helm template` runs merge + render locally and prints the manifests without touching the cluster. It is the most useful command in the toolkit: it answers "what would these values produce?" before you apply anything, and it reproduces render errors offline. `helm get manifest <release>` is its live counterpart — the manifests Helm actually applied for the current revision, read back from stored release state. When you need to know whether the cluster is running what you think, `helm get manifest` is the authoritative answer, not the chart on disk (which may have changed since the release was installed).
+**Helm does not check an override against the keys that the templates read.** Suppose a values file sets `replicas: 3` and the template reads `replicaCount`. Helm stores `replicas: 3` in the release, renders `replicaCount` from the chart default, and prints no warning. Two commands show the gap:
 
-The `required` function deserves a mention because it changes *where* a failure surfaces. `{{ required "message" .Values.config.sipRealm }}` aborts the render if `sipRealm` is empty<sup><a href="https://helm.sh/docs/chart_template_guide/functions_and_pipelines/">[5]</a></sup>. That failure happens client-side, before the cluster is touched — so there is no Pod, no event, nothing for the normal diagnostic loop to find. The error text and `helm template` are the entire diagnosis.
+- `helm get values <release>` prints only the user-supplied values, so it shows `replicas: 3` and looks correct.
+- `helm get values <release> -a` prints the computed values. The unused `replicas: 3` sits next to `replicaCount: 1`, and `helm get manifest` shows `replicas: 1`.
+
+A chart can ship a `values.schema.json`. Helm then validates the values during `install`, `upgrade`, `lint` and `template`<sup><a href="https://helm.sh/docs/topics/charts/">[1]</a></sup>. A schema that sets `additionalProperties: false` turns an unknown key into an error. Few charts ship a strict schema, so assume that no check exists until you see one.
+
+`helm template` runs the merge and the render on your machine and prints the manifests<sup><a href="https://helm.sh/docs/helm/helm_template/">[6]</a></sup>. It is the fastest test of a change to values: it answers "what does this input produce?" and it reproduces every render error offline. `helm get manifest <release>` prints the manifest that Helm stored for the current revision. That stored manifest is what Helm applied, so it answers "what is the cluster supposed to run?" The chart on disk can have changed since the install.
+
+The `required` function changes where a missing value fails. `{{ required "message" .Values.config.sipRealm }}` stops the render when the value is empty. The install prints `Error: INSTALLATION FAILED: execution error at (<template>:<line>:<col>): <message>`. Helm renders before it creates the release record, so the cluster has no release, no object and no event. The error text and `helm template` are the whole diagnosis.
 
 <details>
-<summary>📖 Going deeper: the render is Go templating, so values have types<sup><a href="https://helm.sh/docs/chart_template_guide/functions_and_pipelines/">[5]</a></sup></summary>
+<summary>📖 Going deeper: templates are Go text/template, so values have types<sup><a href="https://helm.sh/docs/chart_template_guide/functions_and_pipelines/">[7]</a></sup></summary>
 
-Templates are Go's `text/template` with the Sprig function library added. Two consequences bite people:
+Helm templates are Go `text/template` with the Sprig function library. Three behaviors cause quiet bugs:
 
-- **String-vs-bool with `--set-string`.** Plain `--set enabled=false` coerces to a real boolean, so `{{ if .Values.enabled }}` behaves. But `--set-string enabled=false` — or a value that's inherently a string — passes the *string* `"false"`, and in Go templating every non-empty string is truthy, so the block fires when you meant to disable it. Keep booleans as `--set`/YAML values; reserve `--set-string` for things that must stay strings (a numeric-looking tag, a leading-zero code).
-- **Missing map keys render as `<no value>`, not an error.** Only `required` (or `--debug`) turns a missing value into a visible failure. Without it, a typo'd key path renders empty and produces a subtly wrong manifest that applies cleanly — the quietest class of Helm bug.
+- **A missing key renders as an empty string.** Helm runs the template engine with `missingkey=zero` and strips the `<no value>` text that Go would print. So `{{ .Values.nope }}` renders `""` with no error, and the manifest applies with an empty field. Only a missing *parent* fails: `{{ .Values.nope.deeper }}` stops the render with `nil pointer evaluating interface {}.deeper`. `helm lint --strict` turns missing keys into errors, which makes it a cheap check in CI.
+- **A string `"false"` is true.** `--set enabled=false` passes a boolean, so `{{ if .Values.enabled }}` skips the block. `--set-string enabled=false` passes the string `"false"`. Go treats any non-empty string as true, so the block renders. Keep booleans in a values file or plain `--set`. Use `--set-string` only for values that must stay strings, such as a numeric-looking tag.
+- **`--reuse-values` keeps the old chart's defaults.** On upgrade, `--reuse-values` merges your new overrides over the previous values *and* replaces the new chart's `values.yaml` with the old computed values. A new chart version that adds a default, and a template that reads it, then renders the key as empty or fails on a nil pointer. `--reset-then-reuse-values` keeps your previous overrides but starts from the new chart's defaults. A committed `-f` file avoids the question.
 
-This is why `helm template` and `helm get manifest` matter more than reading the chart: you have to see the *rendered* text, because the type coercion and empty-value rules make "what the template does with your value" non-obvious.
+These rules are why the rendered text matters more than the chart source. Read `helm template` or `helm get manifest`, not the template.
 
 </details>
 
-### Values and precedence
+### The release record: revisions, status and the lock
 
-Values merge in a fixed order, lowest to highest precedence<sup><a href="https://helm.sh/docs/chart_template_guide/values_files/">[2]</a></sup>:
+A release is Helm's record of an installed chart. By default, "release information is stored in Secrets in the namespace of the release"<sup><a href="https://helm.sh/docs/topics/advanced/">[8]</a></sup>. Each revision is one Secret named `sh.helm.release.v1.<release>.v<revision>`, with the labels `owner=helm`, `name`, `status` and `version`. The source of truth is the cluster, so every operator with access sees the same history. `helm upgrade` keeps 10 revisions by default (`--history-max`) and deletes older ones.
+
+Two commands read the record. `helm status` shows the current revision. `helm history` shows every kept revision with its status and a description such as `Install complete`, `Upgrade complete` or `Rollback to 1`.
+
+**`deployed` means the apply succeeded. It does not mean the Pods are healthy.** "Helm does not wait until all of the resources are running before it exits"<sup><a href="https://helm.sh/docs/intro/using_helm/">[2]</a></sup>. In Helm 4, the default for `--wait` is `hookOnly`: Helm waits for hooks only. An upgrade that sets an image tag that does not exist renders a valid Deployment, applies it, records `deployed` and exits 0. The new Pod then sits in `ImagePullBackOff`. The headline status lies here in the same way that `Running` lies about readiness in M01. Read past `helm status` to `kubectl get pods` and `kubectl rollout status`.
+
+`--wait` closes that gap<sup><a href="https://helm.sh/docs/helm/helm_upgrade/">[9]</a></sup>. With `--wait` alone, Helm 4 uses the `watcher` strategy: it watches the resources until they report ready, up to `--timeout` (default 5m). If the timeout passes, Helm marks the revision `failed`. `--rollback-on-failure` (Helm 3 called it `--atomic`) also rolls a failed upgrade back to the last successful revision, and it uninstalls a failed install.
+
+The record is also a lock. Helm writes the new revision with a pending status (`pending-install`, `pending-upgrade` or `pending-rollback`) before it applies anything. When the operation ends, Helm changes that status to `deployed` or `failed`. An upgrade checks the latest revision first. If that revision is pending, the upgrade stops with `another operation (install/upgrade/rollback) is in progress`. This check prevents two upgrades at the same time. But if a CI job is cancelled or a runner dies during `--wait`, no process remains to finish the operation, and the lock stays forever. The `status` label on the revision Secret shows it: `status=pending-upgrade`.
+
+`helm rollback <release> <revision>` re-applies an old revision's manifest as a **new** revision<sup><a href="https://helm.sh/docs/helm/helm_rollback/">[10]</a></sup>. Rollback moves the history forward: after revision 2, a rollback to 1 becomes revision 3. A rollback does not check for a pending lock. So `helm rollback` is also the recovery for a stuck `pending-upgrade`: the new revision becomes the latest, its status is `deployed`, and the next upgrade proceeds. Do not delete revision Secrets by hand. That deletes history, and a wrong delete removes the record of the revision that runs now.
+
+### Ownership: who may change an object
+
+Helm writes ownership metadata on every object it creates: the label `app.kubernetes.io/managed-by: Helm` and the annotations `meta.helm.sh/release-name` and `meta.helm.sh/release-namespace`. Before an install creates an object, Helm checks whether the object already exists. If it does, Helm adopts it only when that metadata names this release. Otherwise Helm stops before it applies anything:
 
 ```text
-chart values.yaml   <   -f valuesA.yaml   <   -f valuesB.yaml   <   --set key=value
-   (defaults)            (earlier -f)         (rightmost -f wins)     (highest)
+Error: INSTALLATION FAILED: unable to continue with install: Service "voicemail" in namespace
+"app-services" exists and cannot be imported into the current release: invalid ownership metadata;
+label validation error: missing key "app.kubernetes.io/managed-by": must be set to "Helm"; ...
 ```
 
-Repeated `-f` files layer left to right — the rightmost wins a conflict. `--set` beats every file. This is a deep merge, not a replace: a `-f` file that sets `image.tag` leaves `image.repository` at the chart default. The mental checklist when a value "isn't working" is precedence first (is something higher overriding me?), key path second (am I setting the key the template reads?).
+This failure is common when a team moves hand-applied manifests into a chart. `helm template` succeeds, because the render is correct. The conflict exists only in the cluster. There are three fixes. Add the label and both annotations to the existing object, then install: Helm adopts the object and keeps its UID and its ClusterIP. Or pass `--take-ownership` to tell Helm to skip the check<sup><a href="https://helm.sh/docs/helm/helm_install/">[11]</a></sup>. Or delete the object and let Helm recreate it, which accepts a short outage and a new ClusterIP. The error names one object at a time, so expect to repeat the fix for each object that existed before.
 
-The key-path half is the sharper edge, because **Helm does not validate your overrides against the chart.** If you `--set relicaCount=3` (typo) or set `replicas: 3` when the chart reads `replicaCount`, Helm keeps your key in the release's values and renders the chart default anyway. No warning. `helm get values <release>` will cheerfully show you the key you set — which is why it's misleading on its own. `helm get values <release> -a` (all/computed) shows the *effective* merged values including defaults, so a wrong-key override appears alongside the real key it failed to override, and the mismatch is visible. Newer charts increasingly ship a `values.schema.json` to reject unknown or mistyped keys at install time; when a chart has one, this whole class of bug becomes a validation error instead of a silent no-op.
+Helm 4 adds a second layer of ownership. "Helm 4 will default to server-side apply when installing a new Chart release"<sup><a href="https://helm.sh/docs/overview/">[12]</a></sup>. With server-side apply, the API server records a field manager for each field. Helm owns the fields it applied as the manager `helm`. Now suppose someone runs `kubectl scale deployment voicemail --replicas=4`. The manager `kubectl` now owns `.spec.replicas`, through the `scale` subresource. The next `helm upgrade`, and also the next `helm rollback`, fails and changes nothing:
 
-### Releases, revisions, and rollback
+```text
+Error: UPGRADE FAILED: conflict occurred while applying object app-services/voicemail apps/v1,
+Kind=Deployment: Apply failed with 1 conflict: conflict with "kubectl" with subresource "scale"
+using apps/v1: .spec.replicas
+```
 
-A release is Helm's record of an installed chart. Every `install`, `upgrade`, and `rollback` writes a new revision and keeps the old ones<sup><a href="https://helm.sh/docs/intro/using_helm/">[3]</a></sup>. That history is stored *in the cluster* — by default as a Secret per revision in the release's namespace, named `sh.helm.release.v1.<release>.v<n>`<sup><a href="https://helm.sh/docs/topics/advanced/#storage-backends">[7]</a></sup>. Because the source of truth is the cluster, any operator with access sees the same history; Helm holds no local state.
+The error names the other manager and the exact field. `--force-conflicts` tells Helm to take the field back. Use it after you decide that the chart, not the hand edit, is correct. If the hand edit is correct, move the change into the values and then upgrade. `kubectl rollout undo` on a Helm-managed Deployment causes the same conflict on the image field. It also leaves the release record on the bad revision, so recover through `helm rollback`.
 
-Two commands read this: `helm status <release>` is the current snapshot (which revision is live, deployed vs failed), and `helm history <release>` is the timeline. The timeline is what makes recovery cheap — a bad upgrade always has a prior good revision to return to.
+Helm 3 used a client-side three-way merge instead. It compared the old manifest, the new manifest and the live object, and it overwrote drift in fields that the chart sets, with no message. Helm 4 keeps the previous apply method for an existing release. A release that Helm 3 created still upgrades with client-side apply, so in a mixed fleet the same drift is overwritten in silence on one release and is a hard error on another.
 
-The trap is that **`helm status: deployed` does not mean the workload is healthy.** By default `helm upgrade` applies the manifests and returns as soon as the apply succeeds; it does not wait for Pods to become ready<sup><a href="https://helm.sh/docs/intro/using_helm/">[3]</a></sup>. So an upgrade that sets an unpullable image tag renders a valid Deployment, applies it, records the revision as `deployed`, and exits 0 — while the rollout wedges on `ImagePullBackOff`. Helm graded the manifest, not the Pods. Reading past a green `helm status` to `kubectl get pods` / `kubectl rollout status` is the reflex that separates "Helm succeeded" from "the workload is up."
+### Helm or Kustomize
 
-`helm rollback <release> <revision>` recovers by re-applying an old revision's manifests as a *new* revision<sup><a href="https://helm.sh/docs/helm/helm_rollback/">[6]</a></sup>. It rolls forward, not back — revision 2 stays in the history; the rollback becomes revision 3. Recover *through Helm*, not with `kubectl rollout undo`: undoing at the Deployment level fixes the live object but leaves Helm's stored release pointing at the broken revision, so the next `helm upgrade` or GitOps reconcile re-applies the break. The release record and the live objects must stay in agreement.
-
-<details>
-<summary>📖 Going deeper: <code>--wait</code>, <code>--atomic</code>, and stuck releases<sup><a href="https://helm.sh/docs/intro/using_helm/">[3]</a></sup></summary>
-
-The defaults are fail-open; production Helm usually turns that off:
-
-- **`--wait`** makes `helm upgrade` block until the resources report ready (Deployments hit their ready replica count, etc.) before declaring success. With it, a bad-image upgrade fails visibly instead of reporting `deployed`.
-- **`--atomic`** implies `--wait` and, on failure, automatically rolls back to the prior revision. A CI pipeline that runs `helm upgrade --atomic` never leaves a half-applied release behind.
-- **`--timeout`** bounds the wait (default 5m).
-
-The cost: `--wait` in Helm 4 uses a watch-based status checker that needs `watch` permission on the release's resources, not just `list`. And an interrupted `--wait` upgrade can leave a release in `pending-upgrade`; a subsequent upgrade then refuses with "another operation in progress." The recovery is `helm rollback` to the last good revision (or, on modern Helm, `--force`), not deleting Secrets by hand.
-
-</details>
-
-### Helm vs Kustomize
-
-Both solve "one config, many environments," and Polyphone uses each where it fits. Kustomize is template-free: you write real manifests as a base and layer *patches* (overlays) that add or override fields, and `kubectl apply -k` builds the result<sup><a href="https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/">[9]</a></sup>. Helm is templated and packaged: you write manifests with `{{ }}` holes, parameterize with values, and get versioning, dependencies, and rollback as a unit.
+Both tools solve one configuration for many environments. Kustomize has no template language: it layers patches over plain manifests, and `kubectl apply -k` builds the result<sup><a href="https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/">[13]</a></sup>. Helm renders templates from values and adds packaging, versions and a release record.
 
 | | Helm | Kustomize |
 |---|---|---|
-| Mechanism | Go templates + values | Strategic-merge / JSON patches over a base |
-| Packaging & sharing | Charts, repos, versioned dependencies | None built in (plain files in git) |
-| Release tracking | Revisions, `history`, `rollback` | None — the cluster is the state |
-| Failure mode to know | Wrong key silently ignored; green status ≠ healthy | Patch targets nothing; base drifts from overlay |
-| Fits | Third-party apps, anything you install-and-forget, workloads that benefit from rollback | Your own manifests, small per-env deltas, teams that dislike templating |
+| Mechanism | Go templates and values | Patches and transformers over a base |
+| Packaging | Versioned charts in repositories or OCI registries | Plain files in git |
+| Release record | Revisions, `helm history`, `helm rollback` | None; the cluster holds the state |
+| Quiet failure to know | An unread key is kept; `deployed` is not healthy | A `target:` selector that matches nothing is skipped |
+| Good fit | Third-party software, and rollback as one unit | Your own manifests with small differences per environment |
 
-The honest summary: reach for Helm when you're consuming someone else's packaged app or you want release/rollback semantics; reach for Kustomize when you own the manifests and the per-environment difference is a handful of patches. They also compose — Kustomize can post-process Helm output, and GitOps controllers run both — which is the M18 story.
+Use Helm when you consume a packaged application or need the release record. Use Kustomize when you own the manifests and each environment differs by a few patches. The two compose. Kustomize can post-process Helm output, and Flux runs both (M18).
 
 ## Hands-on
 
-Four scenarios, each a Killercoda environment with the full Polyphone fleet plus one Helm-managed `voicemail` release. Work them in order.
+The baseline has five steps. Five break/fix scenarios follow, one per failure stage. Each runs on the full Polyphone fleet with Helm 4 and the `voicemail` chart at `/root/voicemail`.
 
-- **`baseline/`** — Tour a healthy release end to end: read the chart, render it with `helm template`, compare to `helm get manifest`, change a value with `helm upgrade`, walk `helm history`, and roll back. Builds the muscle memory for the three views (values / manifest / history).
-- **`breakfix-01-values-key-ignored/`** — A values file sets `replicas: 3` but the release runs one pod. Tests the gap between `helm get values` (what you asked for) and `helm get manifest` (what rendered), and the wrong-key-path diagnosis.
-- **`breakfix-02-bad-upgrade-rollback/`** — An upgrade reports `deployed` but the rollout is stuck on an unpullable image. Tests reading past a green status and recovering with `helm rollback` instead of fighting the release with `kubectl`.
-- **`breakfix-03-render-required-value/`** — An install fails and nothing deploys. Tests reading a Go-template render error, reproducing it offline with `helm template`, and supplying the `required` value.
+- **`baseline/`** — read the chart, render it, compare the render with the release, upgrade a value, walk the history and roll back. Then scale the Deployment by hand and resolve the field conflict that the next upgrade reports.
+- **`breakfix-01-values-key-ignored`** — the release is `deployed` from a values file that asks for 3 replicas, and 1 Pod runs.
+- **`breakfix-02-bad-upgrade-rollback`** — an upgrade reported `deployed`, and the rollout does not finish.
+- **`breakfix-03-render-required-value`** — the install fails, and the namespace has no release and no object.
+- **`breakfix-04-ownership-conflict`** — the install fails, and the chart renders without an error.
+- **`breakfix-05-release-stuck-pending`** — every `helm upgrade` fails, and no deploy job is running.
 
-Check yourself against `ANSWER-KEY.md` after each — it names the instinct under test and contrasts the `--set` triage fix with the values-in-git durable fix.
+Check yourself against `ANSWER-KEY.md` after each scenario.
 
 ## Common failure modes
 
-| Symptom | Likely cause | Where to look |
-|---------|--------------|---------------|
-| Value set but no effect on the workload | Wrong key path, or a higher-precedence source overriding it | `helm get values <r> -a`; compare to `helm get manifest`; check the chart's real keys with `helm show values` |
-| `helm status: deployed` but Pods unhealthy | Helm graded the apply, not readiness (no `--wait`) | `kubectl get pods` / `kubectl rollout status`; then `helm history` for the good revision |
-| `helm install` errors, nothing deployed | Render failure — `required` value missing or a template error | The error names the template + value; reproduce with `helm template` |
-| `Error: ... another operation in progress` | A prior `--wait` upgrade was interrupted, release stuck `pending-*` | `helm history`; `helm rollback` to the last deployed revision |
-| Live object keeps reverting your `kubectl edit` | You edited a Helm-managed object; the release still holds the old manifest | Change values and `helm upgrade`, not `kubectl edit` |
-| `--set-string enabled=false` doesn't disable anything | The string `"false"` is truthy in Go templates | Pass booleans via `--set` or a `-f` file, not `--set-string` |
+| Symptom | Stage | Likely cause | Where to look |
+|---------|-------|--------------|---------------|
+| Value set, no effect | Render | Wrong key path, or a later source overrides it | `helm get values -a`, `helm get manifest`, `helm show values` |
+| `INSTALLATION FAILED: execution error at (...)` | Render | A `required` value is missing, or a template error | The error names template and line; reproduce with `helm template` |
+| `nil pointer evaluating interface {}` after a chart upgrade | Render | `--reuse-values` dropped the new chart's defaults | `helm get values -a`; upgrade with `--reset-then-reuse-values` |
+| `exists and cannot be imported into the current release` | Apply | An object exists without Helm ownership metadata | `kubectl get <kind> <name> -o yaml` labels and annotations |
+| `conflict with "kubectl" ... .spec.replicas` | Apply | A hand edit owns the field (Helm 4 server-side apply) | The error names manager and field; values, or `--force-conflicts` |
+| `deployed`, Pods unhealthy | Runtime | Helm did not wait for readiness | `kubectl get pods`, `kubectl rollout status`, then `helm history` |
+| `another operation (install/upgrade/rollback) is in progress` | Record | The latest revision is pending and its process is gone | `helm history`; Secret label `status=pending-upgrade`; `helm rollback` |
 
 ## Recap
 
-- Helm is render + bookkeeping over `kubectl apply`: chart + values → manifests → an applied, versioned release. Every failure lives in one of those stages.
-- Templates read specific key paths and ignore everything else, and Helm doesn't validate your overrides — so a wrong-key value is kept but inert. `helm get values -a` versus `helm get manifest` exposes it.
-- A release is a numbered revision history stored in the cluster. `helm status` is now; `helm history` is the timeline; `helm rollback` rolls *forward* to an old revision.
-- `helm status: deployed` means "manifest applied," not "workload healthy." Read past it to the Pods. Use `--wait`/`--atomic` to make Helm grade readiness.
-- Recover Helm-managed workloads through Helm. `kubectl edit`/`rollout undo` fixes the object but drifts it from the release record, and the next reconcile undoes your fix.
+- Helm renders, records a revision, then applies to the API server itself. Find the stage first: render errors happen before the cluster, apply errors come from the API server, runtime failures happen after `deployed`.
+- A template reads specific key paths, and Helm keeps an unread override in silence. Compare `helm get values -a` and `helm get manifest`, not the values file.
+- The release record is history and a lock. `helm rollback` writes a new revision, and it is also the way out of a stale pending status.
+- `deployed` describes the Helm operation, not the workload. Use `--wait` or `--rollback-on-failure` when the deploy must grade readiness.
+- Helm owns objects through metadata, and in Helm 4 through field managers. Change a Helm-managed object through its values, or Helm refuses to adopt it or refuses to overwrite it.
 
 ## Production thinking
 
-- Every `--set` in this module is triage; the durable source of truth is a committed values file CI applies. When you patch a live release with `--set` mid-incident, what's your discipline for getting that change back into git before the next reconcile silently reverts it?
-- Default `helm upgrade` returns `deployed` the moment the manifest applies; `--atomic --wait --timeout` makes it wait for readiness and self-roll-back. What are you trading — deploy latency, the `watch` RBAC surface `--wait` needs, blast radius — by turning that on, or by leaving it off?
-- A `values.schema.json` turns "wrong key silently ignored" into an install-time error. If you run two hundred releases of a chart you *don't* own, how do you catch that class of bug without a schema you control?
-- Helm 4 is GA (2026) but most fleets still run v3; the chart/values/release model is identical, though v4 shifts the server-side-apply default and the `--wait` semantics/RBAC<sup><a href="https://helm.sh/docs/overview/">[8]</a></sup>. How would you sequence a binary cutover across environments so a `--wait`-using release doesn't break on the new `watch` requirement mid-rollout?
-- A Helm release, an operator, and a hand-run `kubectl apply` fighting over one object is a real incident. Before you `kubectl edit` something in production, how do you find out whether Helm — or a GitOps controller (M18) — will just undo you on the next pass?
+- Every `--set` in an incident is triage, and the durable source is a values file in git. What makes sure the incident change reaches git before the next deploy job renders from the old file?
+- `--rollback-on-failure --wait --timeout` makes a deploy slower and makes a stuck rollout loud. Which releases in your fleet should pay that cost, and which pipeline step notices a release that stays `pending-upgrade` after a runner dies?
+- Your fleet runs releases that Helm 3 created (client-side apply) next to releases that Helm 4 created (server-side apply). The same `kubectl scale` is overwritten in silence on one and blocks the next deploy on the other. How do you find out which release uses which method before an incident tells you?
+- You run two hundred releases of a chart you do not own, and it ships no strict schema. How do you catch an override key that no template reads?
+- Helm documents a version skew policy: each Helm minor version supports a range of Kubernetes minor versions<sup><a href="https://helm.sh/docs/topics/version_skew/">[14]</a></sup>. How does your upgrade plan keep the Helm binary in CI inside that range for every cluster it deploys to?
 
 ## References
 
-1. Helm — Charts — https://helm.sh/docs/topics/charts/
-2. Helm — Values Files — https://helm.sh/docs/chart_template_guide/values_files/
-3. Helm — Using Helm (install / upgrade / rollback / get) — https://helm.sh/docs/intro/using_helm/
-4. Helm — Built-in Objects — https://helm.sh/docs/chart_template_guide/builtin_objects/
-5. Helm — Functions and Pipelines (`required`) — https://helm.sh/docs/chart_template_guide/functions_and_pipelines/
-6. Helm — `helm rollback` — https://helm.sh/docs/helm/helm_rollback/
-7. Helm — Storage backends (release state) — https://helm.sh/docs/topics/advanced/#storage-backends
-8. Helm — Overview (Helm 4) — https://helm.sh/docs/overview/
-9. Kubernetes — Declarative Management with Kustomize — https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/
+1. Helm — Charts (structure and schema files): https://helm.sh/docs/topics/charts/
+2. Helm — Using Helm (install, upgrade, revisions): https://helm.sh/docs/intro/using_helm/
+3. Helm — Template Function List (`required`): https://helm.sh/docs/chart_template_guide/function_list/
+4. Kubernetes — Server-Side Apply (field management and conflicts): https://kubernetes.io/docs/reference/using-api/server-side-apply/
+5. Helm — Values Files (order of specificity): https://helm.sh/docs/chart_template_guide/values_files/
+6. Helm — `helm template`: https://helm.sh/docs/helm/helm_template/
+7. Helm — Template Functions and Pipelines: https://helm.sh/docs/chart_template_guide/functions_and_pipelines/
+8. Helm — Advanced Helm Techniques (storage backends): https://helm.sh/docs/topics/advanced/
+9. Helm — `helm upgrade` (`--wait`, `--rollback-on-failure`, `--force-conflicts`): https://helm.sh/docs/helm/helm_upgrade/
+10. Helm — `helm rollback`: https://helm.sh/docs/helm/helm_rollback/
+11. Helm — `helm install` (`--take-ownership`): https://helm.sh/docs/helm/helm_install/
+12. Helm — Helm 4 Overview (server-side apply, renamed flags): https://helm.sh/docs/overview/
+13. Kubernetes — Declarative Management of Kubernetes Objects Using Kustomize: https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/
+14. Helm — Version Skew Policy: https://helm.sh/docs/topics/version_skew/

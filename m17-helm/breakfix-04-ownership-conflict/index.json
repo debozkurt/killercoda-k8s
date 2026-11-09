@@ -1,0 +1,19 @@
+{
+  "title": "M17 — Break/fix 04: Ownership Conflict",
+  "description": "The voicemail install failed, and the chart renders without an error. Find what blocks the install and get voicemail running without an outage for its Service.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "A clean render that will not install", "text": "step1/text.md" },
+      { "title": "Adopt the object and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

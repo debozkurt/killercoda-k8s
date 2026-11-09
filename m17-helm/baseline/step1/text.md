@@ -1,59 +1,44 @@
 # Step 1 — The chart and the release
 
-A **chart** is a directory of templates plus a default `values.yaml`. A **release** is one installed instance of a chart, tracked by name. Start by looking at both.
+A **chart** is a directory of templates plus default values. A **release** is one installed instance of a chart, identified by name and namespace.
 
-## Confirm Helm is installed
+## Read the chart
 
 ```bash
 helm version --short
-```{{exec}}
-
-You should see a `v3.x` version string. Helm is a client-side binary — it talks to the same API server `kubectl` does; there is no server-side Helm component (that was Tiller, removed in Helm 3).
-
-## Read the chart on disk
-
-The `voicemail` chart lives at `/root/voicemail`:
-
-```bash
 ls -R /root/voicemail
 ```{{exec}}
 
-Four pieces: `Chart.yaml` (metadata), `values.yaml` (defaults), and `templates/` (the manifests-with-holes plus a `_helpers.tpl` of shared snippets).
-
-```bash
-cat /root/voicemail/Chart.yaml
-```{{exec}}
+Helm is a client-side binary. It talks to the same API server as `kubectl`, and nothing Helm-specific runs in the cluster. The chart has `Chart.yaml` (name and version), `values.yaml` (defaults) and `templates/` (manifests with placeholders, plus `_helpers.tpl` for shared snippets).
 
 ```bash
 cat /root/voicemail/values.yaml
 ```{{exec}}
 
-Note the keys: `replicaCount`, `image.repository`, `image.tag`, and `config.sipRealm`. Those are the exact key paths the templates read — a value set at any other path is ignored.
+Note the key paths: `replicaCount`, `image.tag`, `config.sipRealm`.
 
 ```bash
 cat /root/voicemail/templates/deployment.yaml
 ```{{exec}}
 
-This is a Deployment with `{{ .Values.replicaCount }}` where the replica count goes and `{{ .Values.image.tag }}` where the tag goes. The `{{ ... }}` are Go template actions filled in at render time. `sipRealm` is wrapped in `required` — render fails if it isn't supplied.
+Each `{{ .Values.<path> }}` is a Go template action. Helm replaces it at render time with the merged value at that exact path. `sipRealm` is wrapped in `required`, so a render without it stops with an error.
 
-## See the live release
+## Find the release
 
 ```bash
 helm list -n app-services
 ```{{exec}}
 
-One release: `voicemail`, `STATUS deployed`, `REVISION 1`, `CHART voicemail-0.1.0`. `helm list` shows what Helm manages; it does not list plain `kubectl apply`'d objects.
+One row: `voicemail`, `REVISION` 1, `STATUS` deployed, `CHART` voicemail-0.1.0.
 
 ```bash
 kubectl get deploy,svc,pods -n app-services -l app=voicemail
 ```{{exec}}
 
-The release produced a Deployment (2 pods `Running`), a Service, and the pods behind it — ordinary Kubernetes objects. Helm rendered and applied them; the cluster doesn't know or care that Helm was involved.
-
-## Verify
+The release produced ordinary objects: a Deployment with 2 Pods and a Service.
 
 ```bash
-helm status voicemail -n app-services | head -5
+kubectl describe deployment voicemail -n app-services | head -12
 ```{{exec}}
 
-`STATUS: deployed`. Move on to step 2.
+Read the `Labels:` and `Annotations:` lines. Helm wrote `app.kubernetes.io/managed-by=Helm` and the two `meta.helm.sh/release-*` annotations. That metadata is how Helm recognizes an object it owns.

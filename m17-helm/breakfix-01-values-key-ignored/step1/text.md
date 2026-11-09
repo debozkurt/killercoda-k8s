@@ -1,52 +1,39 @@
-# Step 1 — Why the override did nothing
+# Step 1 — Where the value went
 
-The release is `deployed` and the values file says 3 replicas. Start where the alert points.
+Start with what the release was asked for, then compare it with what runs.
 
-## Confirm the gap
+## Compare the request with the result
 
 ```bash
 helm get values voicemail -n app-services
-```{{exec}}
-
-You supplied `replicas: 3` and `config.sipRealm`. That's what you asked for.
-
-```bash
 kubectl get deployment voicemail -n app-services
 ```{{exec}}
 
-`READY 1/1`. One pod. The release says 3, the cluster says 1. The value didn't take.
+The user-supplied values include a 3. The Deployment reads `READY` 1/1.
 
-## Read what actually rendered
+## Read what Helm rendered
 
-`helm get values` shows what you *asked for*. `helm get manifest` shows what Helm *rendered and applied*:
+`helm get values` shows the input. `helm get manifest` shows the output that Helm applied. The manifest is longer than a screen, so filter it:
 
 ```bash
-helm get manifest voicemail -n app-services | grep -E "replicas:"
+helm get manifest voicemail -n app-services | grep 'replicas:'
 ```{{exec}}
 
-`replicas: 1`. So the template rendered the default, not your 3. The override never reached the manifest.
+`replicas: 1`. The render did not use the 3, so the problem is between the input and the template.
 
-## Find the key path the chart actually reads
+## Read the computed values
 
-Look at the effective (merged) values — everything Helm computed, defaults included:
+`-a` prints every value the render used, chart defaults included:
 
 ```bash
 helm get values voicemail -n app-services -a
 ```{{exec}}
 
-Read it carefully. You'll see **both**:
-
-```text
-replicaCount: 1     <- what the template reads (chart default)
-replicas: 3         <- what you set (a key nothing reads)
-```
-
-Your `replicas` sits in the values, untouched, doing nothing. Confirm which key the chart consumes:
+Two keys sit next to each other: `replicaCount: 1` and `replicas: 3`. Only one of them can be the key the template reads.
 
 ```bash
-helm show values /root/voicemail | grep -i replica
+helm show values /root/voicemail
+cat /root/voicemail/templates/deployment.yaml
 ```{{exec}}
 
-The chart's key is **`replicaCount`**. The template contains `replicas: {{ .Values.replicaCount }}` — it never looks at `.Values.replicas`. Helm doesn't validate override keys against the chart, so a typo or wrong path is kept silently and simply never used.
-
-That's the whole bug: **right value, wrong key path.** Move to step 2 to fix it.
+The chart defines `replicaCount`, and the template line reads `replicas: {{ .Values.replicaCount }}`. Nothing reads `.Values.replicas`. Helm does not check override keys against the chart, so it stored the unused key and rendered the default.

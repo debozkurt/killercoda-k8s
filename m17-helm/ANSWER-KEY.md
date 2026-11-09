@@ -1,194 +1,238 @@
 # M17 — Helm Fundamentals — Answer Key
 
-> Self-grading reference. Try each scenario first, then check your diagnostic path against the canonical one. Instructors running the lab live can use these sections as a teaching script.
-> Environment: Killercoda `kubernetes-kubeadm-2nodes` with the Polyphone baseline, the Helm CLI (v3), and the `voicemail` chart at `/root/voicemail`.
+> Self-grading reference. Try each scenario first, then compare your diagnostic path with the canonical one. Instructors can use these sections as a teaching script.
+> Environment: Killercoda `kubernetes-kubeadm-2nodes` (Kubernetes about v1.30) with the Polyphone fleet, Helm v4.3.1, and the `voicemail` chart at `/root/voicemail`. Helm 4.3 documents support for Kubernetes 1.34 to 1.37. Every command in these labs was checked on Kubernetes v1.30.10.
 
 ## Lesson summary
 
-M17 teaches the Helm pipeline — chart + values → rendered manifests → applied release — and the three ways it breaks. The `baseline/` scenario tours a healthy release: reading the chart, rendering with `helm template`, comparing to `helm get manifest`, upgrading a value, and walking `helm history` through a rollback. Three break/fix scenarios then isolate one failure stage each:
+M17 teaches Helm as three steps around an apply: **render** the chart with values, **record** a revision, **apply** the manifests. Then Pods start or fail at **runtime**. Each failure lands in one stage, and the stage decides the first command:
 
-- `breakfix-01-values-key-ignored` — *a value set at a key the chart doesn't read is kept but inert*
-- `breakfix-02-bad-upgrade-rollback` — *a green `helm status` hides a stuck rollout; the revision history is the fix*
-- `breakfix-03-render-required-value` — *a render failure aborts before the cluster is touched; read the error and reproduce it offline*
+| Stage | Trace | First command | Scenario |
+|-------|-------|---------------|----------|
+| Render, wrong | No error, wrong value | `helm get values -a`, then `helm get manifest` | `breakfix-01-values-key-ignored` |
+| Runtime | `deployed`, Pods fail | `kubectl get deploy -o wide`, then `helm history` | `breakfix-02-bad-upgrade-rollback` |
+| Render, error | `execution error at (...)`, nothing in the cluster | `helm template` | `breakfix-03-render-required-value` |
+| Apply | `cannot be imported into the current release` | `kubectl describe` the named object | `breakfix-04-ownership-conflict` |
+| Record | `another operation ... is in progress` | `helm history` | `breakfix-05-release-stuck-pending` |
+
+Five labs is above the usual count. The set is one differential: one lab for each stage, and two for render, because a render can fail loudly or succeed with the wrong value. The baseline's last step adds the Helm 4 apply conflict that a hand edit causes.
 
 ## Baseline tour reference
 
-No broken state. Each step produces predictable output.
-
-- **Step 1 (chart and release):** `helm version --short` shows `v3.x`. The chart at `/root/voicemail` has `Chart.yaml`, `values.yaml`, and `templates/`. `helm list -n app-services` shows the `voicemail` release, `deployed`, revision 1. The keys the templates read are `replicaCount`, `image.*`, `service.port`, and `config.*` — anything set elsewhere is ignored.
-- **Step 2 (render pipeline):** `helm template` renders locally (no cluster); `helm get manifest` shows what's live. For an un-drifted release they agree. This is the "is the cluster running what I think?" pair.
-- **Step 3 (values and overrides):** `helm get values` shows only what you supplied; `helm get values -a` shows the merged effective values. Precedence is `values.yaml < -f < --set`. The `helm upgrade --set replicaCount=3` takes the release to revision 2 and 3 pods.
-- **Step 4 (releases and history):** `helm history` is the timeline, `helm status` the snapshot. `helm rollback voicemail 1` creates revision 3 (a roll-*forward* to revision 1's manifests). Release state lives in Secrets labeled `owner=helm`.
+- **Step 1 (chart and release):** `helm version --short` prints `v4.3.1`. `helm list -n app-services` shows `voicemail`, revision 1, `deployed`. `describe deployment` shows the label `app.kubernetes.io/managed-by=Helm` and the annotations `meta.helm.sh/release-name` and `meta.helm.sh/release-namespace`.
+- **Step 2 (render and compare):** `helm template` with the install's values prints the same manifest as `helm get manifest`. The stored manifest answers "what should run?", because the chart on disk can change after an install.
+- **Step 3 (values and an upgrade):** `helm get values` lists `replicaCount: 2` and `config.sipRealm`. `-a` adds every chart default. The upgrade with `--reuse-values --set replicaCount=3` records revision 2, and the Deployment reaches 3/3.
+- **Step 4 (history and rollback):** `helm rollback voicemail 1` records revision 3, `Rollback to 1`, and the Deployment returns to 2/2. Three Secrets `sh.helm.release.v1.voicemail.v1` to `.v3` carry `status=` labels that mirror `helm history`.
+- **Step 5 (hand edit):** after `kubectl scale --replicas=4`, the next `helm upgrade` fails with `conflict with "kubectl" with subresource "scale" using apps/v1: .spec.replicas`. Revision 4 is `failed`, and the Deployment still wants 4. `--force-conflicts` records revision 5 and returns it to 2.
 
 ---
 
-## Break/fix 01 — Values Key Ignored
+## Break/fix 01 — Values key ignored
 
-**Symptom:** The `voicemail` release was installed from a values file that sets 3 replicas, `helm install` exited 0, and `helm list` shows `deployed`. But the Deployment runs one pod. The override appears in `helm get values` yet has no effect.
+**Symptom:** the release is `deployed`, and `helm get values` shows a 3. The Deployment reads `READY 1/1`.
 
-**Root cause:** The values file sets `replicas: 3`. The chart's Deployment template reads `.Values.replicaCount`, not `.Values.replicas`. Helm does not validate override keys against the chart, so it keeps the unknown `replicas` key in the release's values and renders the chart's default `replicaCount: 1`<sup><a href="https://helm.sh/docs/chart_template_guide/values_files/">[1]</a></sup>. Right value, wrong key path.
+**Root cause:** `/root/voicemail-values.yaml` sets `replicas: 3`. The template reads `.Values.replicaCount`. Helm does not check override keys against the chart, so it stores the unused key and renders the default `replicaCount: 1`<sup><a href="https://helm.sh/docs/chart_template_guide/values_files/">[1]</a></sup>.
 
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. Confirm the gap: what you asked for vs what's running
-helm get values voicemail -n app-services      # shows replicas: 3 (what you supplied)
-kubectl get deployment voicemail -n app-services   # READY 1/1
-
-# 2. Read what actually rendered — the authoritative output
-helm get manifest voicemail -n app-services | grep -E "replicas:"
-# replicas: 1  -> the override never reached the manifest
-
-# 3. See the merged/effective values — the wrong key sits next to the real one
-helm get values voicemail -n app-services -a
-# replicaCount: 1   <- what the template reads (default)
-# replicas: 3       <- what you set (nothing reads this)
-
-# 4. Confirm the key the chart actually consumes
-helm show values /root/voicemail | grep -i replica   # replicaCount
+helm get values voicemail -n app-services                 # USER-SUPPLIED: replicas: 3
+helm get manifest voicemail -n app-services | grep 'replicas:'   # replicas: 1
+helm get values voicemail -n app-services -a              # replicaCount: 1 AND replicas: 3
+helm show values /root/voicemail                          # the chart defines replicaCount
 ```
 
-**Fix:** Set the value at the key the chart reads. `--reuse-values` preserves the required `sipRealm`:
+**Fix:** correct the file, then upgrade from it without `--reuse-values`, so the stray key leaves the release:
 
 ```bash
-helm upgrade voicemail /root/voicemail \
-  --namespace app-services \
-  --reuse-values \
-  --set replicaCount=3
+sed -i 's/^replicas:/replicaCount:/' /root/voicemail-values.yaml
+helm upgrade voicemail /root/voicemail -n app-services -f /root/voicemail-values.yaml
 ```
 
-**Verify:**
-
-```bash
-helm get manifest voicemail -n app-services | grep -E "replicas:"   # replicas: 3
-kubectl get deployment voicemail -n app-services                    # READY 3/3
-```
+**Verify:** `helm get values` shows `replicaCount: 3` and no `replicas`. The manifest renders `replicas: 3`, and the Deployment reaches 3/3.
 
 **What this scenario tests:**
 
-- Did you distinguish `helm get values` (what you asked for) from `helm get manifest` (what rendered)? The gap between them *is* the bug.
-- Did you reach for `helm get values -a` to see the effective merged values, where the stray key and the real key sit side by side?
-- Do you know Helm keeps unknown override keys silently — so "the value is in the release" doesn't mean "the template uses it"?
+- Did you compare the input (`helm get values`) with the output (`helm get manifest`) before you suspected the cluster?
+- Did you use `-a` to see the unused key next to the real one?
+- Did you fix the file, or only the live release?
 
-The anti-pattern: trust `helm get values` alone, see `replicas: 3`, and conclude Helm is broken — instead of checking what rendered.
+The anti-pattern is `helm upgrade --reuse-values --set replicaCount=3`. It gives 3 Pods, keeps `replicas: 3` in the release, and leaves the file wrong for the next install.
 
-**Expected time:** 3–8 minutes once the values-vs-manifest instinct is built; longer the first time if you never compare the two.
+**Expected time:** 3–8 min once you compare values with the manifest; longer if you trust `helm get values` alone.
 
-**Production thinking:** The `--set` fixes the live release; the values *file* on disk still has the wrong key, so the next install repeats the bug. The durable fix corrects the file in git (a reviewed commit) so the source of truth is right. Better still, ship a `values.schema.json` with the chart: it rejects unknown/mistyped keys at install time, converting this silent no-op into a hard error for every consumer.
+**Production thinking:** run `helm template` in CI and assert on the rendered fields that matter, such as replicas, image and resources. A chart you own can ship a `values.schema.json` with `additionalProperties: false`, which makes Helm reject an unknown key during install, upgrade, lint and template. For a chart you do not own, `helm lint --strict` and a render assertion catch most of this class.
 
 ---
 
-## Break/fix 02 — Bad Upgrade, Rollback
+## Break/fix 02 — Bad upgrade, rollback
 
-**Symptom:** A `helm upgrade` bumped the `voicemail` image tag, exited 0, and `helm status` reports `deployed`, revision 2. But the rollout won't finish: two pods `Running`, one stuck `ImagePullBackOff`, and `kubectl get deployment` shows `UP-TO-DATE 1` against a replica count of 2.
+**Symptom:** `helm status` reads `deployed`, revision 2. Two Pods run and one is in `ImagePullBackOff`. `kubectl get deploy -o wide` reads `READY 2/2`, `UP-TO-DATE 1`, `IMAGES nginx:1.25.99`.
 
-**Root cause:** The upgrade set `image.tag` to `1.25-eol-removed`, a tag that doesn't exist. The rendered manifest is valid, so Helm applied it and recorded revision 2 as `deployed` — Helm grades the apply, not Pod readiness (no `--wait` was passed)<sup><a href="https://helm.sh/docs/intro/using_helm/">[2]</a></sup>. The Deployment's rolling update creates one new-image pod that can't pull, and (with default `maxUnavailable`) keeps the old pods serving, so the rollout wedges rather than taking the app fully down.
+**Root cause:** revision 2 set `image.tag: 1.25.99`, which does not exist. Helm 4 `upgrade` defaults to `--wait=hookOnly`, so it reported `deployed` once the apply succeeded<sup><a href="https://helm.sh/docs/intro/using_helm/">[2]</a></sup>. The rolling update keeps the old Pods because the new Pod never becomes ready.
 
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. Helm's view vs the workload's view
-helm status voicemail -n app-services            # STATUS: deployed, REVISION: 2
-kubectl get pods -n app-services -l app=voicemail # 2 Running + 1 ImagePullBackOff
-kubectl get deployment voicemail -n app-services  # UP-TO-DATE 1 -> rollout stuck
-
-# 2. Confirm the cause
-kubectl describe pod -n app-services -l app=voicemail | grep -A3 Failed
-# Failed to pull image "nginx:1.25-eol-removed"
-
-# 3. Read the history for the recovery target
-helm history voicemail -n app-services            # rev 1 superseded (good), rev 2 deployed (bad)
-helm get values voicemail -n app-services --revision 1 -a | grep -A2 image  # rev 1 used nginx:1.25
+helm status voicemail -n app-services | head -7             # deployed, revision 2
+kubectl get deployment voicemail -n app-services -o wide    # UP-TO-DATE 1, IMAGES nginx:1.25.99
+kubectl describe pod <stuck-pod> -n app-services            # Failed to pull image ... not found
+helm history voicemail -n app-services                      # revision 1 is the target
+helm get values voicemail -n app-services --revision 2      # adds image.tag: 1.25.99
 ```
 
-**Fix:** Roll back to the last good revision through Helm:
+**Fix:**
 
 ```bash
 helm rollback voicemail 1 -n app-services
+kubectl rollout status deployment/voicemail -n app-services --timeout=60s
 ```
 
-**Verify:**
-
-```bash
-helm history voicemail -n app-services   # revision 3, "Rollback to 1", deployed
-kubectl get deployment voicemail -n app-services \
-  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'   # nginx:1.25
-kubectl get deployment voicemail -n app-services                 # UP-TO-DATE matches replicas
-```
+**Verify:** `helm history` shows revision 3, `deployed`, `Rollback to 1`. `IMAGES` reads `nginx:1.25`, and `UP-TO-DATE` equals `READY`.
 
 **What this scenario tests:**
 
-- Did you read past `helm status: deployed` to `kubectl get pods` / `rollout status`? Helm "deployed" means manifest applied, not workload healthy.
-- Did you use `helm history` to find a known-good revision instead of hand-reconstructing the fix?
-- Did you recover *through Helm* (`helm rollback`) rather than `kubectl rollout undo` or `kubectl edit`?
+- Did you read past `deployed` to the Deployment and the Pods?
+- Did you find the change by comparing the values of two revisions, instead of guessing?
+- Did you recover through Helm, so that the release record and the cluster agree?
 
-The anti-pattern: `kubectl rollout undo deployment/voicemail`. It fixes the live object but leaves Helm's stored release on the broken revision 2 — so the next `helm upgrade` (or a GitOps reconcile) re-applies the break, and now the release record and the cluster disagree.
+The anti-pattern is `kubectl rollout undo`. It restores the Pods, leaves the release on revision 2, and gives `kubectl` ownership of the image field. The next `helm upgrade` then fails with `conflict with "kubectl" ... .spec.template.spec.containers[name="app"].image`, and with `--force-conflicts` it applies the bad tag again.
 
-**Expected time:** 3–7 minutes. The slow part is trusting the green `helm status` and not looking at Pods.
+**Expected time:** 3–7 min. The slow part is trusting the green status.
 
-**Production thinking:** `helm rollback` is the right *incident* action. The durable fix corrects the image tag in the values in git and rolls *forward* (a new, good revision) so the release history reflects intent. To make this class of failure loud instead of silent, pipelines should run `helm upgrade --atomic --wait --timeout 5m`: the upgrade then waits for readiness and auto-rolls-back on failure, so a bad tag never reports `deployed`. Note Helm 4's `--wait` needs the `watch` RBAC verb on the release's resources.
+**Production thinking:** the rollback is the incident action. The durable fix corrects the tag in the values file in git and rolls forward to a new good revision. Deploy jobs that must grade readiness run `helm upgrade --rollback-on-failure --timeout 5m`. That flag implies `--wait=watcher`, so a bad tag fails the job and Helm returns to the last successful revision<sup><a href="https://helm.sh/docs/helm/helm_upgrade/">[3]</a></sup>. `--atomic` is the deprecated Helm 3 name for the same flag.
 
 ---
 
-## Break/fix 03 — Render Required Value
+## Break/fix 03 — Render required value
 
-**Symptom:** A deploy job ran `helm install voicemail` and failed non-zero. Nothing deployed — `helm list` shows no release, and there are no `voicemail` objects in the namespace. There's no Pod to inspect.
+**Symptom:** the install exits 1. `helm list` shows no release in any status, and the namespace has no `voicemail` objects and no release Secret.
 
-**Root cause:** The install omitted `config.sipRealm`. The Deployment template wraps that value in `required`, which aborts the *render* when it's empty<sup><a href="https://helm.sh/docs/chart_template_guide/functions_and_pipelines/">[3]</a></sup>. Render happens client-side, before anything is applied, so the failure never reaches the cluster: no release is recorded, no objects are created.
+**Root cause:** the install omitted `config.sipRealm`. The template wraps it in `required`, which stops the render<sup><a href="https://helm.sh/docs/chart_template_guide/function_list/">[4]</a></sup>. Helm renders before it creates the release record, so nothing reached the cluster.
 
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. Confirm the release is genuinely absent (not half-installed)
-helm list -n app-services
-helm list -A --all --pending --failed | grep voicemail || echo "no release in any state"
-kubectl get all -n app-services -l app=voicemail   # nothing
-
-# 2. Make the failure show itself — re-run the install
-helm install voicemail /root/voicemail --namespace app-services --set replicaCount=2
-# Error: execution error at (voicemail/templates/deployment.yaml:NN:MM):
-#        voicemail: .Values.config.sipRealm is required (the SIP realm to register under)
-
-# 3. Reproduce offline — no cluster needed to debug a render error
-helm template voicemail /root/voicemail --set replicaCount=2   # same error
-
-# 4. Confirm the chart's expectation
-helm show values /root/voicemail | grep -A2 "config:"   # sipRealm: "" (empty default)
+helm list -n app-services                                   # no voicemail row
+kubectl get secret -n app-services -l owner=helm            # no release Secret
+helm install voicemail /root/voicemail -n app-services --set replicaCount=2
+# Error: INSTALLATION FAILED: execution error at (voicemail/templates/deployment.yaml:25:24):
+#   voicemail: .Values.config.sipRealm is required (the SIP realm to register under)
+helm template voicemail /root/voicemail --set replicaCount=2   # same error, offline
+helm show values /root/voicemail                               # sipRealm: ""
 ```
 
-**Fix:** Supply the required value (render clean first if you like):
+**Fix:**
 
 ```bash
-helm install voicemail /root/voicemail \
-  --namespace app-services \
-  --set replicaCount=2 \
-  --set config.sipRealm=polyphone.example
+helm install voicemail /root/voicemail -n app-services \
+  --set replicaCount=2 --set config.sipRealm=polyphone.example
 ```
 
-**Verify:**
-
-```bash
-helm list -n app-services                          # voicemail, deployed
-kubectl get deployment voicemail -n app-services   # READY 2/2
-kubectl get deployment voicemail -n app-services \
-  -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="SIP_REALM")].value}{"\n"}'
-# polyphone.example
-```
+**Verify:** `helm list` shows `deployed`. `describe deployment` shows `SIP_REALM: polyphone.example` under `Environment:`, and `READY` reads 2/2.
 
 **What this scenario tests:**
 
-- Did you recognize a *render-stage* failure — no release, no objects — as different from a runtime failure, and stop looking for a Pod?
-- Did you read the render error, which names the template and the exact value?
-- Did you use `helm template` to reproduce and iterate offline instead of repeatedly hitting the cluster?
+- Did you recognize "no release, no objects, no events" as a render failure and stop looking in the cluster?
+- Did you read the error for the template, the line and the value?
+- Did you reproduce it with `helm template` instead of retrying the install?
 
-The anti-pattern: treat "nothing deployed" as a cluster/RBAC/scheduling problem and dig through events and nodes — when the failure was client-side, in the render, and the error message already named the cause.
+The anti-pattern is to search events, nodes and RBAC for a failure that happened on the client.
 
-**Expected time:** 2–5 minutes. `required` errors are self-describing once you know to re-run the install or `helm template`.
+**Expected time:** 2–5 min.
 
-**Production thinking:** `--set` on the command line works but relies on every caller remembering the value. The durable fix puts required inputs in a committed values file the pipeline always applies, so the install can't run without them. Chart-author's choice: `required` (hard-fail, correct when there's no safe default) versus a sensible default in `values.yaml` (convenient, correct when one exists). A value like a SIP realm that must differ per environment is a legitimate `required`; a value with an obvious default shouldn't be.
+**Production thinking:** put every required input in the values file that the deploy job applies, and run `helm template` with that file as a CI gate, so a render error never reaches a deploy. As a chart author, use `required` for a value with no safe default, such as a realm that differs per environment. Use a `values.yaml` default when a safe one exists.
+
+---
+
+## Break/fix 04 — Ownership conflict
+
+**Symptom:** the install exits 1 with `Service "voicemail" in namespace "app-services" exists and cannot be imported into the current release: invalid ownership metadata`. `helm template` succeeds. No release exists, and a `voicemail` Service does.
+
+**Root cause:** someone created the Service with `kubectl apply` before the move to Helm. It carries no `app.kubernetes.io/managed-by: Helm` label and no `meta.helm.sh/release-*` annotations. Helm adopts an existing object only when that metadata names the release, so the install stopped before it applied anything.
+
+**Diagnostic commands (the canonical path):**
+
+```bash
+kubectl get deploy,svc -n app-services -l app=voicemail      # a Service, no Deployment
+helm install voicemail /root/voicemail -n app-services \
+  --set replicaCount=2 --set config.sipRealm=polyphone.example   # names the object and the missing keys
+helm template voicemail /root/voicemail \
+  --set replicaCount=2 --set config.sipRealm=polyphone.example | head -20   # render is clean
+kubectl describe service voicemail -n app-services | head -8 # Labels: app=voicemail, Annotations: <none>
+```
+
+**Fix (adopt in place):**
+
+```bash
+kubectl label service voicemail -n app-services app.kubernetes.io/managed-by=Helm
+kubectl annotate service voicemail -n app-services \
+  meta.helm.sh/release-name=voicemail meta.helm.sh/release-namespace=app-services
+helm install voicemail /root/voicemail -n app-services \
+  --set replicaCount=2 --set config.sipRealm=polyphone.example
+```
+
+`helm install --take-ownership` skips the check and adopts in one command<sup><a href="https://helm.sh/docs/helm/helm_install/">[5]</a></sup>. Use it only after you confirm that no other release owns the object. Delete-and-recreate also works, but it drops the Service for a moment and gives it a new ClusterIP.
+
+**Verify:** the release is `deployed`, the Service has the same `CLUSTER-IP` as before, and `Endpoints:` lists two Pod addresses.
+
+**What this scenario tests:**
+
+- Did you rule out the render with `helm template` before you edited anything?
+- Did you read the object's metadata and compare it with a Helm-owned object?
+- Did you keep the Service in place, instead of deleting an object that callers use?
+
+**Expected time:** 3–6 min.
+
+**Production thinking:** a migration from raw manifests to a chart meets this error once for every object that already exists, one object per attempt. Script the adoption from a list of the chart's objects, or render the chart and annotate each object first. Before `--take-ownership`, check the `meta.helm.sh/release-name` annotation: if another release owns the object, two releases now fight over it.
+
+---
+
+## Break/fix 05 — Release stuck pending
+
+**Symptom:** every `helm upgrade` fails at once with `another operation (install/upgrade/rollback) is in progress`. No Helm process runs. One `voicemail` Pod is `Pending` with `Insufficient memory`.
+
+**Root cause:** a deploy job ran `helm upgrade --wait` with a 64Gi memory request. Helm recorded revision 2 as `pending-upgrade` before it applied. The new Pod could not schedule, so the wait continued until the runner was killed. Nothing changed revision 2's status after that, and an upgrade refuses while the latest revision is pending<sup><a href="https://helm.sh/docs/helm/helm_rollback/">[6]</a></sup>.
+
+**Diagnostic commands (the canonical path):**
+
+```bash
+helm status voicemail -n app-services | head -7      # STATUS: pending-upgrade, Preparing upgrade
+helm history voicemail -n app-services               # revision 2 pending-upgrade
+pgrep -a helm || echo 'no helm process'    # nothing is running
+kubectl get secret -n app-services -l owner=helm --show-labels   # status=pending-upgrade on v2
+kubectl get pods -n app-services -l app=voicemail    # one Pending (64Gi request)
+```
+
+**Fix:**
+
+```bash
+helm rollback voicemail 1 -n app-services
+helm upgrade voicemail /root/voicemail -n app-services --reuse-values \
+  --set config.greeting="Please leave a message after the tone."
+```
+
+A rollback does not check for a pending revision. It writes revision 3 as `deployed`, which removes the `Pending` Pod and the lock. The greeting upgrade then runs as revision 4.
+
+**Verify:** the latest revision is `deployed`. Two Pods run with a 32Mi memory request, and `GREETING` shows the new text.
+
+**What this scenario tests:**
+
+- Did you read the release record before you retried the upgrade?
+- Did you confirm that no Helm process still runs before you broke the lock?
+- Did you use `helm rollback`, instead of deleting revision Secrets?
+
+The anti-pattern is `kubectl delete secret sh.helm.release.v1.voicemail.v2`. It works here, but it deletes history, and a wrong choice deletes the record of the revision that runs now.
+
+**Expected time:** 4–8 min.
+
+**Production thinking:** prefer `--rollback-on-failure` with a `--timeout` shorter than the CI job's own timeout, so Helm ends the operation before the runner dies. Alert on any release whose latest status starts with `pending-` for longer than the deploy timeout: `helm list -A --pending` lists them. Run only one deploy job per release at a time. The pending check is a guard against concurrent upgrades, not a lease that expires.
 
 ## References
 
-1. Helm — Values Files (precedence) — https://helm.sh/docs/chart_template_guide/values_files/
-2. Helm — Using Helm (install / upgrade / rollback) — https://helm.sh/docs/intro/using_helm/
-3. Helm — Functions and Pipelines (`required`) — https://helm.sh/docs/chart_template_guide/functions_and_pipelines/
+1. Helm — Values Files (order of specificity): https://helm.sh/docs/chart_template_guide/values_files/
+2. Helm — Using Helm (install, upgrade, revisions): https://helm.sh/docs/intro/using_helm/
+3. Helm — `helm upgrade` (`--wait`, `--rollback-on-failure`): https://helm.sh/docs/helm/helm_upgrade/
+4. Helm — Template Function List (`required`): https://helm.sh/docs/chart_template_guide/function_list/
+5. Helm — `helm install` (`--take-ownership`): https://helm.sh/docs/helm/helm_install/
+6. Helm — `helm rollback`: https://helm.sh/docs/helm/helm_rollback/

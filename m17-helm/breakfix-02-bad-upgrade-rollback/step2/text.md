@@ -1,40 +1,27 @@
-# Step 2 — Roll back and verify
+# Step 2 — Roll back through Helm
 
-Revision 1 is known-good. Roll the release back to it.
+Recover through Helm, so that the release record and the live Deployment describe the same revision.
 
 ## Roll back to revision 1
 
 ```bash
 helm rollback voicemail 1 -n app-services
+kubectl rollout status deployment/voicemail -n app-services --timeout=60s
 ```{{exec}}
 
-A rollback re-applies revision 1's manifests as a **new** revision (3). It's a forward action, not a delete — the bad revision 2 stays in the history for the record.
-
-Watch the stuck pod clear:
-
-```bash
-kubectl get pods -n app-services -l app=voicemail -w
-```{{exec}}
-
-The `ImagePullBackOff` pod disappears (its ReplicaSet scales to zero) and you're left with two `Running` pods on the good image. Press `Ctrl-C` when it settles.
+Helm re-applies revision 1's manifest as revision 3. The Deployment scales the failed ReplicaSet to zero and the rollout completes.
 
 ## Verify
 
 ```bash
 helm history voicemail -n app-services
+kubectl get deployment voicemail -n app-services -o wide
 ```{{exec}}
 
-Revision 3, `Rollback to 1`, `deployed`.
+Revision 3 reads `deployed`, `Rollback to 1`. Revision 2 stays in the history. `IMAGES` reads nginx:1.25, and `UP-TO-DATE` equals `READY`.
 
-```bash
-kubectl get deployment voicemail -n app-services -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
-kubectl get deployment voicemail -n app-services
-```{{exec}}
+## Why not `kubectl rollout undo`
 
-Image is back to `nginx:1.25`; `UP-TO-DATE` matches the replica count — the rollout is complete.
+`kubectl rollout undo deployment/voicemail` also restores the old Pod template. It leaves two problems. The release record still says revision 2 with the bad tag. And in Helm 4, `kubectl` now owns the image field, so the next `helm upgrade` fails with `conflict with "kubectl" ... .spec.template.spec.containers[name="app"].image`. With `--force-conflicts`, that upgrade would apply the bad tag again.
 
-## Why not `kubectl rollout undo`?
-
-`kubectl rollout undo deployment/voicemail` would also swap the Deployment back to its old ReplicaSet — and it would leave Helm's stored release still pointing at the broken revision 2. The next `helm upgrade` (or a GitOps reconcile) re-applies revision 2 and breaks it again. For a Helm-managed workload, recover *through Helm* so the release history and the live objects stay in agreement. See [ANSWER-KEY.md](https://github.com/debozkurt/killercoda-k8s/blob/main/m17-helm/ANSWER-KEY.md) for the drift discussion and the real fix (correct the tag in git, then roll forward).
-
-You're done with breakfix-02. See `finish.md`.
+The rollback is the incident fix. The durable fix corrects the tag in the values file in git and rolls forward. [ANSWER-KEY.md](https://github.com/debozkurt/killercoda-k8s/blob/main/m17-helm/ANSWER-KEY.md) has the comparison.

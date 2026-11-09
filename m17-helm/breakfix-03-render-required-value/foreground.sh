@@ -1,7 +1,6 @@
 #!/bin/bash
 
-echo "Waiting for the Polyphone baseline..."
-echo "(the voicemail install is expected to have failed — that's the scenario)"
+echo "Waiting for the Polyphone fleet..."
 echo ""
 
 while [ ! -f /tmp/.setup-complete ]; do
@@ -10,8 +9,8 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "Cluster is up. The voicemail release did not install. Confirm, then find out why:"
+echo "Cluster is ready. The voicemail deploy job failed. Start with:"
 echo ""
 echo "  helm list -n app-services"
-echo "  helm install voicemail /root/voicemail --namespace app-services --set replicaCount=2"
+echo "  kubectl get deploy,svc -n app-services -l app=voicemail"
 echo ""

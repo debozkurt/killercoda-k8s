@@ -1,49 +1,34 @@
-# Step 2 — Fix it and verify
+# Step 2 — Fix the file and verify
 
-The fix is to set the value at the key the chart reads: `replicaCount`, not `replicas`.
+The values file is the source of truth: the next install reads it again. Fix the key in the file, not only in the live release.
 
-## Upgrade with the correct key
-
-`--reuse-values` keeps the required `sipRealm` from the current release so you only state what changes:
-
-```bash
-helm upgrade voicemail /root/voicemail \
-  --namespace app-services \
-  --reuse-values \
-  --set replicaCount=3
-```{{exec}}
-
-`helm upgrade` re-renders with the corrected value and records a new revision. Watch the pods scale out:
-
-```bash
-kubectl get pods -n app-services -l app=voicemail -w
-```{{exec}}
-
-Once you see three `Running`, press `Ctrl-C`.
-
-## Confirm it took this time
-
-```bash
-helm get manifest voicemail -n app-services | grep -E "replicas:"
-```{{exec}}
-
-`replicas: 3` — the rendered manifest now matches intent, because the value landed on the key the template reads.
-
-```bash
-kubectl get deployment voicemail -n app-services
-```{{exec}}
-
-`READY 3/3`.
-
-## The durable fix
-
-`--set` fixes the live release, but the values *file* on disk still says `replicas: 3` — the next person who installs from it hits the same wall. The real fix corrects the file:
+## Correct the key
 
 ```bash
 sed -i 's/^replicas:/replicaCount:/' /root/voicemail-values.yaml
 cat /root/voicemail-values.yaml
 ```{{exec}}
 
-In production that file lives in git and the correction is a reviewed commit, not an in-place `sed`. For the full contrast — `--set` triage vs the values-in-git source of truth — see [ANSWER-KEY.md](https://github.com/debozkurt/killercoda-k8s/blob/main/m17-helm/ANSWER-KEY.md).
+The file now sets `replicaCount: 3`. In production this change is a reviewed commit to the values file in git.
 
-You're done with breakfix-01. See `finish.md`.
+## Upgrade from the file
+
+Without `--reuse-values`, the upgrade uses only this file plus the chart defaults. The stray key leaves the release values.
+
+```bash
+helm upgrade voicemail /root/voicemail \
+  --namespace app-services \
+  -f /root/voicemail-values.yaml
+```{{exec}}
+
+## Verify
+
+```bash
+helm get values voicemail -n app-services
+helm get manifest voicemail -n app-services | grep 'replicas:'
+kubectl get deployment voicemail -n app-services
+```{{exec}}
+
+The user-supplied values show `replicaCount: 3` and no `replicas` key. The manifest reads `replicas: 3`, and `READY` reaches 3/3 after a few seconds.
+
+`helm upgrade --reuse-values --set replicaCount=3` also gives 3 Pods. It keeps the unused key in the release and leaves the file wrong, so the next install from the file runs 1 Pod again. [ANSWER-KEY.md](https://github.com/debozkurt/killercoda-k8s/blob/main/m17-helm/ANSWER-KEY.md) compares the two fixes.

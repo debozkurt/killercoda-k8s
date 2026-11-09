@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Waiting for the Polyphone baseline + the voicemail release..."
+echo "Waiting for the Polyphone fleet and the voicemail release..."
 echo ""
 
 while [ ! -f /tmp/.setup-complete ]; do
@@ -9,8 +9,7 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "Cluster is up. The voicemail release was installed to run 3 replicas."
-echo "Check what's actually running:"
+echo "Cluster is ready. The load test asked for 3 voicemail replicas. Start with:"
 echo ""
 echo "  helm get values voicemail -n app-services"
 echo "  kubectl get deployment voicemail -n app-services"

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>M17 — Helm Fundamentals</title>
+<title>M17 Helm</title>
 <style>
   :root{
     --bg:#0f0f0f;
@@ -134,7 +134,6 @@
   .terminal .c{color:var(--accent)}   /* command */
   .terminal .o{color:var(--ink-faint)} /* output / comment */
   .terminal .g{color:var(--good)}      /* highlight */
-  .terminal .r{color:var(--bad)}       /* error */
 
   .phase{padding:.85rem 1.2rem;border-radius:10px;border:1px solid var(--line-2);
     background:var(--panel);font-family:var(--mono);font-size:clamp(1.05rem,1.25vw,1.25rem);text-align:center}
@@ -147,7 +146,6 @@
   .rung .rail{display:flex;flex-direction:column;align-items:center}
   .rung .dot{width:15px;height:15px;border-radius:50%;background:var(--line-2);margin-top:.4rem;z-index:2}
   .rung .dot.k{background:var(--bad)}
-  .rung .dot.g{background:var(--good)}
   .rung .line{flex:1;width:2px;background:var(--line)}
   .rung:last-child .line{display:none}
   .rung .body{padding-bottom:1.6rem}
@@ -207,393 +205,330 @@
 <div class="hint">← → navigate · F fullscreen</div>
 <div class="brand">M17 · HELM</div>
 <div class="hud"><b id="cur">1</b> / <span id="tot">1</span></div>
+
 <div class="deck" id="deck">
 
-  <!-- 1 · TITLE -->
+
   <section class="slide">
     <div class="wrap">
-      <h1>Helm Fundamentals</h1>
-      <p class="lead">The Kubernetes package manager. A chart plus values renders into manifests;
-        Helm applies them and records the result as a release you can upgrade and roll back.</p>
+      <h1>Helm:<br/>render, record, apply</h1>
+      <p class="lead">A chart plus values renders into manifests. Helm applies them and records the result as a numbered revision of a release.</p>
       <div class="note" style="margin-top:1.8rem">
-        <p>What runs in the cluster is the <strong>render's output</strong>, and Helm keeps its own
-          record of that output. Debugging Helm means reading its state — values, manifest, history —
-          not just the cluster's.</p>
+        <p>Each failure lands in one stage. Helm keeps its own record of each stage, so read that record as well as the cluster.</p>
       </div>
     </div>
   </section>
 
-  <!-- 2 · OBJECTIVES -->
   <section class="slide">
     <div class="wrap">
-      <h2>What you'll walk away with</h2>
+      <h2>Four stages, four kinds of failure</h2>
+      <div class="flow" style="margin:1.4rem 0;justify-content:center">
+        <div class="node"><div class="t">RENDER</div><div class="s">client side</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="t">RECORD</div><div class="s">revision Secret</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="t">APPLY</div><div class="s">API server</div></div>
+        <div class="arrow">→</div>
+        <div class="node good"><div class="t">RUNTIME</div><div class="s">Pods start</div></div>
+      </div>
+      <div class="sigs">
+        <div class="sig"><span class="lbl">render</span><span class="val">a missing <code>required</code> value stops it; a wrong key path renders the default</span></div>
+        <div class="sig"><span class="lbl">record</span><span class="val">Helm writes the revision as pending before it applies</span></div>
+        <div class="sig"><span class="lbl">apply</span><span class="val">an unowned object or a field owned by another manager stops it</span></div>
+        <div class="sig"><span class="lbl">runtime</span><span class="val">Helm reports <code>deployed</code> whether or not the Pods start</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>A chart is templates plus default values</h2>
+      <div class="grid-2">
+<div class="terminal">
+voicemail/
+  Chart.yaml        name, version
+  values.yaml       default inputs
+  templates/
+    _helpers.tpl    shared snippets
+    deployment.yaml
+    service.yaml
+</div>
+<div class="terminal">
+spec:
+  replicas: {{ .Values.replicaCount }}
+  ...
+  # image: from .Values.image.repository
+  #        and .Values.image.tag
+</div>
+      </div>
       <ul>
-        <li>Read a chart on disk — <code>Chart.yaml</code>, <code>values.yaml</code>,
-          <code>templates/</code> — and know which keys the templates actually consume</li>
-        <li>Trace a value from your <code>--set</code>/<code>-f</code> input through the render to the
-          live object with <code>helm template</code> and <code>helm get manifest</code></li>
-        <li>Reason about <strong>values precedence</strong>, and why Helm silently keeps override keys
-          it never reads</li>
-        <li>Use the release model — revisions, <code>helm history</code>, <code>helm status</code>,
-          <code>helm rollback</code> — to recover from a bad upgrade</li>
-        <li>Read past a green <code>helm status</code> to the Pods that Helm never waited on</li>
-        <li>Decide when Helm is the right tool and when <strong>Kustomize</strong> fits better</li>
+        <li>A template reads specific key paths, such as <code>replicaCount</code>.</li>
+        <li>At render time Helm replaces each action with the merged value at that exact path.</li>
       </ul>
     </div>
   </section>
 
-  <!-- 3 · MENTAL MODEL + PIPELINE FLOW -->
   <section class="slide">
     <div class="wrap">
-      <h2>Helm is render plus bookkeeping<br/>over <code>kubectl apply</code></h2>
-      <p class="sub">It does two jobs the API server doesn't: it turns one parameterized chart into
-        per-environment manifests, and it remembers what it applied so it can upgrade and roll back
-        as a unit.</p>
-      <div class="flow" style="justify-content:center;gap:.7rem;margin:2rem 0 1.4rem">
-        <div class="node"><div class="t">Chart + values</div><div class="s">defaults + overrides</div></div>
-        <div class="arrow"><span class="lbl">merge</span>&rarr;</div>
-        <div class="node"><div class="t">Render</div><div class="s">templates → YAML</div></div>
-        <div class="arrow"><span class="lbl">apply</span>&rarr;</div>
-        <div class="node good"><div class="t">Release</div><div class="s">a recorded revision</div></div>
-        <div class="arrow">&rarr;</div>
-        <div class="node"><div class="t">Live objects</div><div class="s">Deployment, Service</div></div>
-      </div>
-      <div class="note">
-        <p>The pipeline has three stages — <strong>merge</strong>, <strong>render</strong>,
-          <strong>apply</strong> — and every failure this module covers lives in exactly one of them.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 4 · THE SPINE: three failures, one per stage -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Three ways Helm bites, one per stage</h2>
-      <p class="sub">None of them looks like a normal Kubernetes problem. Each fails at a different
-        point in the pipeline and leaves a different signature.</p>
-      <div class="cards c3" style="margin-top:1.5rem">
-        <div class="card warn">
-          <h3>Value carried but inert</h3>
-          <p>An override sits at a key the chart never reads. It renders the default anyway — no error.</p>
-          <div class="sigs">
-            <div class="sig"><span class="lbl">stage</span><span class="val">merge → render</span></div>
-            <div class="sig"><span class="lbl">read</span><span class="val"><code>get values -a</code> vs <code>get manifest</code></span></div>
-          </div>
-        </div>
-        <div class="card bad">
-          <h3>Render aborts, nothing deploys</h3>
-          <p>A <code>required</code> value is missing, so the render fails client-side. No manifest,
-            no Pod to describe.</p>
-          <div class="sigs">
-            <div class="sig"><span class="lbl">stage</span><span class="val">render</span></div>
-            <div class="sig"><span class="lbl">read</span><span class="val">the error, then <code>helm template</code></span></div>
-          </div>
-        </div>
-        <div class="card bad">
-          <h3>Applied, but Pods wedged</h3>
-          <p>A valid-but-wrong manifest applies cleanly. Helm records <code>deployed</code> while the
-            rollout is stuck.</p>
-          <div class="sigs">
-            <div class="sig"><span class="lbl">stage</span><span class="val">apply</span></div>
-            <div class="sig"><span class="lbl">read</span><span class="val"><code>kubectl get pods</code>, then <code>helm history</code></span></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 5 · THE THREE VIEWS -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Helm keeps three views<br/>the plain cluster can't give you</h2>
-      <p class="sub">Because Helm records its own inputs and outputs, you compare these three against
-        the live objects — and the discrepancy names the stage that failed.</p>
-      <div class="cards c3" style="margin-top:1.5rem">
-        <div class="card">
-          <h3><code>helm get values</code></h3>
-          <p>The <strong>inputs</strong> — the values that fed the render. Add <code>-a</code> for the
-            effective merge, defaults included.</p>
-        </div>
-        <div class="card">
-          <h3><code>helm get manifest</code></h3>
-          <p>The <strong>rendered output</strong> Helm actually applied, read back from stored release
-            state — the authoritative answer, not the chart on disk.</p>
-        </div>
-        <div class="card">
-          <h3><code>helm history</code></h3>
-          <p>The <strong>timeline</strong> of revisions. Every install, upgrade, and rollback is a
-            numbered entry with a status.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 6 · CHART ANATOMY -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>A chart is inputs and templates</h2>
-      <div class="grid-2 vcenter">
-        <div>
-          <p><code>values.yaml</code> holds the defaults; <code>templates/</code> holds manifests with
-            holes. <code>helm install</code> merges your overrides over the defaults, evaluates the
-            templates, and applies the result.</p>
-          <ul>
-            <li>A template reads <strong>specific key paths</strong> — it pulls the ones it names and
-              ignores every other key in your values</li>
-            <li>Templates are Go <code>text/template</code> plus the Sprig functions, so values have
-              types and a missing key renders as <code>&lt;no value&gt;</code>, not an error</li>
-          </ul>
-        </div>
-        <div class="card">
-          <h3><code>templates/deployment.yaml</code></h3>
-          <div class="terminal" style="margin-top:.7rem">
-<span class="o"># the template names the key it reads</span>
-spec:
-  replicas: <span class="g">{{ .Values.replicaCount }}</span>
-  # ...
-    image: <span class="g">"{{ .Values.image.repository }}:{{ .Values.image.tag }}"</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 7 · helm template / helm get manifest -->
-  <section class="slide">
-    <div class="wrap">
-      <h2><code>helm template</code> renders offline;<br/><code>required</code> fails before the cluster</h2>
-      <p class="sub"><code>helm template</code> runs merge + render locally and prints the manifests
-        without touching the cluster — the most useful command in the kit. It answers "what would
-        these values produce?" and reproduces render errors offline.</p>
-      <div class="terminal" style="margin-top:1.2rem">
-<span class="o"># see what the values render to — no cluster needed</span>
-<span class="c">helm</span> template voicemail ./chart -f prod-values.yaml
-
-<span class="o"># a required value that is missing aborts the render, client-side</span>
-<span class="r">Error:</span> execution error: sipRealm is required
-      </div>
-      <div class="note warn" style="margin-top:1.2rem">
-        <p>A <code>required</code> failure happens before anything is applied — there is no Pod, no
-          event, nothing for the normal <code>get → describe → events</code> loop to find. The error
-          text and <code>helm template</code> are the entire diagnosis.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 8 · VALUES PRECEDENCE STAIRCASE -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Values merge in a fixed precedence,<br/>lowest to highest</h2>
-      <div class="flow" style="justify-content:center;gap:.7rem;margin:1.8rem 0 1.4rem">
+      <h2>Values merge in order of specificity</h2>
+      <div class="flow" style="margin:1.2rem 0;justify-content:center">
         <div class="node"><div class="t">values.yaml</div><div class="s">chart defaults</div></div>
-        <div class="arrow"><span class="lbl">then</span>&rarr;</div>
-        <div class="node"><div class="t">-f valuesA</div><div class="s">earlier file</div></div>
-        <div class="arrow"><span class="lbl">then</span>&rarr;</div>
-        <div class="node"><div class="t">-f valuesB</div><div class="s">rightmost wins</div></div>
-        <div class="arrow"><span class="lbl">then</span>&rarr;</div>
-        <div class="node good"><div class="t">--set</div><div class="s">highest</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="t">parent values</div><div class="s">subcharts only</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="t">-f files</div><div class="s">rightmost wins</div></div>
+        <div class="arrow">→</div>
+        <div class="node good"><div class="t">--set</div><div class="s">wins last</div></div>
       </div>
-      <div class="grid-2 tight">
-        <div class="note"><p>Repeated <code>-f</code> files layer left to right; the rightmost wins a
-          conflict. <code>--set</code> beats every file.</p></div>
-        <div class="note"><p>It is a <strong>deep merge</strong>, not a replace: a file that sets
-          <code>image.tag</code> leaves <code>image.repository</code> at the chart default.</p></div>
-      </div>
+      <ul>
+        <li>A later source wins a conflict.</li>
+        <li>The merge is deep: a file that sets <code>image.tag</code> keeps the chart's <code>image.repository</code>.</li>
+      </ul>
     </div>
   </section>
 
-  <!-- 9 · WRONG KEY SILENTLY IGNORED -->
   <section class="slide">
     <div class="wrap">
-      <h2>Helm does not validate your overrides</h2>
-      <p class="sub">Set the wrong key — a typo, or <code>replicas</code> when the chart reads
-        <code>replicaCount</code> — and Helm keeps your key in the release values and renders the
-        default anyway. No warning.</p>
-      <div class="grid-2 tight" style="margin-top:1.1rem">
-        <div class="terminal">
-<span class="o"># what you ASKED for — shows your (wrong) key, misleading alone</span>
-<span class="c">helm</span> get values voicemail
+      <h2>Helm keeps an override key<br/>that no template reads</h2>
+      <div class="grid-2">
+<div class="terminal">
+<span class="c">$ helm get values voicemail</span>
+USER-SUPPLIED VALUES:
+replicas: 3
 
-<span class="o"># what actually TOOK — effective merge, defaults included</span>
-<span class="c">helm</span> get values voicemail <span class="g">-a</span>
-
-<span class="o"># what RENDERED and applied — the ground truth</span>
-<span class="c">helm</span> get manifest voicemail
-        </div>
-        <div>
-          <div class="card bad">
-            <h3>The wrong-key signature</h3>
-            <p>Your key appears in <code>get values</code>, sits <em>beside</em> the real key in
-              <code>get values -a</code>, and never reaches <code>get manifest</code>.</p>
-          </div>
-          <div class="note" style="margin-top:1.1rem">
-            <p>A chart shipping <code>values.schema.json</code> turns this whole class of bug into an
-              install-time validation error instead of a silent no-op.</p>
-          </div>
-        </div>
+<span class="c">$ helm get values voicemail -a</span>
+COMPUTED VALUES:
+replicaCount: 1
+replicas: 3
+</div>
+<div class="terminal">
+<span class="c">$ helm get manifest voicemail \
+    | grep 'replicas:'</span>
+  replicas: 1
+</div>
       </div>
+      <ul>
+        <li>Helm does not check an override against the keys the templates read.</li>
+        <li><code>-a</code> shows the unused key next to the real one; the manifest shows the result.</li>
+        <li>A <code>values.schema.json</code> with <code>additionalProperties: false</code> turns an unknown key into an error.</li>
+      </ul>
     </div>
   </section>
 
-  <!-- 10 · RELEASES & REVISIONS IN THE CLUSTER -->
   <section class="slide">
     <div class="wrap">
-      <h2>A release is a revision history<br/>stored in the cluster</h2>
-      <p class="sub">Every install, upgrade, and rollback writes a new revision and keeps the old ones.
-        The state lives in the cluster, so any operator with access sees the same history — Helm holds
-        no local state.</p>
-      <div class="boundary" style="margin-top:1.3rem">
-        <span class="tag">release namespace</span>
-        <div class="items">
-          <div class="item"><b>revision 1</b><span>install</span></div>
-          <div class="item"><b>revision 2</b><span>upgrade</span></div>
-          <div class="item"><b>revision 3</b><span>rollback</span></div>
-        </div>
-        <div class="substrate">each stored as a Secret — <b>sh.helm.release.v1.&lt;release&gt;.v&lt;n&gt;</b></div>
-      </div>
-      <div class="grid-2 tight" style="margin-top:1.3rem">
-        <div class="note"><p><code>helm status</code> is the current snapshot — which revision is
-          live, deployed or failed.</p></div>
-        <div class="note"><p><code>helm history</code> is the timeline — and every bad upgrade has a
-          prior good revision to return to.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 11 · deployed != healthy -->
-  <section class="slide">
-    <div class="wrap">
-      <h2><code>helm status: deployed</code> means<br/>"applied", not "healthy"</h2>
-      <p class="sub">By default <code>helm upgrade</code> returns as soon as the apply succeeds — it
-        does not wait for Pods to become ready. Helm grades the manifest, not the rollout.</p>
-      <div class="flow" style="justify-content:center;gap:.7rem;margin:1.6rem 0">
-        <div class="phase run">upgrade<br/><span class="muted" style="font-size:.76rem">bad image tag</span></div>
-        <div class="arrow">&rarr;</div>
-        <div class="phase">manifest applied<br/><span class="muted" style="font-size:.76rem">valid Deployment</span></div>
-        <div class="arrow">&rarr;</div>
-        <div class="phase run">status: deployed<br/><span class="muted" style="font-size:.76rem">exit 0</span></div>
-        <div class="arrow">&rarr;</div>
-        <div class="phase term">rollout wedged<br/><span class="muted" style="font-size:.76rem">ImagePullBackOff</span></div>
-      </div>
-      <div class="note warn">
-        <p>Read past a green status to <code>kubectl get pods</code> / <code>kubectl rollout status</code>.
-          <code>--wait</code> makes the upgrade block on readiness; <code>--atomic</code> adds
-          <code>--wait</code> and auto-rolls-back on failure — at the cost of deploy latency and the
-          <code>watch</code> RBAC it needs.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 12 · rollback rolls forward -->
-  <section class="slide">
-    <div class="wrap">
-      <h2><code>helm rollback</code> rolls forward,<br/>and recovery goes through Helm</h2>
-      <div class="grid-2 vcenter">
-        <div class="ladder">
-          <div class="rung"><div class="rail"><div class="dot g"></div><div class="line"></div></div>
-            <div class="body"><b>revision 1</b><span>the last good release</span></div></div>
-          <div class="rung"><div class="rail"><div class="dot k"></div><div class="line"></div></div>
-            <div class="body"><b class="bad">revision 2</b><span>the bad upgrade — stays in history</span></div></div>
-          <div class="rung"><div class="rail"><div class="dot g"></div></div>
-            <div class="body"><b class="good">revision 3</b><span>rollback re-applies rev 1's manifests</span></div></div>
-        </div>
-        <div>
-          <div class="card"><h3>A new revision, not a rewind</h3>
-            <p><code>helm rollback &lt;release&gt; 1</code> re-applies an old revision's manifests as
-              revision 3. The broken revision is kept in the timeline.</p></div>
-          <div class="note warn" style="margin-top:1.1rem">
-            <p>Recover through Helm, not <code>kubectl rollout undo</code>. Undoing at the Deployment
-              fixes the live object but leaves the release pointing at the break — the next
-              <code>helm upgrade</code> or reconcile re-applies it.</p></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 13 · HELM vs KUSTOMIZE -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Helm vs Kustomize:<br/>both solve one config, many environments</h2>
-      <div class="cards c2" style="margin-top:1.2rem">
-        <div class="card">
-          <h3>Helm</h3>
-          <p>Templated and packaged: manifests with <code>{{ }}</code> holes, parameterized with
-            values, versioned with dependencies and rollback as a unit.</p>
-          <div class="sigs">
-            <div class="sig"><span class="lbl">tracking</span><span class="val">revisions, history, rollback</span></div>
-            <div class="sig"><span class="lbl">fits</span><span class="val">third-party apps, install-and-forget</span></div>
-          </div>
-        </div>
-        <div class="card">
-          <h3>Kustomize</h3>
-          <p>Template-free: real manifests as a base plus <em>patches</em> that override fields;
-            <code>kubectl apply -k</code> builds the result.</p>
-          <div class="sigs">
-            <div class="sig"><span class="lbl">tracking</span><span class="val">none — the cluster is the state</span></div>
-            <div class="sig"><span class="lbl">fits</span><span class="val">your own manifests, small per-env deltas</span></div>
-          </div>
-        </div>
-      </div>
-      <div class="note" style="margin-top:1.3rem">
-        <p>Reach for Helm when you consume someone else's packaged app or want release/rollback
-          semantics; reach for Kustomize when you own the manifests and the per-environment difference
-          is a handful of patches. They also compose.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 14 · COMMON FAILURE MODES -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Common failure modes</h2>
+      <h2><code>helm template</code> renders;<br/><code>helm get manifest</code> reads the record</h2>
       <table>
-        <tr><th>Symptom</th><th>Likely cause</th><th>Where to look</th></tr>
-        <tr>
-          <td>Value set, no effect</td>
-          <td>wrong key path, or a higher-precedence source overriding it</td>
-          <td class="muted"><code>helm get values -a</code> vs <code>get manifest</code></td>
-        </tr>
-        <tr>
-          <td><code>status: deployed</code>, Pods unhealthy</td>
-          <td>Helm graded the apply, not readiness (no <code>--wait</code>)</td>
-          <td class="muted"><code>kubectl get pods</code>; then <code>helm history</code></td>
-        </tr>
-        <tr>
-          <td>Install errors, nothing deployed</td>
-          <td>render failure — <code>required</code> value missing or template error</td>
-          <td class="muted">the error names it; reproduce with <code>helm template</code></td>
-        </tr>
-        <tr>
-          <td><code>another operation in progress</code></td>
-          <td>a prior <code>--wait</code> upgrade was interrupted, release stuck</td>
-          <td class="muted"><code>helm history</code>; <code>helm rollback</code> to the last good</td>
-        </tr>
-        <tr>
-          <td>Live object reverts your <code>kubectl edit</code></td>
-          <td>you edited a Helm-managed object; the release still holds the old manifest</td>
-          <td class="muted">change values and <code>helm upgrade</code>, not <code>kubectl edit</code></td>
-        </tr>
+        <tr><th>Command</th><th>Contacts the cluster</th><th>Answers</th></tr>
+        <tr><td><code>helm template</code></td><td>No</td><td>What does this input produce?</td></tr>
+        <tr><td><code>helm get values [-a]</code></td><td>Yes, reads the record</td><td>What were the inputs?</td></tr>
+        <tr><td><code>helm get manifest</code></td><td>Yes, reads the record</td><td>What did Helm apply?</td></tr>
+        <tr><td><code>helm history</code></td><td>Yes, reads the record</td><td>Which revisions exist, with which status?</td></tr>
+      </table>
+      <div class="note"><p>The chart on disk can change after an install. The stored manifest is what the cluster is supposed to run.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>A render error stops the install;<br/>nothing reaches the cluster</h2>
+<div class="terminal">
+<span class="c">$ helm install voicemail /root/voicemail --set replicaCount=2</span>
+Error: INSTALLATION FAILED: execution error at
+  (voicemail/templates/deployment.yaml:25:24):
+  voicemail: .Values.config.sipRealm is required
+</div>
+      <ul>
+        <li><code>required</code> stops the render when its value is empty or missing.</li>
+        <li>Helm renders before it creates the release record: no release, no object, no event.</li>
+        <li><code>helm template</code> reproduces the same error offline.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Templates are Go <code>text/template</code>,<br/>so values have types</h2>
+      <table>
+        <tr><th>Input</th><th>Result</th></tr>
+        <tr><td><code>{{ .Values.nope }}</code></td><td>Renders an empty string, no error</td></tr>
+        <tr><td><code>{{ .Values.nope.deeper }}</code></td><td>Fails: <code>nil pointer evaluating interface {}.deeper</code></td></tr>
+        <tr><td><code>--set-string enabled=false</code></td><td>The string "false" is true in an <code>if</code></td></tr>
+        <tr><td><code>upgrade --reuse-values</code></td><td>Keeps the old chart's defaults, drops new ones</td></tr>
+      </table>
+      <div class="note"><p><code>helm lint --strict</code> turns missing keys into errors. <code>--reset-then-reuse-values</code> starts from the new chart's defaults.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>The release record lives in Secrets</h2>
+<div class="terminal">
+<span class="c">$ kubectl get secret -n app-services -l owner=helm --show-labels</span>
+sh.helm.release.v1.voicemail.v1  ...status=superseded,version=1
+sh.helm.release.v1.voicemail.v2  ...status=superseded,version=2
+sh.helm.release.v1.voicemail.v3  ...status=deployed,version=3
+</div>
+      <ul>
+        <li>One Secret per revision, in the release namespace by default.</li>
+        <li>Every install, upgrade and rollback adds one revision.</li>
+        <li><code>helm upgrade</code> keeps 10 revisions by default (<code>--history-max</code>).</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2><code>deployed</code> means the apply succeeded,<br/>not that the Pods are healthy</h2>
+      <div class="cards c2">
+        <div class="card bad">
+          <h3>Default upgrade</h3>
+          <p>Helm 4 defaults to <code>--wait=hookOnly</code>. It waits for hooks only and records <code>deployed</code> once the apply succeeds.</p>
+          <p>e.g. a missing image tag: <code>READY 2/2</code>, <code>UP-TO-DATE 1</code>, one Pod in <code>ImagePullBackOff</code>.</p>
+        </div>
+        <div class="card good">
+          <h3>Graded upgrade</h3>
+          <p><code>--wait</code> alone uses the <code>watcher</code> strategy, up to <code>--timeout</code> (default 5m). After a timeout, Helm marks the revision <code>failed</code>.</p>
+          <p><code>--rollback-on-failure</code> (Helm 3: <code>--atomic</code>) also returns to the last successful revision.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>A rollback writes a new revision</h2>
+<div class="terminal">
+<span class="c">$ helm rollback voicemail 1</span>
+<span class="c">$ helm history voicemail</span>
+REVISION  STATUS      DESCRIPTION
+1         superseded  Install complete
+2         superseded  Upgrade complete
+3         deployed    Rollback to 1
+</div>
+      <ul>
+        <li>Helm re-applies revision 1's manifest as revision 3. Revision 2 stays in the history.</li>
+        <li>Recover a Helm-managed workload through Helm, so the record and the cluster agree.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>The record is also a lock</h2>
+<div class="terminal">
+<span class="c">$ helm upgrade voicemail /root/voicemail --reuse-values ...</span>
+Error: UPGRADE FAILED: another operation
+  (install/upgrade/rollback) is in progress
+<span class="c">$ helm history voicemail</span>
+1   deployed          Install complete
+2   pending-upgrade   Preparing upgrade
+</div>
+      <ul>
+        <li>Helm writes the revision as pending before it applies, and changes it when the operation ends.</li>
+        <li>If CI kills the process during <code>--wait</code>, the pending status stays forever.</li>
+        <li><code>helm rollback</code> does not check the lock. Its new <code>deployed</code> revision clears it.</li>
+      </ul>
+      <div class="note warn"><p>Do not delete revision Secrets by hand. A wrong delete removes the record of the revision that runs now.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Helm adopts an existing object<br/>only when its metadata names the release</h2>
+<div class="terminal">
+Error: INSTALLATION FAILED: ... Service "voicemail" in namespace
+"app-services" exists and cannot be imported into the current
+release: invalid ownership metadata
+</div>
+      <div class="sigs">
+        <div class="sig"><span class="lbl">label</span><span class="val"><code>app.kubernetes.io/managed-by: Helm</code></span></div>
+        <div class="sig"><span class="lbl">annotations</span><span class="val"><code>meta.helm.sh/release-name</code>, <code>meta.helm.sh/release-namespace</code></span></div>
+      </div>
+      <ul>
+        <li><code>helm template</code> succeeds: this is an apply-stage failure.</li>
+        <li>The error names one object at a time.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Three ways past an ownership conflict</h2>
+      <div class="cards c3">
+        <div class="card good">
+          <h3>Adopt</h3>
+          <p>Write the label and both annotations, then install. The object keeps its UID and ClusterIP.</p>
+        </div>
+        <div class="card warn">
+          <h3><code>--take-ownership</code></h3>
+          <p>First confirm that no other release owns the object. Then Helm skips the check.</p>
+        </div>
+        <div class="card bad">
+          <h3>Delete and recreate</h3>
+          <p>Callers lose the object for a moment. A Service comes back with a new ClusterIP.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Another manager owns the field;<br/>Helm 4 refuses to overwrite it</h2>
+<div class="terminal">
+<span class="c">$ kubectl scale deployment voicemail --replicas=4</span>
+<span class="c">$ helm upgrade voicemail /root/voicemail --reuse-values</span>
+Error: UPGRADE FAILED: ... conflict with "kubectl"
+  with subresource "scale" using apps/v1: .spec.replicas
+</div>
+      <ul>
+        <li>Helm 4 installs with server-side apply, as the field manager <code>helm</code>.</li>
+        <li>The upgrade, and also a rollback, fails and changes nothing.</li>
+        <li>When the chart is right, <code>--force-conflicts</code> takes the field back. When the hand edit is right, move it into the values.</li>
+      </ul>
+      <div class="note"><p>A release that Helm 3 created keeps client-side apply. Its three-way merge overwrites the same drift with no message.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Locate the stage, then pick the command</h2>
+      <table>
+        <tr><th>Signature</th><th>Stage</th><th>First command</th></tr>
+        <tr><td>Value set, no effect</td><td>Render</td><td><code>helm get values -a</code>, <code>helm get manifest</code></td></tr>
+        <tr><td><code>execution error at (...)</code></td><td>Render</td><td><code>helm template</code></td></tr>
+        <tr><td><code>cannot be imported into the current release</code></td><td>Apply</td><td><code>kubectl describe</code> the object</td></tr>
+        <tr><td><code>conflict with "kubectl" ...</code></td><td>Apply</td><td>Values, or <code>--force-conflicts</code></td></tr>
+        <tr><td><code>deployed</code>, Pods unhealthy</td><td>Runtime</td><td><code>kubectl get deploy -o wide</code>, <code>helm history</code></td></tr>
+        <tr><td><code>another operation ... is in progress</code></td><td>Record</td><td><code>helm history</code>, then <code>helm rollback</code></td></tr>
       </table>
     </div>
   </section>
 
-  <!-- 15 · RECAP -->
   <section class="slide">
     <div class="wrap">
-      <h2>What to carry forward</h2>
+      <h2>Helm or Kustomize</h2>
+      <table>
+        <tr><th></th><th>Helm</th><th>Kustomize</th></tr>
+        <tr><td>Mechanism</td><td>Go templates and values</td><td>Patches and transformers over a base</td></tr>
+        <tr><td>Packaging</td><td>Versioned charts</td><td>Plain files in git</td></tr>
+        <tr><td>Release record</td><td>Revisions, history, rollback</td><td>None; the cluster holds the state</td></tr>
+        <tr><td>Quiet failure</td><td>An unread key is kept</td><td>Kustomize skips a <code>target:</code> selector that matches nothing</td></tr>
+        <tr><td>Good fit</td><td>Third-party software</td><td>Your own manifests, small per-environment deltas</td></tr>
+      </table>
+      <div class="note"><p>The two compose: Kustomize can post-process Helm output, and Flux runs both.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Recap</h2>
       <ul>
-        <li><strong>Helm is render plus bookkeeping.</strong> Chart + values → manifests → an applied,
-          versioned release. Every failure lives in one of those stages.</li>
-        <li><strong>Templates read named key paths; Helm doesn't validate overrides.</strong> A
-          wrong-key value is kept but inert — <code>get values -a</code> versus
-          <code>get manifest</code> exposes it.</li>
-        <li><strong>A release is a numbered revision history in the cluster.</strong>
-          <code>status</code> is now, <code>history</code> is the timeline, <code>rollback</code>
-          rolls <em>forward</em> to an old revision.</li>
-        <li><strong><code>deployed</code> means "manifest applied," not "workload healthy."</strong>
-          Read past it to the Pods; use <code>--wait</code>/<code>--atomic</code> to grade readiness.</li>
-        <li><strong>Recover Helm-managed workloads through Helm.</strong> A <code>kubectl edit</code>
-          drifts the object from the release record, and the next reconcile undoes your fix.</li>
+        <li>Helm renders, records a revision, then applies to the API server. Find the stage first.</li>
+        <li>A template reads specific key paths. Compare <code>helm get values -a</code> with <code>helm get manifest</code>.</li>
+        <li>The release record is history and a lock. <code>helm rollback</code> writes a new revision and clears a stale pending status.</li>
+        <li><code>deployed</code> describes the Helm operation, not the workload.</li>
+        <li>Helm owns objects through metadata and, in Helm 4, through field managers. Change a Helm-managed object through its values.</li>
       </ul>
     </div>
   </section>

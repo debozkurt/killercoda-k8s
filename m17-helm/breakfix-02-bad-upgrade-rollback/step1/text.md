@@ -1,53 +1,41 @@
-# Step 1 — Success that isn't
+# Step 1 — A green status and a stuck rollout
 
-Helm reported the upgrade succeeded. The pages say otherwise. Both are right — they're describing different things.
+Helm and the workload disagree. Read both.
 
-## What Helm thinks
+## What Helm reports
 
 ```bash
-helm status voicemail -n app-services
+helm status voicemail -n app-services | head -7
 ```{{exec}}
 
-`STATUS: deployed`, `REVISION: 2`. From Helm's point of view the upgrade worked: it merged values, rendered a valid manifest, and applied it. Helm does not wait for pods to become ready unless you pass `--wait` — so "deployed" means "manifest applied," not "workload healthy."
+`STATUS: deployed`, `REVISION: 2`. In Helm 4, `helm upgrade` does not wait for Pods unless you pass `--wait`. `deployed` means the apply succeeded.
 
-## What the workload thinks
+## What the workload reports
 
 ```bash
 kubectl get pods -n app-services -l app=voicemail
+kubectl get deployment voicemail -n app-services -o wide
 ```{{exec}}
 
-Two pods `Running`, and a third stuck in `ImagePullBackOff`. The Deployment:
+Two Pods are `Running` and one is in `ErrImagePull` or `ImagePullBackOff`. The Deployment reads `READY` 2/2 and `UP-TO-DATE` 1: the old Pods still serve, and the rolling update cannot replace them. The `IMAGES` column shows the tag the upgrade set.
 
 ```bash
-kubectl get deployment voicemail -n app-services
-```{{exec}}
+kubectl describe pod <name-of-the-stuck-pod> -n app-services
+```
 
-`UP-TO-DATE` is 1, not 2 — the rollout is wedged. The old (good) pods are still serving because the default rolling update won't tear them down until the new pod is ready, and it never will be. `helm status` "deployed" hid a stuck rollout.
+Read the `Warning  Failed` line in `Events:`. It says `Failed to pull image "nginx:1.25.99"` with a not-found error: that tag does not exist.
 
-## Find the cause
-
-```bash
-kubectl describe pod -n app-services -l app=voicemail | grep -A3 "Failed"
-```{{exec}}
-
-`Failed to pull image "nginx:1.25-eol-removed"` — the tag the upgrade set doesn't exist.
-
-## Read the history — the recovery path
+## Find the last good revision
 
 ```bash
 helm history voicemail -n app-services
 ```{{exec}}
 
-```text
-REVISION  STATUS      DESCRIPTION
-1         superseded  Install complete
-2         deployed    Upgrade complete
-```
-
-Revision 1 is the last known-good state (image `nginx:1.25`). Confirm what it ran:
+Revision 1 is `superseded`, `Install complete`. Revision 2 is `deployed`, `Upgrade complete`. Compare the inputs of the two revisions:
 
 ```bash
-helm get values voicemail -n app-services --revision 1 -a | grep -A2 image
+helm get values voicemail -n app-services --revision 1
+helm get values voicemail -n app-services --revision 2
 ```{{exec}}
 
-Revision 1 used the good tag. You don't need to hand-reconstruct the fix — the release already stored it. Move to step 2 to roll back.
+Revision 2 adds `image.tag: 1.25.99`. Revision 1 used the chart's tag. The release record already holds the good state, so you do not need to rebuild it by hand.

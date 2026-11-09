@@ -1,38 +1,24 @@
-# Step 3 — Values and overrides
+# Step 3 — Values and an upgrade
 
-A release's behavior is the chart defaults **merged with** the overrides you supplied. This step reads that merge, then changes it with an upgrade.
+A release runs the chart defaults merged with your overrides. Later sources win: `values.yaml`, then each `-f` file (the rightmost wins), then each `--set`.
 
-## See the values a release was installed with
+## Read the values
 
 ```bash
 helm get values voicemail -n app-services
 ```{{exec}}
 
-This shows only the **user-supplied** overrides — `replicaCount: 2` and `config.sipRealm: polyphone.example`, the two values passed at install. It does *not* show chart defaults you didn't override.
-
-To see the fully-merged, effective values (defaults + overrides):
+`USER-SUPPLIED VALUES` lists only the overrides from the install: `replicaCount: 2` and `config.sipRealm`.
 
 ```bash
 helm get values voicemail -n app-services -a
 ```{{exec}}
 
-Now `image`, `service`, `resources`, and `config.greeting` appear too — pulled from the chart's `values.yaml`. When a release behaves unexpectedly, `-a` (`--all`) is how you see what value *actually* took effect.
+`COMPUTED VALUES` (`-a` is `--all`) adds the chart defaults: `image`, `resources`, `service`, `config.greeting`. This is the full input to the render.
 
-## Precedence — who wins
+## Change a value
 
-Values merge in a fixed order, lowest to highest:
-
-```text
-chart values.yaml   <   -f myvalues.yaml   <   --set key=value
-                        (rightmost -f wins        (highest precedence)
-                         if repeated)
-```
-
-`--set` beats a `-f` file beats the chart default. Repeated `-f` files: the rightmost wins. Getting a value to take is almost always a question of *precedence* and *exact key path*, not of Helm "not working."
-
-## Change a value with `helm upgrade`
-
-Scale the release to 3 replicas. `--reuse-values` keeps the other overrides (the required `sipRealm`) so you only state what changes:
+`--reuse-values` keeps the overrides from the current revision, so you state only the change. Without it, the upgrade drops `config.sipRealm` and the render fails.
 
 ```bash
 helm upgrade voicemail /root/voicemail \
@@ -41,17 +27,10 @@ helm upgrade voicemail /root/voicemail \
   --set replicaCount=3
 ```{{exec}}
 
-`helm upgrade` re-merges, re-renders, applies the diff, and records a new revision. Watch the third pod appear:
+Helm renders again, records revision 2 and applies it. The output reads `STATUS: deployed` and `REVISION: 2`.
 
 ```bash
-kubectl get pods -n app-services -l app=voicemail
+kubectl get deployment voicemail -n app-services
 ```{{exec}}
 
-## Verify
-
-```bash
-helm get values voicemail -n app-services | grep -E "replicaCount|sipRealm"
-kubectl get deployment voicemail -n app-services -o jsonpath='{.spec.replicas}{"\n"}'
-```{{exec}}
-
-`replicaCount: 3` in the values, `3` on the Deployment. The upgrade created revision 2 — you'll walk that history in step 4. Move on.
+`READY` reads 3/3 after a few seconds.

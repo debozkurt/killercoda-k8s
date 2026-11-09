@@ -1,18 +1,21 @@
 #!/bin/bash
-# Checks: the corrected upgrade set replicaCount, so the Deployment now runs 3
-# replicas and the rendered manifest agrees. Accepts any fix path that lands 3.
+# Checks: the values file uses the key the chart reads, the release was
+# upgraded from it (the stray key is gone from the release values), and the
+# Deployment runs 3 Pods that the rendered manifest asks for.
 command -v helm >/dev/null 2>&1 || { echo "helm CLI not found on PATH" >&2; exit 1; }
 
-DESIRED=$(kubectl get deployment voicemail -n app-services -o jsonpath='{.spec.replicas}' 2>/dev/null)
-[ "$DESIRED" = "3" ] || { echo "Expected voicemail Deployment at 3 replicas, got ${DESIRED:-none}" >&2; exit 1; }
+F=/root/voicemail-values.yaml
+grep -q '^replicaCount: 3' "$F" && ! grep -q '^replicas:' "$F" \
+  || { echo "$F must set replicaCount: 3 and no replicas key. Fix the file, then helm upgrade -f $F" >&2; exit 1; }
 
-READY=$(kubectl get pods -n app-services -l app=voicemail --no-headers 2>/dev/null | awk '$3 == "Running"' | wc -l)
-[ "$READY" -ge 3 ] || { echo "Expected 3 voicemail pods Running, got $READY" >&2; exit 1; }
+helm get values voicemail -n app-services 2>/dev/null | grep -q '^replicas:' \
+  && { echo "The release still stores the unused replicas key. Run: helm upgrade voicemail /root/voicemail -n app-services -f $F" >&2; exit 1; }
 
-# The rendered manifest must reflect the corrected key (proves the value flowed,
-# not that someone hand-scaled the Deployment out of band).
-helm get manifest voicemail -n app-services 2>/dev/null | grep -qE "replicas: 3" \
-  || { echo "voicemail release manifest does not render replicas: 3 — was replicaCount set via helm?" >&2; exit 1; }
+helm get manifest voicemail -n app-services 2>/dev/null | grep -q '^  replicas: 3$' \
+  || { echo "The release manifest does not render replicas: 3. Run: helm upgrade voicemail /root/voicemail -n app-services -f $F" >&2; exit 1; }
 
-echo "✓ Override corrected: replicaCount reached the manifest, voicemail at $READY/3 Running"
+READY=$(kubectl get deployment voicemail -n app-services -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
+[ "${READY:-0}" -ge 3 ] || { echo "Expected 3 ready voicemail Pods, got ${READY:-0}. Wait a few seconds and check again." >&2; exit 1; }
+
+echo "✓ Values file fixed: replicaCount reached the manifest, voicemail runs $READY ready Pods"
 exit 0

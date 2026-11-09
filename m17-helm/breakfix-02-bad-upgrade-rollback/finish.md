@@ -1,9 +1,9 @@
 # Done
 
-You read past a green `helm status` to a stuck rollout, found the bad image tag, and recovered with `helm rollback` to the last known-good revision — keeping Helm's release history and the live objects in sync.
+`helm status` said `deployed`, because Helm graded the apply and not the Pods. `kubectl get deployment -o wide` showed the stuck rollout, the Pod events named the missing tag, and `helm history` held revision 1 as the target. `helm rollback` wrote revision 3 and kept the release record and the Deployment in agreement.
 
 **Next:**
 
-- For the canonical path, the `rollout undo` drift trap, and the roll-forward-in-git alternative, see [ANSWER-KEY.md](../ANSWER-KEY.md).
-- For the *why* — the release model, revisions, and `--wait`/`--atomic` — read [LESSON.md](../LESSON.md).
-- **breakfix-03: Render Required Value** — an install fails outright and nothing deploys. Tests reading a render error and reproducing it offline.
+- [ANSWER-KEY.md](../ANSWER-KEY.md) covers the `rollout undo` trap and the roll-forward fix.
+- [LESSON.md](../LESSON.md) covers the release record, `--wait` and `--rollback-on-failure`.
+- **breakfix-03: Render Required Value**: an install fails and nothing deploys.

@@ -1,19 +1,17 @@
 # M17 — Break/fix 01: Values Key Ignored
 
-> Pre-req: completed the M17 baseline tour, or comfortable with `helm get values`, `helm get manifest`, and `helm upgrade`.
+> Pre-req: the M17 baseline, or working knowledge of `helm get values`, `helm get manifest` and `helm upgrade`.
 
-A teammate scaled the `voicemail` release up for a load test. They edited a values file to set 3 replicas and ran the install. The change was applied cleanly — no error. But monitoring still shows one pod.
+A teammate prepared `voicemail` for a load test. They wrote a values file that asks for 3 replicas and installed the release with it. The install exited 0.
 
 ```text
-+-----------------------------------------------------+
-| voicemail (app-services): scale-up not taking effect|
-| values file says 3 replicas -- 1 pod running        |
-| helm install exited 0, release status: deployed     |
-+-----------------------------------------------------+
++------------------------------------------------------+
+| voicemail (app-services): load test underprovisioned |
+| values file asks for 3 replicas -- 1 Pod runs        |
+| helm install exited 0, release status: deployed      |
++------------------------------------------------------+
 ```
 
-Everything *looks* fine. `helm list` says `deployed`. `helm get values` shows the 3 you asked for. Yet the Deployment runs one pod. The value is present but inert.
+The values file is `/root/voicemail-values.yaml` and the chart is `/root/voicemail`. Find out why the release runs 1 Pod, then make the file produce 3.
 
-This scenario tests the most common Helm values mistake: a value set at a key path the chart doesn't read. Helm won't warn you — it keeps the key and moves on.
-
-The cluster takes 60–120 seconds to come up. Click **Start** when ready.
+Setup takes about two minutes. Click **Start** when the terminal says the cluster is ready.

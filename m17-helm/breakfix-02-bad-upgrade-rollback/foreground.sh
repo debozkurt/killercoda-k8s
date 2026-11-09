@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Waiting for the Polyphone baseline + the voicemail release (two revisions)..."
+echo "Waiting for the Polyphone fleet and the voicemail release (two revisions)..."
 echo ""
 
 while [ ! -f /tmp/.setup-complete ]; do
@@ -9,8 +9,7 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "Cluster is up. A voicemail upgrade just 'succeeded' but the rollout is stuck."
-echo "Look past helm status at the pods:"
+echo "Cluster is ready. The voicemail upgrade reported success. Start with:"
 echo ""
 echo "  helm status voicemail -n app-services"
 echo "  kubectl get pods -n app-services -l app=voicemail"

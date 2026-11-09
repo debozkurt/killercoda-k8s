@@ -1,10 +1,10 @@
-# Step 2 — The render pipeline
+# Step 2 — Render and compare
 
-`helm install` does three things in order: **merge** values, **render** templates into manifests, **apply** the result and record it as a release. This step makes that pipeline visible.
+An install has three stages: **render** the templates with the merged values, **record** a revision, **apply** the manifests. This step shows the render and the record side by side.
 
-## Render client-side with `helm template`
+## Render on your machine
 
-`helm template` runs the merge + render locally and prints the manifests. Nothing touches the cluster:
+`helm template` merges values and renders the chart. It sends nothing to the cluster.
 
 ```bash
 helm template voicemail /root/voicemail \
@@ -13,40 +13,26 @@ helm template voicemail /root/voicemail \
   --set config.sipRealm=polyphone.example | head -40
 ```{{exec}}
 
-You get a plain Deployment and Service — every `{{ .Values.* }}` hole filled in. This is the single most useful Helm debugging command: it shows exactly what a set of values *would* produce, before you apply anything.
+Every placeholder is now a literal value. Look for `replicas: 2` in the Deployment.
 
-## See what's actually live with `helm get manifest`
+## Read what Helm applied
 
-`helm get manifest` prints the manifests Helm applied for the live release (read back from what Helm stored, not re-rendered):
+`helm get manifest` prints the manifest that Helm stored for the current revision. Helm does not render it again.
 
 ```bash
 helm get manifest voicemail -n app-services | head -40
 ```{{exec}}
 
-For a release that hasn't drifted, this matches the `helm template` output above. When you're debugging "is the cluster running what I think it is," this is the answer — the recorded truth for revision 1.
-
-## The relationship
+The two outputs match, because the release was installed with the same values. The chart on disk can change after an install, so `helm get manifest` is the answer to "what is the cluster supposed to run?"
 
 ```text
-values.yaml (defaults)  ─┐
--f file / --set overrides ├─► MERGE ─► RENDER templates ─► MANIFESTS ─► apply + record release
-chart templates ─────────┘
+values + templates --helm template--> manifest --apply--> live objects
+                                         |
+                                   helm get manifest (stored per revision)
 ```
 
-`helm template` = merge + render (offline). `helm get manifest` = the manifests of the live release. `kubectl get` = the objects those manifests became. Three views of the same pipeline.
-
-## Confirm the rendered value landed
-
 ```bash
-kubectl get deployment voicemail -n app-services -o jsonpath='{.spec.replicas}{"\n"}'
+kubectl get deployment voicemail -n app-services
 ```{{exec}}
 
-`2` — the `replicaCount` the release was installed with, rendered into the Deployment's `spec.replicas`.
-
-## Verify
-
-```bash
-helm get manifest voicemail -n app-services | grep -E "kind:|replicas:"
-```{{exec}}
-
-You should see `kind: Deployment` / `replicas: 2` and `kind: Service`. Move on to step 3.
+`READY` reads 2/2: the live object matches the stored manifest.

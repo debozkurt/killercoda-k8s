@@ -1,12 +1,10 @@
 # Done
 
-You toured a Helm release end to end: read the chart, watched values render into manifests, changed a value with `helm upgrade`, walked the revision history, and rolled back. The `voicemail` chart at `/root/voicemail` is the same one every M17 break/fix uses.
+You walked the Helm pipeline end to end: the chart on disk, the render with `helm template`, the stored manifest with `helm get manifest`, values and an upgrade, the revision history and a rollback. Then a hand edit made the next upgrade fail with a field conflict, and `--force-conflicts` gave the field back to Helm.
 
 **Next:**
 
-- For the *why* — the render pipeline, values precedence, the release model, and when to reach for Helm vs Kustomize — read [LESSON.md](../LESSON.md).
-- **breakfix-01: Values Key Ignored** — someone set `replicas: 3` in a values file but the release still runs one pod. The value is "there" but nothing happens. Tests reading `helm get values` against the live manifest.
-- **breakfix-02: Bad Upgrade, Rollback** — an upgrade reports success but the new pods won't start. Tests the revision history and `helm rollback`.
-- **breakfix-03: Render Required Value** — an install fails and nothing deploys. Tests reading a render error and reproducing it with `helm template`.
+- [LESSON.md](../LESSON.md) explains the render, record and apply stages, values precedence, the release record and ownership.
+- Five break/fix scenarios follow, one per failure stage. Start with **breakfix-01: Values Key Ignored**.
 
-After each, check yourself against [ANSWER-KEY.md](../ANSWER-KEY.md).
+After each scenario, check yourself against [ANSWER-KEY.md](../ANSWER-KEY.md).

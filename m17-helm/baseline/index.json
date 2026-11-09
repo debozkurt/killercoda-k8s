@@ -1,6 +1,6 @@
 {
   "title": "M17 — Helm Fundamentals — Baseline",
-  "description": "Tour a Helm release on the Polyphone cluster. Read a chart, watch values render into manifests, override values with an upgrade, and walk the release history.",
+  "description": "Tour a Helm 4 release on the Polyphone cluster: read the chart, render it, upgrade a value, walk the history and roll back, then resolve a field conflict that a hand edit causes.",
   "details": {
     "intro": {
       "text": "intro.md",
@@ -8,12 +8,35 @@
       "foreground": "foreground.sh"
     },
     "steps": [
-      { "title": "The chart and the release", "text": "step1/text.md", "verify": "step1/verify.sh" },
-      { "title": "The render pipeline", "text": "step2/text.md", "verify": "step2/verify.sh" },
-      { "title": "Values and overrides", "text": "step3/text.md", "verify": "step3/verify.sh" },
-      { "title": "Releases and history", "text": "step4/text.md", "verify": "step4/verify.sh" }
+      {
+        "title": "The chart and the release",
+        "text": "step1/text.md",
+        "verify": "step1/verify.sh"
+      },
+      {
+        "title": "Render and compare",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      },
+      {
+        "title": "Values and an upgrade",
+        "text": "step3/text.md",
+        "verify": "step3/verify.sh"
+      },
+      {
+        "title": "History and rollback",
+        "text": "step4/text.md",
+        "verify": "step4/verify.sh"
+      },
+      {
+        "title": "A hand edit and the next upgrade",
+        "text": "step5/text.md",
+        "verify": "step5/verify.sh"
+      }
     ],
-    "finish": { "text": "finish.md" }
+    "finish": {
+      "text": "finish.md"
+    }
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"

@@ -1,14 +1,15 @@
 # M17 — Baseline Tour
 
-Helm is the Kubernetes package manager. Instead of hand-writing one Deployment and one Service YAML per environment, you write a **chart** once — templates plus a default `values.yaml` — and Helm renders it with the values you supply into plain manifests, applies them, and records the result as a versioned **release** it can upgrade and roll back.
+Helm is the Kubernetes package manager. You write a **chart** once: templates plus a default `values.yaml`. Helm renders the chart with your values into plain manifests, applies them, and records the result as a numbered revision of a **release**.
 
-This scenario runs the full Polyphone fleet plus one Helm-managed workload: a `voicemail` service, installed from a local chart at `/root/voicemail` as the release `voicemail` in the `app-services` namespace.
+This scenario runs the full Polyphone fleet, Helm 4, and one Helm-managed workload. The chart is at `/root/voicemail`. The release is `voicemail` in the `app-services` namespace.
 
-There is nothing broken here. The point is to *see* the four moving parts before the break/fix scenarios test them:
+Nothing is broken at the start. The five steps walk the pipeline:
 
-1. **The chart and the release** — read `Chart.yaml`, `values.yaml`, and the templates on disk, then see the live release with `helm list`.
-2. **The render pipeline** — render the chart client-side with `helm template`, compare it to what's actually live with `helm get manifest`.
-3. **Values and overrides** — see the values a release was installed with, then change one with `helm upgrade`.
-4. **Releases and history** — walk the revision history, read `helm status`, and see where Helm stores release state.
+1. **The chart and the release**: read the chart on disk and find the live release.
+2. **Render and compare**: render the chart on your machine, then read the manifest Helm stored.
+3. **Values and an upgrade**: read the values the release uses, then change one.
+4. **History and rollback**: walk the revisions, roll back, and find where Helm stores them.
+5. **A hand edit and the next upgrade**: scale the Deployment with `kubectl`, then see how Helm 4 answers.
 
-The cluster takes 60–120 seconds to come up (it also downloads the Helm binary and installs the release). Click **Start** when ready.
+Setup takes about two minutes. It downloads Helm and installs the release. Click **Start** when the terminal says the cluster is ready.

@@ -1,0 +1,19 @@
+{
+  "title": "M17 — Break/fix 05: Release Stuck Pending",
+  "description": "Every helm upgrade of voicemail fails, and no deploy job is running. Find what holds the release and ship the change.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      { "title": "An upgrade that will not start", "text": "step1/text.md" },
+      { "title": "Clear the lock and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+    ],
+    "finish": { "text": "finish.md" }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

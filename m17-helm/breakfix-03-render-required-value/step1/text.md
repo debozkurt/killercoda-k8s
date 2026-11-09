@@ -1,54 +1,40 @@
-# Step 1 — An install that rendered nothing
+# Step 1 — An install that left nothing
 
-Nothing deployed. Confirm the release is genuinely absent, then make the failure show itself.
+Check what the failed install left behind, then make the failure show itself.
 
-## Confirm there's no release
+## Look for a release and objects
 
 ```bash
 helm list -n app-services
+kubectl get deploy,svc -n app-services -l app=voicemail
+kubectl get secret -n app-services -l owner=helm
 ```{{exec}}
 
-No `voicemail` row. A render-stage failure aborts *before* Helm records a release, so there's nothing half-installed to clean up:
+In Helm 4, `helm list` shows releases in every status, including `failed` and `pending-install`. It shows no `voicemail` row. There is no Deployment, no Service and no release Secret. The install stopped before Helm wrote anything to the cluster.
 
-```bash
-helm list -A --all --pending --failed | grep voicemail || echo "no voicemail release in any state"
-```{{exec}}
-
-```bash
-kubectl get all -n app-services -l app=voicemail
-```{{exec}}
-
-No Deployment, no pods. The install never reached the cluster.
-
-## Make the error show itself
-
-Re-run the install the pipeline ran — the error is the diagnosis:
+## Run the install again
 
 ```bash
 helm install voicemail /root/voicemail --namespace app-services --set replicaCount=2
 ```{{exec}}
 
 ```text
-Error: execution error at (voicemail/templates/deployment.yaml:NN:MM):
-       voicemail: .Values.config.sipRealm is required (the SIP realm to register under)
+Error: INSTALLATION FAILED: execution error at (voicemail/templates/deployment.yaml:25:24):
+voicemail: .Values.config.sipRealm is required (the SIP realm to register under)
 ```
 
-Helm renders templates before it applies anything. The `deployment.yaml` template wraps `sipRealm` in the `required` function, which aborts the render when the value is empty or missing. The message names the template and tells you exactly which value is missing — this is the chart author signalling "you must set this."
+`execution error at (<template>:<line>:<col>)` is a render error. The message after it is the chart author's text from the `required` function. Helm renders before it creates the release record, so a render error leaves no trace in the cluster.
 
-## Reproduce it offline with `helm template`
-
-You don't need the cluster to debug a render error. `helm template` runs the same merge + render locally:
+## Reproduce it offline
 
 ```bash
 helm template voicemail /root/voicemail --set replicaCount=2
 ```{{exec}}
 
-Same error, no cluster round-trip. This is how you iterate on values without touching anything — flip inputs until the render is clean.
-
-## Confirm the chart's expectation
+The same error, with no cluster involved. Iterate on values with `helm template` until the render is clean.
 
 ```bash
-helm show values /root/voicemail | grep -A2 "config:"
+helm show values /root/voicemail
 ```{{exec}}
 
-`sipRealm: ""` — the chart ships an empty default on purpose, forcing each install to supply it. Move to step 2 to provide the value.
+The chart ships `sipRealm: ""`. The value has no safe default, so each install must supply it.

@@ -1,9 +1,9 @@
 # Done
 
-You diagnosed a value that was present in the release but sat at a key the chart never reads — `replicas` where the template wanted `replicaCount`. The tell was the gap between `helm get values` (what you asked for) and `helm get manifest` (what rendered). `helm get values -a` showed both keys side by side.
+The values file set `replicas`, and the template reads `replicaCount`. Helm stored the unused key and rendered the chart default. The gap showed in two places: `helm get values -a` listed both keys, and `helm get manifest` rendered 1 replica.
 
 **Next:**
 
-- For the canonical path and the `--set` vs values-in-git discussion, see [ANSWER-KEY.md](../ANSWER-KEY.md).
-- For the *why* — values precedence and why Helm keeps unknown keys — read [LESSON.md](../LESSON.md).
-- **breakfix-02: Bad Upgrade, Rollback** — an upgrade reports success but the new pods won't start. The revision history is the fix.
+- [ANSWER-KEY.md](../ANSWER-KEY.md) compares the `--set` fix with the file fix.
+- [LESSON.md](../LESSON.md) covers values precedence and schema validation.
+- **breakfix-02: Bad Upgrade, Rollback**: an upgrade reported `deployed`, and the rollout does not finish.
