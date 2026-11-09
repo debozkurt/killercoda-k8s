@@ -1,159 +1,127 @@
 # M18 — Flux (GitOps Delivery) — Answer Key
 
-> Self-grading reference. Try each scenario first, then check your diagnostic path against the canonical one. Instructors running the lab live can use these sections as a teaching script.
-> Environment: Killercoda `kubernetes-kubeadm-2nodes` with the Polyphone baseline, the `flux` CLI (v2), an in-cluster Gitea git server, and a config repo mirrored at `/root/polyphone-config`. Flux is installed with `flux install` (no bootstrap), so the Flux custom resources are applied directly and are fixed with `kubectl`/`flux`, not git commits.
+> Self-grading reference. Try each scenario first, then compare your diagnostic path with the canonical one. Instructors can use these sections as a teaching script.
+> Environment: Killercoda `kubernetes-kubeadm-2nodes` (Kubernetes about v1.30) with the Polyphone fleet, Flux v2.9.6 (`flux install`: source, kustomize and helm controllers), Helm v4.3.1, an in-cluster Gitea server, and a clone of `polyphone-config` at `/root/polyphone-config`. The Flux 2.9 release notes list Kubernetes 1.34 to 1.36 as supported, and the `flux check` CLI accepts `>=1.33.0-0`, so the check fails its version line here. Every command in these labs was checked on Kubernetes v1.30.10. The Flux objects are applied by hand (no bootstrap), so a fix to a Flux object is a `kubectl patch`. In a bootstrapped fleet the same fix is a commit.
 
 ## Lesson summary
 
-M18 teaches GitOps with Flux — git as declared state, an in-cluster controller reconciling the cluster to match it — and the three ways the pipeline stalls without touching your workload. The `baseline/` scenario tours a healthy pipeline: a `GitRepository` source and its artifact, an `apps` Kustomization applying the repo, drift correction reverting a hand-scaled Deployment, and a `voicemail` HelmRelease ordered after the `message-store` release by `dependsOn`. Three break/fix scenarios isolate one failure each:
+M18 teaches Flux delivery as a loop with four stages: **fetch** (source-controller), **build**, **apply** and **health** (kustomize-controller and helm-controller). Two controls sit across the stages: the **order gate** (`dependsOn`) and the **suspend** switch. A failure stops one stage and leaves the later stages on the last good result. So the diagnosis reads the Flux objects in pipeline order and compares revisions:
 
-- `breakfix-01-source-ref-not-found` — *a source pointed at a non-existent branch produces no artifact; every consumer stalls on it*
-- `breakfix-02-kustomization-suspended` — *a suspended consumer stops reconciling, so drift never corrects and looks healthy*
-- `breakfix-03-helmrelease-dependency` — *a release blocked by a `dependsOn` naming an object that doesn't exist*
+| Stage | Trace | First command | Scenario |
+|-------|-------|---------------|----------|
+| Fetch | Workloads absent; consumers say `Source artifact not found` | `flux get sources git` | `breakfix-01-source-ref-not-found` |
+| Suspend | Drift stays; `READY True`, `SUSPENDED True` | `flux get kustomizations` | `breakfix-02-kustomization-suspended` |
+| Order gate | `DependencyNotReady`: `unable to get ... dependency` | `flux get helmreleases` | `breakfix-03-helmrelease-dependency` |
+| Build | Source has the commit; `apps` revision trails; `kustomization path not found` | `flux get kustomizations` | `breakfix-04-path-not-found` |
+| Health | `health check failed`; a hand fix reverts | `kubectl describe kustomization`, then git | `breakfix-05-health-check-fix-in-git` |
 
-The through-line: read Flux's own objects top-down — source, then consumer, then the managed workload — because the diagnosis lives in their `Ready` conditions, not in the workload.
+Five labs is above the usual count. The set is one differential: one lab each for fetch, build and health, one for the order gate and one for the suspend switch. The apply stage, drift correction, is baseline step 3. bf05 is the only lab where the fix must be a commit.
 
 ## Baseline tour reference
 
-No broken state. Each step produces predictable output.
-
-- **Step 1 (Flux and its sources):** `flux check` shows source/kustomize/helm controllers green. `flux get sources git` shows `polyphone-config` `READY True`, message `stored artifact for revision 'main@sha1:...'`. `flux get all` is the whole pipeline in one view.
-- **Step 2 (the Kustomization):** `flux get kustomizations` shows `apps` `READY True`, `Applied revision: main@sha1:...`. It built `./apps` and applied `dialplan` into `app-services` (`targetNamespace`); `flux tree kustomization apps` lists what it manages. The Flux `Kustomization` CRD is not the `kustomization.yaml` file it builds.
-- **Step 3 (drift correction):** `kubectl scale deployment dialplan --replicas=5` drifts it; `flux reconcile kustomization apps --with-source` (or waiting one interval) reverts it to the git-declared 2 via server-side apply. Flux owns the field; fix in git, not with `kubectl`.
-- **Step 4 (HelmRelease and dependencies):** `flux get helmreleases` shows both `message-store` and `voicemail` `READY True`; the chart is sourced from the GitRepository (`./charts/voicemail`), and `helm list -n app-services` shows the real releases. `spec.dependsOn: [{name: message-store}]` ordered `voicemail` after the `message-store` release — a same-kind (HelmRelease → HelmRelease) dependency.
+- **Step 1 (Flux and its source):** `flux check` shows green controllers and CRDs and ends `check failed`, from two lines: `Kubernetes version v1.30.10 does not match >=1.33.0-0` and `new CLI version is available`. `flux get sources git` shows `polyphone-config` `READY True`, revision `main@sha1:<8 chars>`, which matches `git log --oneline`.
+- **Step 2 (the Kustomization):** `apps` is `READY True`, `Applied revision` equal to the source revision. `describe` shows `Path: ./apps`, `Prune: true`, `Target Namespace: app-services`, `Wait: true`, `Timeout: 1m`. `flux tree kustomization apps` lists `ConfigMap/app-services/dialplan-routes` and `Deployment/app-services/dialplan`.
+- **Step 3 (drift):** `kubectl scale dialplan --replicas=5`, then `flux reconcile kustomization apps`, returns it to 2; `flux events` shows `Deployment/app-services/dialplan configured`. The same scale on `voicemail` stays at 3 after `flux reconcile helmrelease voicemail`: HelmRelease drift detection is disabled by default.
+- **Step 4 (HelmRelease):** both releases `READY True`. `helm list -n app-services` is empty; `helm list -n flux-system` shows `app-services-voicemail` and `app-services-message-store`, `deployed`. `flux events --for HelmRelease/voicemail` shows `DependencyNotReady` before `InstallSucceeded`.
+- **Step 5 (git):** a commit to `replicas: 3` and a push, then `flux reconcile kustomization apps --with-source`, move the source and `apps` to the new hash and `dialplan` to 3. `git rm` of `dialplan-routes.yaml` plus a push deletes the ConfigMap, and the inventory lists only the Deployment.
 
 ---
 
-## Break/fix 01 — Source Ref Not Found
+## Break/fix 01 — Source ref not found
 
-**Symptom:** A configured Flux pipeline delivers nothing. `dialplan` and `voicemail` are absent from `app-services`, no Pod is crashing or `Pending`, and `flux get all` shows consumers that aren't ready but don't obviously *fail*.
+**Symptom:** `dialplan`, `message-store` and `voicemail` are absent from `app-services`. No Pod fails. Every Flux object is `READY False`.
 
-**Root cause:** The `GitRepository` `spec.ref.branch` is `release-2024`, a branch the repo never had (it has only `main`). source-controller can't resolve `refs/heads/release-2024`, so it produces no artifact and reports `Ready: False`. Every consumer downstream (`apps` Kustomization, `voicemail` HelmRelease) has no content to apply and stalls waiting on the source<sup><a href="https://fluxcd.io/flux/components/source/gitrepositories/">[1]</a></sup>.
+**Root cause:** the `GitRepository` names `spec.ref.branch: release-2024`, and the repo has only `main`. source-controller fails with `couldn't find remote ref "refs/heads/release-2024"` and never stores an artifact<sup><a href="https://fluxcd.io/flux/components/source/gitrepositories/">[1]</a></sup>. With no artifact, each consumer waits: `apps` on the artifact, `message-store` on its HelmChart, `voicemail` on `message-store`.
 
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. Confirm the workloads are genuinely absent (not crashing)
-kubectl get deploy -n app-services -l 'app in (dialplan,voicemail)'   # nothing
-
-# 2. Read the SOURCE first — top of the pipeline
+# 1. The consumers: every message points up the pipeline
+flux get kustomizations      # apps: Source artifact not found, retrying in 30s
+flux get helmreleases        # message-store: HelmChart ... not ready: no artifact available ...
+                             # voicemail: dependency 'flux-system/message-store' is not ready
+# 2. The source: red, empty REVISION, the git error names the ref
 flux get sources git
-# polyphone-config  READY False  message: couldn't find remote ref 'refs/heads/release-2024'
-kubectl describe gitrepository polyphone-config -n flux-system | sed -n '/Conditions:/,$p'
-
-# 3. Confirm consumers are only *waiting*, not independently broken
-flux get kustomizations        # apps: not ready, blocked on the source
-flux get helmreleases          # voicemail: not ready
-
-# 4. Read the ref the source is pointed at
-kubectl get gitrepository polyphone-config -n flux-system -o jsonpath='{.spec.ref}{"\n"}'
-# {"branch":"release-2024"}  -> a branch that doesn't exist
+kubectl describe gitrepository polyphone-config -n flux-system   # Ref: Branch: release-2024, no Artifact
+# 3. What the server has
+git -C /root/polyphone-config ls-remote --heads origin           # refs/heads/main only
 ```
 
-**Fix:** Point the source at the branch that exists, then reconcile:
+**Fix:**
 
 ```bash
 kubectl patch gitrepository polyphone-config -n flux-system \
   --type=merge -p '{"spec":{"ref":{"branch":"main"}}}'
 flux reconcile source git polyphone-config
-flux reconcile kustomization apps --with-source
 ```
 
-**Verify:**
-
-```bash
-flux get sources git                                   # READY True, stored artifact for main@sha1:...
-kubectl get deploy dialplan -n app-services            # READY 2/2
-```
+**Verify:** `flux get all` shows every object `READY True`. `apps` applied the same revision the source stored. The three Deployments are ready within about a minute, `voicemail` last.
 
 **What this scenario tests:**
 
-- Did you read the **source** before the consumers? A pipeline delivering nothing is almost always a stalled source, and the consumers' messages point back at it.
-- Did you recognize that "nothing deployed, nothing crashing" is a *reconcile* failure, not a workload failure — so there's no Pod to describe?
-- Did you read the `Ready` condition message, which names the exact failing ref?
+- Did you read the source before you looked for a broken Pod?
+- Did you see that all three consumer messages describe waiting, not failing?
+- Did you confirm the branch list on the server, instead of guessing a branch name?
 
-The anti-pattern: hunt through `app-services` for a broken Pod, or blame RBAC/scheduling, when the failure is one object up the chain and the message already names it.
+**Expected time:** 3–6 min.
 
-**Expected time:** 3–7 minutes. Fast once "source first" is a reflex; slow if you start at the missing workload.
-
-**Production thinking:** The `kubectl patch` fixes this cluster. In a bootstrapped setup the `GitRepository` manifest lives in git, so the durable fix is a reviewed commit correcting `spec.ref.branch` — otherwise the next reconcile of Flux's own config reapplies `release-2024`. This class of failure is invisible to Pod-level alerting (nothing crashes), so alert on Flux objects: `Ready: False` on sources, or source revision lagging git HEAD.
+**Production thinking:** this case is the loud one: the workloads never existed. The quiet case is a fetch failure after a good fetch, where every consumer stays green on the old artifact. Alert on source `Ready False` and on the age of the source's last artifact update, not on consumer status alone. In a bootstrapped fleet, the `GitRepository` manifest lives in git, so the fix is a reviewed commit, and a CI check can run `git ls-remote` for every ref the manifests name.
 
 ---
 
-## Break/fix 02 — Kustomization Suspended
+## Break/fix 02 — Kustomization suspended
 
-**Symptom:** Drift that Flux corrected instantly in the baseline now persists. `dialplan` runs 5 replicas; git declares 2; Flux isn't pulling it back. The source is healthy and `flux get all` looks fine at a glance.
+**Symptom:** `dialplan` runs 5 replicas against `replicas: 2` in git. The source is current. `apps` reads `READY True` and `Applied revision` equal to the source.
 
-**Root cause:** The `apps` Kustomization has `spec.suspend: true`. A suspended object doesn't reconcile — no drift correction, no new commits applied, no pruning — and it reports its last (healthy-looking) state, so nothing errors<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[2]</a></sup>. The hand-scaled 5 replicas (an out-of-band change from an incident) is never reverted because the controller that would revert it is paused.
+**Root cause:** `apps` has `spec.suspend: true`, left from an incident. kustomize-controller skips every pass of a suspended object: no drift correction, no new revision, no prune<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[2]</a></sup>. The object keeps the conditions of its last pass, which succeeded, so only the `SUSPENDED` column shows the state.
 
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. Confirm the drift: live vs git
-kubectl get deploy dialplan -n app-services            # READY 5/5
-grep replicas /root/polyphone-config/apps/dialplan.yaml # replicas: 2
-
-# 2. Rule out the source (top-down)
-flux get sources git                                   # polyphone-config READY True
-
-# 3. Read the consumer — the SUSPENDED column is the tell
-flux get kustomizations                                # apps  SUSPENDED True
-kubectl get kustomization apps -n flux-system -o jsonpath='{.spec.suspend}{"\n"}'   # true
+kubectl get deploy dialplan -n app-services                 # 5/5
+grep replicas /root/polyphone-config/apps/dialplan.yaml      # replicas: 2
+flux get sources git                                         # READY True, newest commit
+flux get kustomizations                                      # apps  SUSPENDED True  READY True
+kubectl describe kustomization apps -n flux-system           # Suspend: true
+flux reconcile kustomization apps                            # ✗ resource is suspended
 ```
 
-**Fix:** Resume reconciliation; Flux corrects the drift on the first pass:
+**Fix:**
 
 ```bash
 flux resume kustomization apps
 ```
 
-**Verify:**
-
-```bash
-flux get kustomizations                                # apps  SUSPENDED False  READY True
-kubectl get deploy dialplan -n app-services            # READY 2/2 (drift corrected)
-```
+**Verify:** `apps` reads `SUSPENDED False`, `READY True`. `dialplan` is back at 2. A second `kubectl scale` reverts on the next `flux reconcile`.
 
 **What this scenario tests:**
 
-- Did you notice the `SUSPENDED` column instead of trusting a green-looking `READY`? A suspended object hides in plain sight because it reports its last state.
-- Did you separate "drift not corrected" (reconciliation is off) from "source broken" (fetch failed)? Different layer, different fix.
-- Did you recover with `flux resume` rather than re-scaling by hand (which suspend would just... not revert, masking the real issue)?
+- Did you read the `SUSPENDED` column, or stop at `READY True`?
+- Did you rule out the source first by comparing its revision with `git log`?
+- Did you resume, rather than scale `dialplan` back by hand? A hand scale hides the drift and leaves delivery off.
 
-The anti-pattern: `kubectl scale dialplan --replicas=2` to "fix" it. It papers over the symptom while reconciliation stays off — the next drift (or a needed git change) still won't apply, and you've hidden the suspended consumer.
+**Expected time:** 2–5 min. The slow part is trusting the green `READY`.
 
-**Expected time:** 3–6 minutes. The slow part is trusting a green dashboard and not checking the suspend state.
-
-**Production thinking:** `flux resume` is the recovery. Two durable lessons: the emergency scale to 5 was lost because it lived only in the cluster — if 5 was correct it belonged in a git commit; and `suspend` during an incident needs a tripwire (an alert on suspended Flux objects, or a runbook step to `resume`) so it isn't silently forgotten, quietly stopping all delivery for that object.
+**Production thinking:** suspend is the right tool before a deliberate hand change, and the runbook needs a matching exit: put the change in git, then resume. If 5 replicas was correct, the commit sets `replicas: 5` before the resume, or the resume reverts it. Alert on any Flux object with `spec.suspend: true` for longer than an incident window. Flux's monitoring example configures kube-state-metrics to export `gotk_resource_info` with a `suspended` label for every Flux object.
 
 ---
 
-## Break/fix 03 — HelmRelease Dependency
+## Break/fix 03 — HelmRelease dependency
 
-**Symptom:** The `voicemail` HelmRelease is stuck `READY False` and never installs — no `voicemail` Deployment in `app-services` — even though the source is `Ready`, the `apps` Kustomization is `Ready`, `dialplan` and `message-store` are running, and the chart renders.
+**Symptom:** `voicemail` never installs. The source, `apps` and `message-store` are `READY True`, and the chart renders with `helm template`.
 
-**Root cause:** `spec.dependsOn` names a HelmRelease called `message-cache` that doesn't exist; the backing-store release `voicemail` should wait for is `message-store` (the store was renamed and the dependency reference never caught up). A `HelmRelease`'s `dependsOn` references other HelmReleases, and gates the release until every listed one is `Ready`; an object that doesn't exist can never be ready, so helm-controller holds the release as `DependencyNotReady` indefinitely<sup><a href="https://fluxcd.io/flux/components/helm/helmreleases/">[3]</a></sup>. This is Flux waiting correctly on a reference that happens to be wrong (a typo or a stale rename).
+**Root cause:** `voicemail` lists `dependsOn: [{name: message-cache}]`. The store's HelmRelease is `message-store`; the reference kept the old name after a rename. helm-controller checks every dependency at the start of each pass and stops before the chart. It sets `DependencyNotReady` with the message `unable to get 'flux-system/message-cache' dependency: helmreleases.helm.toolkit.fluxcd.io "message-cache" not found`, and retries every 30 seconds<sup><a href="https://fluxcd.io/flux/components/helm/helmreleases/">[3]</a></sup>.
 
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. Read the release's Ready condition — it says why it's waiting
-flux get helmreleases
-# voicemail  READY False  message: dependency 'flux-system/message-cache' is not ready
-kubectl get helmrelease voicemail -n flux-system \
-  -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}{"\n"}'   # DependencyNotReady
-
-# 2. Does the named dependency exist? dependsOn is same-kind, so check HelmReleases
-flux get helmreleases                                  # message-store is READY True — no 'message-cache'
-kubectl get helmrelease voicemail -n flux-system -o jsonpath='{.spec.dependsOn}{"\n"}'
-# [{"name":"message-cache"}]  -> points at nothing
-
-# 3. Rule out the other layers
-flux get sources git                                   # READY True
-kubectl get deploy dialplan -n app-services            # READY 2/2
+flux get helmreleases                                   # voicemail: unable to get 'flux-system/message-cache' dependency ...
+kubectl describe helmrelease voicemail -n flux-system   # Depends On: Name: message-cache; Reason: DependencyNotReady
+kubectl get helmreleases -n flux-system                 # message-store, voicemail. No message-cache.
+helm template /root/polyphone-config/charts/voicemail   # renders: the chart is fine
 ```
 
-**Fix:** Point `dependsOn` at the release that actually exists, then reconcile:
+**Fix:**
 
 ```bash
 kubectl patch helmrelease voicemail -n flux-system \
@@ -161,28 +129,103 @@ kubectl patch helmrelease voicemail -n flux-system \
 flux reconcile helmrelease voicemail
 ```
 
-**Verify:**
-
-```bash
-flux get helmreleases                                  # voicemail READY True
-helm list -n app-services                              # voicemail deployed
-kubectl get deploy voicemail -n app-services           # READY 2/2
-```
+**Verify:** `voicemail` reads `Helm install succeeded for release app-services/app-services-voicemail.v1`. `helm list -n flux-system` shows it `deployed`, and the Deployment runs 2/2.
 
 **What this scenario tests:**
 
-- Did you read *why* the release said it wasn't ready (`DependencyNotReady`) instead of assuming a render or install failure? A blocked release is different from a failed one.
-- Did you verify the named dependency exists (`flux get helmreleases`, since `dependsOn` is same-kind) — turning "waiting" into "waiting on nothing"?
-- Did you confirm the rest of the pipeline was healthy, isolating the fault to the reference?
+- Did you read the message, not only the reason? `is not ready` means a red dependency; `unable to get ... not found` means a wrong reference.
+- Did you list HelmReleases, the kind that `dependsOn` names, rather than Kustomizations or Deployments?
+- Did you keep the gate? Deleting `dependsOn` installs `voicemail`, and it also removes the order the release needs.
 
-The anti-pattern: dig into the chart, values, or helm-controller logs looking for a render error — when the release never got as far as rendering, because its dependency gate never opened.
+**Expected time:** 3–6 min.
 
-**Expected time:** 3–6 minutes. The `dependsOn` message is self-describing once you read the condition instead of the (absent) workload.
+**Production thinking:** the durable fix is a commit to the HelmRelease manifest. Catch the class in CI: for every `dependsOn` entry in the repo, assert that an object of the same kind with that name exists in the same render. Keep `dependsOn` to real ordering needs. The gate runs on every pass, so a red dependency later blocks upgrades and drift correction of its dependents, even though their workloads keep running.
 
-**Production thinking:** The `kubectl patch` fixes this cluster; the durable fix corrects the `dependsOn` name in the `HelmRelease` in git, ideally with CI that validates references so a stale rename can't ship. And keep `dependsOn` honest — list only genuine ordering needs, because every dependency is one more thing that can block the release, and `dependsOn` waits for `Ready` at install, not for continued health afterward.
+---
+
+## Break/fix 04 — Path not found
+
+**Symptom:** the newest commit asks for 3 `dialplan` replicas, and the cluster runs 2, all ready. `flux get sources git` shows the newest commit. `apps` shows `READY False`, and its `REVISION` is the seed commit.
+
+**Root cause:** the commit moved `apps/` to `deploy/apps/`, and `apps` still has `spec.path: ./apps`. The build fails with `kustomization path not found: stat /tmp/kustomization-<n>/apps: no such file or directory` (reason `ArtifactFailed`)<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[2]</a></sup>. A failed build applies nothing and prunes nothing, so the objects from the last good build keep running, and `lastAppliedRevision` stays on the seed commit.
+
+**Diagnostic commands (the canonical path):**
+
+```bash
+kubectl get deploy dialplan -n app-services      # 2/2, healthy
+git -C /root/polyphone-config log --oneline      # restructure commit on top
+flux get sources git                             # revision = restructure commit
+flux get kustomizations                          # apps revision = seed commit; path not found
+kubectl describe kustomization apps -n flux-system   # Path: ./apps
+ls /root/polyphone-config/deploy                 # apps
+```
+
+**Fix (point the build at the new path):**
+
+```bash
+kubectl patch kustomization apps -n flux-system \
+  --type=merge -p '{"spec":{"path":"./deploy/apps"}}'
+flux reconcile kustomization apps
+```
+
+Moving the directory back in git, with a commit and a push, is also correct.
+
+**Verify:** `apps` reads `READY True`, and its revision equals the source revision. `dialplan` runs 3/3. `flux tree kustomization apps` lists the same two objects, so prune deleted nothing.
+
+**What this scenario tests:**
+
+- Did you compare the consumer revision with the source revision, rather than look at colors?
+- Did you name the stage from the message, build, before you touched the workload?
+- Did you avoid `kubectl scale --replicas=3`? It matches the commit for one pass and leaves the build broken.
+
+**Expected time:** 3–6 min.
+
+**Production thinking:** in a bootstrapped fleet the `Kustomization` is a manifest in git too. Move the directory and the `spec.path` in the same pull request, and run `flux build kustomization` (or `kustomize build` on every `path`) in CI, so a missing path fails the pull request instead of the cluster. Alert when a consumer's `lastAppliedRevision` trails its source for longer than a few intervals; that catches this case and the quiet fetch case.
+
+---
+
+## Break/fix 05 — Health check, fix in git
+
+**Symptom:** `apps` alternates between `READY False`, `health check failed after 1m0s: timeout waiting for: [Deployment/app-services/dialplan status: 'InProgress']`, and `READY Unknown`, `Reconciliation in progress`. After the Deployment's 600-second progress deadline, the status in that message reads `'Failed'` instead of `'InProgress'`. Two old `dialplan` Pods serve; one new Pod is in `ImagePullBackOff`. A `kubectl set image` back to `nginx:1.25` lasts about one minute.
+
+**Root cause:** the release commit set `image: nginx:1.25-polyphone`, a tag the registry does not have. kustomize-controller applied it, and `wait: true` timed out on the rollout<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[2]</a></sup>. `lastAttemptedRevision` is the release commit; `lastAppliedRevision` stays on the seed commit, because it moves only when a whole pass succeeds. Each retry applies the manifest from git again with forced server-side apply, so it takes the image field back from any hand change<sup><a href="https://kubernetes.io/docs/reference/using-api/server-side-apply/">[4]</a></sup>.
+
+**Diagnostic commands (the canonical path):**
+
+```bash
+flux get kustomizations                              # health check failed / Reconciliation in progress
+kubectl describe kustomization apps -n flux-system   # Last Attempted = release commit, Last Applied = seed
+kubectl get pods -n app-services -l app=dialplan     # 2 Running, 1 ImagePullBackOff
+kubectl describe deployment dialplan -n app-services # Image: nginx:1.25-polyphone
+git -C /root/polyphone-config log --oneline          # "dialplan: roll to build 1.25-polyphone"
+```
+
+**Fix:**
+
+```bash
+cd /root/polyphone-config
+git revert --no-edit HEAD
+git push
+flux reconcile kustomization apps --with-source
+```
+
+A fix forward, a commit that sets a tag the registry has, is also correct.
+
+**Verify:** `git log --oneline -1`, `flux get sources git` and `flux get kustomizations` show the same hash, and `apps` reads `READY True`. Two `dialplan` Pods run `nginx:1.25`, and no Pod is in `ImagePullBackOff`.
+
+**What this scenario tests:**
+
+- Did you read `Last Attempted Revision` and `Last Applied Revision`, and see that the release commit was applied and then refused?
+- Did the hand fix teach you something? It shows which controller owns the field and why it cannot last.
+- Did you fix the desired state in git, and confirm the fix with revisions rather than Pod status alone?
+
+**Expected time:** 5–10 min, including one wasted minute on the hand fix.
+
+**Production thinking:** when a bad commit is in git, the fastest durable recovery is a revert commit, and the revert must go through the same review shortcut that incidents use. When the fix cannot wait for a commit, `flux suspend kustomization apps` first, then fix by hand, then revert in git, then resume, in that order. Keep tags that the registry lacks out of git: a CI step that resolves every image reference before merge, or an admission policy that rejects unresolvable tags (M20).
 
 ## References
 
-1. Flux — GitRepository API — https://fluxcd.io/flux/components/source/gitrepositories/
-2. Flux — Kustomization API (suspend, drift) — https://fluxcd.io/flux/components/kustomize/kustomizations/
-3. Flux — HelmRelease API (dependsOn) — https://fluxcd.io/flux/components/helm/helmreleases/
+1. Flux — GitRepositories: https://fluxcd.io/flux/components/source/gitrepositories/
+2. Flux — Kustomizations (path, wait, suspend, inventory): https://fluxcd.io/flux/components/kustomize/kustomizations/
+3. Flux — HelmReleases (dependsOn, release name, storage namespace): https://fluxcd.io/flux/components/helm/helmreleases/
+4. Kubernetes — Server-Side Apply: https://kubernetes.io/docs/reference/using-api/server-side-apply/

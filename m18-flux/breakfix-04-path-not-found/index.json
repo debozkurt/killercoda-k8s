@@ -1,0 +1,28 @@
+{
+  "title": "M18 — Break/fix 04: Path Not Found",
+  "description": "A pushed commit never reaches the cluster. The source has fetched it, and the old dialplan keeps serving. Find the stage that stopped.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      {
+        "title": "Find the stalled stage",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
+    ],
+    "finish": {
+      "text": "finish.md"
+    }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

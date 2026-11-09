@@ -1,8 +1,6 @@
 #!/bin/bash
 
-echo "Waiting for the Polyphone baseline + the Flux GitOps pipeline to come up..."
-echo "(installs local-path-provisioner, metrics-server, k9s, the Flux controllers,"
-echo " an in-cluster Gitea git server; seeds the config repo and runs the first reconcile)"
+echo "Waiting for the Polyphone fleet, Flux, the git server and the first reconcile..."
 echo ""
 
 while [ ! -f /tmp/.setup-complete ]; do
@@ -11,9 +9,8 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "Cluster is ready. Confirm Flux is healthy and see the sources:"
+echo "Cluster is ready. Start with the controllers and the source:"
 echo ""
 echo "  flux check"
 echo "  flux get sources git"
-echo "  flux get all"
 echo ""

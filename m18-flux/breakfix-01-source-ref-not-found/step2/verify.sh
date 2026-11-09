@@ -1,20 +1,16 @@
 #!/bin/bash
-# Checks: the GitRepository is pointed at an existing branch and Ready again, and
-# the downstream Kustomization applied dialplan. Accepts any path that lands a
-# Ready source + a running dialplan (proves the source fed the consumers).
-BRANCH=$(kubectl get gitrepository polyphone-config -n flux-system -o jsonpath='{.spec.ref.branch}' 2>/dev/null)
-[ "$BRANCH" = "main" ] || { echo "GitRepository ref.branch is '${BRANCH:-none}', expected an existing branch (main)" >&2; exit 1; }
+# Checks: the source has an artifact, apps applied it, and all three GitOps
+# workloads are ready. Accepts any existing branch that delivers them.
+REV=$(kubectl get gitrepository polyphone-config -n flux-system -o jsonpath='{.status.artifact.revision}' 2>/dev/null)
+[ -n "$REV" ] || { echo "GitRepository polyphone-config has no artifact. Point it at an existing branch:" >&2; echo "  kubectl patch gitrepository polyphone-config -n flux-system --type=merge -p '{\"spec\":{\"ref\":{\"branch\":\"main\"}}}'" >&2; exit 1; }
 
-READY=$(kubectl get gitrepository polyphone-config -n flux-system \
-  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
-[ "$READY" = "True" ] || { echo "GitRepository is not Ready yet (got: ${READY:-none}). Run: flux reconcile source git polyphone-config" >&2; exit 1; }
+APPLIED=$(kubectl get kustomization apps -n flux-system -o jsonpath='{.status.lastAppliedRevision}' 2>/dev/null)
+[ "$APPLIED" = "$REV" ] || { echo "apps applied ${APPLIED:-nothing}, the source holds $REV. Run:" >&2; echo "  flux reconcile kustomization apps" >&2; exit 1; }
 
-KREADY=$(kubectl get kustomization apps -n flux-system \
-  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
-[ "$KREADY" = "True" ] || { echo "Kustomization apps not Ready yet (got: ${KREADY:-none}). Run: flux reconcile kustomization apps --with-source" >&2; exit 1; }
+for d in dialplan message-store voicemail; do
+  RR=$(kubectl get deploy "$d" -n app-services -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
+  [ -n "$RR" ] && [ "$RR" -ge 1 ] || { echo "Deployment $d has no ready replicas yet. Wait a minute, then run:" >&2; echo "  flux get helmreleases" >&2; exit 1; }
+done
 
-RR=$(kubectl get deploy dialplan -n app-services -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
-[ "$RR" = "2" ] || { echo "Expected dialplan at 2 ready replicas after the source recovered, got ${RR:-none}" >&2; exit 1; }
-
-echo "✓ Source pointed at main and Ready; apps reconciled; dialplan at $RR ready replicas"
+echo "✓ Source stored $REV; apps applied it; dialplan, message-store and voicemail are ready"
 exit 0

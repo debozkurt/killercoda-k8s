@@ -1,9 +1,9 @@
 # Done
 
-You diagnosed a pipeline that delivered nothing by reading it top-down: the `GitRepository` was `Ready: False` because it pointed at a branch (`release-2024`) the repo never had, so no artifact was produced and every consumer stalled waiting on it. Pointing the source at `main` and reconciling brought the whole pipeline back.
+The fetch stage stopped. The `GitRepository` named a branch that the repo does not have, so source-controller never stored an artifact. With no artifact, each consumer reported that it had nothing to apply, and the workloads never existed. Pointing the source at `main` produced an artifact, and the consumers applied it at once.
 
 **Next:**
 
-- For the canonical path and the patch-vs-fix-in-git discussion, see [ANSWER-KEY.md](../ANSWER-KEY.md).
-- For the *why* — sources vs consumers and why a stalled source is invisible at the workload level — read [LESSON.md](../LESSON.md).
-- **breakfix-02: Kustomization Suspended** — a hand-scaled Deployment won't revert and a change won't land, while `get` output looks healthy. The consumer is suspended.
+- [ANSWER-KEY.md](../ANSWER-KEY.md) covers the durable fix and the alert that catches a stalled source.
+- [LESSON.md](../LESSON.md) covers the other fetch case: an earlier artifact exists, and every consumer stays green.
+- **breakfix-02: Kustomization Suspended** — drift that Flux should revert stays, and `apps` reports `Ready True`.

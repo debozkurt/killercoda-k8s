@@ -1,18 +1,17 @@
 # M18 — Break/fix 02: Kustomization Suspended
 
-> Pre-req: completed the M18 baseline tour, or comfortable with drift correction and `flux get kustomizations`.
+> Pre-req: the M18 baseline, or working knowledge of drift correction and `flux get kustomizations`.
 
-During last night's incident, an on-call engineer scaled `dialplan` up to 5 replicas by hand to ride out a traffic spike, and suspended the `apps` Kustomization so Flux wouldn't fight the change. The incident is resolved. But `dialplan` is still running 5 replicas — git declares 2 — and Flux hasn't pulled it back the way it did in the baseline tour.
+Last night a traffic spike hit `dialplan`, and the on-call engineer scaled it to 5 replicas by hand. The incident closed hours ago. Git still declares 2, and in the baseline Flux reverted the same change within a minute. This morning `dialplan` still runs 5:
 
 ```text
 +------------------------------------------------------------+
-| dialplan (app-services): running 5 replicas                |
-| git (apps/dialplan.yaml) declares: 2                       |
-| Flux corrected this instantly in the baseline -- now it    |
-| just... doesn't. Source is healthy. What changed?          |
+| dialplan (app-services): 5 replicas                        |
+| git (apps/dialplan.yaml): replicas: 2                      |
+| Flux dashboard: all objects green                          |
 +------------------------------------------------------------+
 ```
 
-The source is fine. `flux get all` looks healthy at a glance. Yet drift that Flux corrected in seconds during the tour now persists indefinitely. This scenario tests a quiet, common failure: a consumer that was suspended and never resumed. Reconciliation is simply off for that object, and nothing errors to tell you.
+Find why Flux leaves the drift in place, and return `dialplan` to the state in git.
 
-The cluster takes 2–4 minutes to come up. Click **Start** when ready.
+Setup takes about four minutes. Click **Start** when the terminal says the cluster is ready.

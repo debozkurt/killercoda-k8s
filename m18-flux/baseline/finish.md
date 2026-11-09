@@ -1,12 +1,9 @@
 # Done
 
-You toured a Flux pipeline end to end: the `GitRepository` source and its artifact, the `apps` Kustomization applying the repo, drift correction reverting a hand-scaled Deployment, and the `voicemail` HelmRelease ordered after the `message-store` release by `dependsOn`. The repo lives on the in-cluster git server and is mirrored at `/root/polyphone-config`.
+You walked the delivery loop in order. The `GitRepository` fetched a commit and stored it as an artifact with a revision. The `apps` Kustomization built `./apps`, applied it, waited for health and recorded an inventory. It reverted a hand scale on the next pass, and the HelmRelease kept one. A push moved every revision forward, and deleting a file pruned its object.
 
 **Next:**
 
-- For the *why* — GitOps, the reconcile loop, sources vs consumers, drift, and dependency ordering — read [LESSON.md](../LESSON.md).
-- **breakfix-01: Source Ref Not Found** — the GitRepository points at a branch that doesn't exist; the cluster runs nothing new and nothing crashes. Tests reading the source's `Ready` condition first.
-- **breakfix-02: Kustomization Suspended** — a hand-scaled Deployment won't revert and a change won't land, while `get` output looks healthy. Tests finding a suspended consumer and `flux resume`.
-- **breakfix-03: HelmRelease Dependency** — a release is stuck `not ready` and never installs. Tests reading a `dependsOn` message and correcting the reference.
-
-After each, check yourself against [ANSWER-KEY.md](../ANSWER-KEY.md).
+- [LESSON.md](../LESSON.md) covers the four stages and why a failure leaves the later stages on the last good result.
+- **breakfix-01** to **breakfix-05** each stop one stage. Read the Flux objects in pipeline order, and compare revisions.
+- Check yourself against [ANSWER-KEY.md](../ANSWER-KEY.md) after each scenario.

@@ -1,51 +1,55 @@
 # M18 — Flux (GitOps Delivery)
 
-> Git is the desired state; a controller in the cluster makes it true and keeps it true. How Flux fetches a source, reconciles it, corrects drift, and orders dependent releases — and the three places the pipeline stalls without touching your workload.
+> Git holds the desired state, and controllers in the cluster make the cluster match it on a loop. How Flux fetches a commit, builds it, applies it and checks its health, and how to find the stage where delivery stopped.
 
 ## What you'll learn
 
-- Explain GitOps — declarative state in git, continuously reconciled by an in-cluster agent — and how Flux implements it as a set of controllers and CRDs
-- Separate a **source** (`GitRepository`) from a **consumer** (`Kustomization`, `HelmRelease`), and read each object's `Ready` condition top-down to locate a stall
-- Trace the reconcile loop: source artifact → server-side apply → live objects, running on an interval you can force with `flux reconcile`
-- Reason about **drift correction** — why a manual `kubectl edit` on a Flux-managed object is reverted — and when `suspend` deliberately turns that off
-- Order releases with `dependsOn`, and read why a dependent is stuck waiting
-- Drive the fleet with the `flux` CLI: `get sources`, `get kustomizations`, `get helmreleases`, `reconcile`, `suspend`/`resume`, `logs`, `events`
+- Explain GitOps as a pull-based reconcile loop, and name the Flux controller that owns each stage: **fetch**, **build**, **apply** and **health**
+- Read a `GitRepository` and its artifact revision, and compare that revision with the revision each consumer last applied
+- Explain why a fetch failure leaves the consumers green on the last good revision, and why a build failure leaves the old objects running
+- Predict what Flux does to a `kubectl scale` or `kubectl edit`: a `Kustomization` reverts it, and a `HelmRelease` keeps it unless drift detection is on
+- Use `suspend` and `resume` on purpose, and find a consumer that someone suspended and forgot
+- Order releases with `dependsOn`, and read the message when a dependency is missing or not ready
+- Ship a fix through git when Flux reverts every hand fix, and confirm it with the revision fields
 
 ## Why it matters
 
-By the time Polyphone's platform outgrew hand-run `kubectl apply`, nobody could answer the question that matters during an incident: *what is supposed to be running right now?* The cluster held the answer, but the cluster is also where the drift lives — the emergency `kubectl scale` from last Tuesday that nobody reverted, the `kubectl edit` that fixed a symptom and became permanent. GitOps closes that gap by making git the single declared source of truth and putting an agent in the cluster whose only job is to make the cluster match git, forever<sup><a href="https://opengitops.dev/">[1]</a></sup>.
+Hand-run `kubectl apply` leaves one question without an answer during an incident: what is supposed to run right now? The cluster holds one answer, and drift lives in the cluster too. Last week's emergency `kubectl scale` is still there, and so is the `kubectl edit` that became permanent. GitOps answers the question with git. A controller in the cluster reads the declared state from git and keeps the cluster equal to it<sup><a href="https://opengitops.dev/">[1]</a></sup>.
 
-Flux is that agent<sup><a href="https://fluxcd.io/flux/concepts/">[2]</a></sup>. It turns the earlier modules into a delivery system: the Kustomize overlays from M16 and the Helm charts from M17 stop being things you render and apply by hand and become things Flux renders and applies for you, on a loop, from a commit. That changes what "broken" looks like. A Flux failure usually isn't a crashing Pod — it's a *reconcile* that stalled. The source can't fetch, so the cluster quietly runs last week's manifests. A Kustomization is suspended, so your merged fix never lands. A release is blocked on a dependency that will never be ready. In every case the workload looks fine or looks stale, and the real signal is in Flux's own objects. This module builds the reflex to read those objects — source first, then consumer, then the thing it manages — instead of staring at a Deployment that Flux isn't even touching.
+Flux is that controller<sup><a href="https://fluxcd.io/flux/concepts/">[2]</a></sup>. It runs the Kustomize builds from M16 and the Helm releases from M17 for you, from a commit, on a loop. That changes what a failure looks like. A Flux failure is rarely a crashing Pod. Usually a stage of the delivery loop stopped, and the workload keeps running the previous revision. The merged fix never lands, the dashboards stay green, and the only evidence is in Flux's own objects. This module teaches you to read those objects in pipeline order before you open the workload.
 
 ## Scope
 
-**Covers:** the GitOps model and Flux's controller architecture (source, kustomize, helm, notification); `GitRepository` as a source and its artifact/interval; `Kustomization` (the Flux CRD, not the `kustomization.yaml` file from M16) as a consumer with `path`, `prune`, and health; the reconcile loop, drift correction, and `suspend`/`resume`; `HelmRelease` driven by helm-controller with its chart sourced from a `GitRepository`; ordering with `dependsOn`; and reading `Ready` conditions with the `flux` CLI.
+**Covers:** the GitOps principles and the pull model; the Flux controllers (source, kustomize, helm) and `flux install`; `GitRepository`, artifacts and revisions; the Flux `Kustomization` (`path`, `prune`, `wait`, `timeout`, `targetNamespace`, the inventory); drift correction with server-side apply; `suspend`/`resume`; `HelmRelease` with a chart from a `GitRepository`, its release name and storage namespace, drift detection, and remediation; `dependsOn`; reading `Ready` conditions and revisions with the `flux` CLI; the fix-in-git workflow; Flux version support.
 
-**Doesn't cover:** `flux bootstrap` and wiring Flux to a real hosted git provider with a token → this module runs `flux install` against an in-cluster repo to keep the mechanics in view; multi-tenancy, RBAC service-account impersonation, and cross-namespace source access → deferred; secrets decryption in the pipeline (SOPS/`kustomize-controller` with age) → M11; multi-cluster promotion and per-environment cluster variables → M19; and Argo CD, the other major GitOps controller → mentioned for contrast only.
+**Doesn't cover:** `flux bootstrap` and a hosted git provider → this module uses `flux install` and an in-cluster git server; `HelmRepository` and `OCIRepository` sources → one sentence; notification-controller alerts and webhook receivers → one sentence; image automation → deferred; multi-tenancy and service-account impersonation → deferred; SOPS decryption → M11; multi-cluster promotion → M19; Argo CD → a short contrast only.
 
-**Assumes:** you can read a Deployment and Service and run the `get → describe → events` loop (M00–M04); you know what a Kustomize base/overlay is and that `kubectl apply -k` renders it (M16); and you know a Helm chart is templates plus values that render into a release (M17). Flux orchestrates both; it doesn't replace them.
+**Assumes:** you can read a Deployment and a Service and run the `get → describe → events → logs` loop (M00–M04); you know a Kustomize base and overlay and `kubectl apply -k` (M16); you know a Helm chart, a release and its revisions (M17); you know `ImagePullBackOff` (M02); you can make a commit and push it with `git`.
 
 ## Vocabulary
 
 | Term | Definition |
 |------|------------|
-| **GitOps** | An operating model: the desired state of the system is declared in git, and an automated agent continuously pulls that state and reconciles the cluster to match it<sup><a href="https://opengitops.dev/">[1]</a></sup>. |
-| **Flux** | A set of Kubernetes controllers (the GitOps Toolkit) that implement GitOps as custom resources<sup><a href="https://fluxcd.io/flux/concepts/">[2]</a></sup>. Installed into the `flux-system` namespace. |
-| **Reconciliation** | The loop each controller runs: fetch desired state, compare to the cluster, apply the difference, repeat every `interval`. The core of GitOps. |
-| **Source** | An object that fetches artifacts and makes them available to consumers. `GitRepository`, `HelmRepository`, `OCIRepository`, and `Bucket` are sources, managed by source-controller<sup><a href="https://fluxcd.io/flux/components/source/">[3]</a></sup>. |
-| **`GitRepository`** | A source that clones a git URL at a ref (branch/tag/commit) on an interval and exposes the result as an internal **artifact** other objects consume<sup><a href="https://fluxcd.io/flux/components/source/gitrepositories/">[4]</a></sup>. |
-| **Artifact / revision** | The packaged, versioned snapshot a source produces from a fetch, identified by a **revision** (e.g. `main@sha1:abcd…`). Consumers reconcile *from the artifact*, not by cloning git themselves. |
-| **`Kustomization`** | The Flux CRD (kustomize-controller) that builds a `path` from a source and applies the result, with pruning and health checks<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[5]</a></sup>. Distinct from the `kustomization.yaml` file it may build (M16). |
-| **`HelmRelease`** | The Flux CRD (helm-controller) that installs and upgrades a Helm release from a chart source, driven declaratively instead of by `helm` on a laptop<sup><a href="https://fluxcd.io/flux/components/helm/helmreleases/">[6]</a></sup>. |
-| **Drift** | Any difference between the live cluster and the declared state. Flux corrects it by re-applying the desired state each interval, so out-of-band edits are reverted. |
-| **Prune** | Garbage collection: with `prune: true`, a resource removed from git is deleted from the cluster on the next reconcile<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[5]</a></sup>. |
-| **`suspend` / `resume`** | A per-object switch (`spec.suspend`, or `flux suspend`/`resume`) that stops reconciliation for that object. Suspended means frozen: no drift correction, no new applies. |
-| **`dependsOn`** | An ordering field that references objects of the **same kind** — a `Kustomization` waits on other `Kustomization`s, a `HelmRelease` on other `HelmRelease`s — holding the dependent until every listed object is `Ready` before it reconciles<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[5]</a> <a href="https://fluxcd.io/flux/components/helm/helmreleases/">[6]</a></sup>. |
-| **`Ready` condition** | The status every Flux object carries: `True` when its last reconcile succeeded, `False` with a reason/message when it didn't. The first thing you read. |
+| **GitOps** | An operating model: the desired state is declarative, versioned and immutable, pulled automatically by software agents, and continuously reconciled<sup><a href="https://opengitops.dev/">[1]</a></sup>. |
+| **Flux** | A set of Kubernetes controllers, the GitOps Toolkit, that implement GitOps through custom resources<sup><a href="https://fluxcd.io/flux/concepts/">[2]</a></sup>. `flux install` puts them in the `flux-system` namespace. |
+| **Reconciliation** | One pass of a controller: read the desired state, compare it with the cluster, change the cluster to match. Flux runs a pass every `interval`, and also when the object or its source changes. |
+| **Source** | An object that fetches content from outside the cluster and serves it as an artifact. source-controller manages the sources: `GitRepository`, `HelmRepository`, `OCIRepository` and `Bucket`<sup><a href="https://fluxcd.io/flux/components/source/">[3]</a></sup>. |
+| **`GitRepository`** | A source that clones a git URL at a ref (branch, tag or commit) on an interval<sup><a href="https://fluxcd.io/flux/components/source/gitrepositories/">[4]</a></sup>. |
+| **Artifact** | The packaged tree that a source produced from one fetch, served inside the cluster. Consumers read the artifact; they never clone git themselves. |
+| **Revision** | The identity of an artifact, such as `main@sha1:3f9c…`: the branch and the commit. Each consumer records the revision it last applied, so you can compare the two. |
+| **Consumer** | An object that reads an artifact and changes the cluster: a `Kustomization` or a `HelmRelease`. |
+| **`Kustomization` (Flux)** | The kustomize-controller custom resource that builds a `path` from an artifact and applies the result<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[5]</a></sup>. Not the `kustomization.yaml` file from M16, which it may build. In this module, a bare `Kustomization` means the Flux object. |
+| **`HelmRelease`** | The helm-controller custom resource that installs and upgrades a Helm release from a chart source<sup><a href="https://fluxcd.io/flux/components/helm/helmreleases/">[6]</a></sup>. |
+| **`HelmChart`** | A source object that helm-controller creates for each `HelmRelease`. source-controller packages the chart from the named source into an artifact, and the `HelmRelease` installs from that artifact. |
+| **Inventory** | The list of objects a `Kustomization` applied, kept in its `.status.inventory`. Pruning compares the next build with this list. |
+| **Drift** | A difference between the live object and the desired state in git. |
+| **`suspend`** | `spec.suspend: true` on a Flux object. The controller skips every pass for that object until the field is false or gone. |
+| **`dependsOn`** | A list of objects of the same kind that must be `Ready` before this object reconciles. |
+| **`Ready` condition** | The status condition on every Flux object: `True` when the last pass succeeded, `False` with a reason and a message when it did not. |
 
 ## Mental model
 
-Flux is a control loop wearing several hats. source-controller fetches and packages *sources*; kustomize-controller and helm-controller *consume* a source and apply the result; every controller re-runs on its interval. The single most useful idea is the split between a source and its consumers, because it tells you where to look when something stalls.
+Delivery is a pipeline with four stages, and each stage records its result on a Flux object. The source-controller **fetches** the commit. The kustomize-controller **builds** the path, **applies** the result and **checks the health** of what it applied. The helm-controller does the same job for a chart. Two controls sit across the stages: the **order gate** (`dependsOn`) holds a consumer until its dependencies are ready, and the **suspend** switch stops every stage for one object.
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {
@@ -55,39 +59,34 @@ Flux is a control loop wearing several hats. source-controller fetches and packa
   'background':'#0f0f0f'
 }}}%%
 flowchart LR
-    git[(git repo<br/>desired state)]
-    subgraph flux[flux-system]
-      src[GitRepository<br/>source-controller<br/>fetch every interval]
-      art[artifact<br/>revision main@sha1]
-      kz[Kustomization<br/>kustomize-controller<br/>build path + apply]
-      hr[HelmRelease<br/>helm-controller<br/>install / upgrade]
-    end
-    obj[live objects<br/>Deployments, Services, release]
-    git --> src --> art
-    art --> kz
-    art --> hr
-    kz --> obj
-    hr --> obj
-    obj -. drift reverted<br/>next reconcile .-> kz
+    git[(git<br/>commit)] -->|fetch| src[GitRepository<br/>artifact + revision]
+    src -->|build path| kz[Kustomization<br/>build, apply, health]
+    src -->|render chart| hr[HelmRelease<br/>render, install, health]
+    kz -->|server-side apply| obj[live objects]
+    hr -->|helm upgrade| obj
 ```
 
-Read it top-down and the failures fall out. If the `GitRepository` can't fetch — wrong branch, unreachable URL — its artifact goes stale, and every `Kustomization` and `HelmRelease` downstream keeps serving the *last good* revision while reporting they're blocked on the source. Nothing in the cluster changes; nothing crashes. If the source is healthy but a `Kustomization` is suspended, the loop for that object simply doesn't run: drift isn't corrected and new commits aren't applied. If both are healthy but a `HelmRelease` lists a `dependsOn` that isn't `Ready`, the release waits — correctly, on purpose — and never installs.
+Each failure stops one stage and leaves the stages after it on the last good result. A fetch failure turns the `GitRepository` red and leaves every consumer green on the old revision. A build failure turns the `Kustomization` red and leaves the old objects running. A health failure means that the controller applied the new objects and they did not become healthy. A closed order gate stops a consumer before it builds or renders anything. A suspended consumer does nothing at all, and it keeps the green condition of its last pass.
 
-The load-bearing insight: **Flux's objects carry the diagnosis, not the workload.** A stale Deployment isn't the bug; the `GitRepository` that stopped feeding it is. So the diagnostic order is fixed — `flux get sources git`, then `flux get kustomizations` / `flux get helmreleases`, then the managed object — and each layer's `Ready` condition either clears it or names the failure.
+So the diagnosis is a fixed walk. Read `flux get sources git` and note the revision. Read `flux get kustomizations` and `flux get helmreleases`, and compare each applied revision with the source revision. Then open the workload. The first stage that is red, or behind, is the stage that stopped.
 
 ## Concept walkthrough
 
-### GitOps and the reconcile loop
+### The reconcile loop and the Flux controllers
 
-GitOps has four principles: the desired state is **declarative**, **versioned and immutable** (git history), **pulled automatically** by an agent, and **continuously reconciled**<sup><a href="https://opengitops.dev/">[1]</a></sup>. The last two are what separate it from a CI pipeline that runs `kubectl apply`. A pipeline *pushes* once, when it happens to run; if someone edits the cluster afterward, the pipeline neither knows nor cares until the next push. A GitOps agent *pulls* the declared state on a loop and re-asserts it every interval, so the cluster is continuously dragged back toward git. Drift has a bounded lifetime — one reconcile interval — instead of living until the next deploy.
+GitOps has four principles. The desired state is **declarative**. It is **versioned and immutable**, which git provides. Software agents **pull** it automatically. The agents **continuously reconcile** the system to it<sup><a href="https://opengitops.dev/">[1]</a></sup>. The last two principles separate GitOps from a CI job that runs `kubectl apply`. A CI job pushes once, when it runs. If someone edits the cluster afterward, the CI job does not know until the next deploy. A GitOps agent pulls on a loop, so drift lasts at most one interval.
 
-Flux implements this as controllers, each owning one CRD family<sup><a href="https://fluxcd.io/flux/concepts/">[2]</a></sup>. source-controller turns external state (a git repo, a Helm repo, an OCI artifact) into an internal, content-addressed **artifact**. kustomize-controller and helm-controller consume an artifact and reconcile the cluster to it. notification-controller reports outcomes and receives webhooks. They coordinate only through the Kubernetes API — each writes status on its own objects — which is why the whole system is debuggable with `kubectl get` and `flux get`, and why there's no central "Flux daemon" to restart.
+Flux splits the loop across controllers, and each controller owns one family of custom resources<sup><a href="https://fluxcd.io/flux/concepts/">[2]</a></sup>. source-controller fetches. kustomize-controller and helm-controller apply. notification-controller sends alerts and receives webhooks. The controllers communicate only through the Kubernetes API: each one writes status on its own objects. That is why `kubectl get` and `flux get` show the whole pipeline.
 
-`flux install` lays these controllers into the `flux-system` namespace<sup><a href="https://fluxcd.io/flux/installation/">[7]</a></sup>. In production you'd usually `flux bootstrap` instead — it commits Flux's own manifests into a git repo and points Flux at that repo, so Flux manages Flux. That closes the loop (upgrading Flux is a commit) but needs a hosted provider and a token, which is beyond this module's self-contained cluster.
+A controller runs a pass every `interval`. It also runs one at once when the object's spec changes or when its source produces a new revision<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[5]</a></sup>. `flux reconcile` asks for a pass now. `flux reconcile kustomization apps --with-source` refetches the source first, which is the command to use right after a push.
 
-### Sources: `GitRepository` and the artifact
+`flux install` applies the Flux CRDs and controllers to a cluster<sup><a href="https://fluxcd.io/flux/installation/">[7]</a></sup>. Production clusters usually run `flux bootstrap` instead. Bootstrap commits Flux's own manifests to a git repository and points Flux at that repository, so a Flux upgrade becomes a commit. It needs a git provider and a token.
 
-A `GitRepository` names a URL and a ref, and fetches on an interval<sup><a href="https://fluxcd.io/flux/components/source/gitrepositories/">[4]</a></sup>:
+Each Flux release supports a range of Kubernetes minor versions, and the project supports only the latest three. `flux check` tests the server version against that range, then checks the controllers and the CRDs. On a cluster outside the range, the first line fails and the command ends with `check failed`, even when every controller runs. Read the remaining lines on their own merits, and plan the cluster upgrade.
+
+### Sources: the artifact and its revision
+
+A `GitRepository` names a URL, a ref and an interval<sup><a href="https://fluxcd.io/flux/components/source/gitrepositories/">[4]</a></sup>:
 
 ```yaml
 apiVersion: source.toolkit.fluxcd.io/v1
@@ -102,18 +101,18 @@ spec:
     branch: main
 ```
 
-Every interval, source-controller clones that ref, packages the tree as an artifact, and stamps it with a revision like `main@sha1:9c4f…`. It does *not* apply anything — a source only fetches. Consumers read the artifact. This separation is the whole design: one fetch feeds many `Kustomization`s and `HelmRelease`s, and a fetch failure is isolated to one place. When the ref is wrong or the server is unreachable, the `GitRepository` goes `Ready: False` with the git error verbatim, its artifact freezes at the last good revision, and every consumer keeps reconciling *that stale revision* — reporting they're waiting on the source rather than failing outright. That is why the source is always the first object you read: a green consumer on a red source means the cluster is running yesterday's truth.
+On each pass, source-controller resolves the ref, clones that commit and stores the tree as an artifact with a revision such as `main@sha1:3f9c…`. A source never applies anything. Consumers read the artifact, so one fetch feeds every `Kustomization` and `HelmRelease` that points at the source.
 
-<details>
-<summary>📖 Going deeper: sources are shared, cached, and content-addressed<sup><a href="https://fluxcd.io/flux/components/source/">[3]</a></sup></summary>
+When a fetch fails, source-controller sets `Ready` to `False` with the git error, and keeps the last artifact it stored. Consumers do not check the source's `Ready` condition. They check whether an artifact exists. Two cases follow, and they look different:
 
-The artifact indirection buys three things beyond isolation. Sharing: ten `Kustomization`s pointing at one `GitRepository` cause one clone per interval, not ten — source-controller fetches once and serves the cached artifact over an in-cluster URL. Verifiability: the revision is a content digest, so a consumer can prove it reconciled *exactly* commit `abcd`, and `spec.verify` can require a valid signature on tags before the artifact is served. Efficiency: source-controller only re-packages when the remote revision actually changed, so a 1-minute interval on an unchanged repo is nearly free. The trade-off is one more layer to reason about — "the source has revision X but the consumer applied revision W" is a real state, visible in the two objects' `status`, and it's exactly what a stalled reconcile looks like.
+- **No artifact was ever stored.** A wrong branch from the first day produces this case. A `Kustomization` reports `Source artifact not found`, and a `HelmRelease` reports that its `HelmChart` has no artifact. Nothing is applied, and the workloads are absent.
+- **An earlier artifact exists.** An expired credential or a renamed branch after a good fetch produces this case. Each consumer keeps applying the old artifact and stays `Ready True`. The new commit never arrives, and only the source is red.
 
-</details>
+The second case is the dangerous one, because every consumer is green. The check is the revision. Compare the source's artifact revision with the newest commit in git, and compare each consumer's applied revision with the source.
 
-### `Kustomization`: build, apply, prune, and drift
+### The Kustomization: build, apply, health, prune
 
-The Flux `Kustomization` is a consumer. It points at a source, builds a `path` within that source's artifact (running the same Kustomize engine as `kubectl apply -k` from M16), and applies the result with server-side apply<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[5]</a></sup>:
+A `Kustomization` points at a source and a `path` inside its artifact<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[5]</a></sup>:
 
 ```yaml
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -122,28 +121,42 @@ metadata:
   name: apps
   namespace: flux-system
 spec:
-  interval: 5m
+  interval: 1m
   sourceRef:
     kind: GitRepository
     name: polyphone-config
   path: ./apps
+  targetNamespace: app-services
   prune: true
   wait: true
+  timeout: 1m
 ```
 
-Two behaviors define it. **Drift correction:** because it re-applies the desired manifests every interval, any out-of-band change is reverted. Scale a managed Deployment with `kubectl scale` and within one interval Flux sets it back to the replica count in git — the cluster cannot durably disagree with the declared state. This is the property that makes GitOps trustworthy and also the one that surprises operators mid-incident: your `kubectl edit` fix will vanish, because Flux owns that field. The correct move is to fix it in git (or `suspend` first — below), not to fight the controller. **Pruning:** with `prune: true`, deleting a manifest from git deletes the object from the cluster; Flux tracks an inventory of what it applied and garbage-collects what's no longer declared. Without pruning, removed resources linger as orphans that no longer appear in git — quiet, and a real source of "why is this old thing still here."
+Each pass runs four steps in order, and a failure stops the pass at that step. Apply and prune together form the apply stage of the pipeline.
 
-The `path` is the field that bites. It's a directory inside the artifact; if it doesn't exist or doesn't contain a buildable kustomization, the build fails and the `Kustomization` goes `Ready: False` with a build error — before anything is applied, so the cluster is untouched and there's no Pod to inspect. `flux get kustomizations` shows the failure; `flux build kustomization` and `flux diff kustomization` reproduce and preview it. `wait: true` makes Flux block until the applied objects report healthy (like Helm's `--wait`), so a `Kustomization` only reports `Ready` when its workloads actually came up.
+1. **Build.** kustomize-controller runs the Kustomize engine from M16 on `path`. If the path is missing from the artifact, the build fails with `kustomization path not found`. The controller applies nothing and deletes nothing, so the objects from the last good build keep running. A repository restructure that moves a directory produces exactly this state: source-controller fetches the new commit, the `Kustomization` turns red, and the old workload serves.
+2. **Apply.** kustomize-controller applies every built object with server-side apply. It forces ownership of the fields in the manifest, and it removes field entries that `kubectl` made. This is drift correction: a `kubectl scale` or `kubectl edit` on a field that git declares lasts until the next pass<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[5]</a></sup>. A field that git does not declare is left alone.
+3. **Prune.** With `prune: true`, the controller deletes every object in the inventory that the new build no longer contains. Delete a manifest from git, and the object leaves the cluster on the next pass. Without `prune`, the object stays as an orphan that no file describes.
+4. **Health.** With `wait: true`, the controller waits until every applied object reports healthy, for up to `timeout`. A Deployment is healthy when its rollout completes. A new image that cannot be pulled never completes, so the `Kustomization` turns `Ready False` with the reason `HealthCheckFailed`. kustomize-controller has already applied the objects by then. The old ReplicaSet keeps serving, and the new Pods sit in `ImagePullBackOff`. The `Kustomization` records the new commit as `lastAttemptedRevision`, and `lastAppliedRevision` stays on the old one, because the applied revision moves only when a whole pass succeeds. So `flux get` shows the old revision while the new objects are live.
 
-### Suspend and resume
+Drift correction changes how an incident fix works. A hand fix on a Flux-managed field does not survive. If the bad image came from git, `kubectl set image` restores service for at most one interval, and then Flux applies the bad image again. The fix that sticks is a commit: revert or correct the change in git, push it, and run `flux reconcile kustomization apps --with-source`. Then confirm it with revisions. The `Kustomization`'s applied revision must equal the source's artifact revision, and that revision must be the fix commit.
 
-`suspend` freezes an object's reconciliation<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[5]</a></sup>. Set `spec.suspend: true` (or run `flux suspend kustomization apps`) and kustomize-controller stops touching it: no drift correction, no new commits applied, no pruning. `flux resume` turns it back on and triggers an immediate reconcile.
+<details>
+<summary>📖 Going deeper: why the hand fix loses<sup><a href="https://kubernetes.io/docs/reference/using-api/server-side-apply/">[8]</a></sup></summary>
 
-Suspend is a real operational tool — you suspend a `Kustomization` before a manual intervention so Flux won't fight you, or to freeze a subsystem during an incident while you work upstream. The hazard is the second half: **a suspended object is invisible unless you look for it.** It reports its last state, which was `Ready: True`, so `get` output looks healthy at a glance; only the explicit suspended marker distinguishes it. The classic outage is a change merged to git, CI green, dashboards green — and nothing happens in the cluster, because someone suspended that `Kustomization` during last week's incident and never resumed it. The reflex: when a commit "doesn't take" and the source is healthy, check whether the consumer is suspended before you look anywhere else.
+Server-side apply records a field manager for every field of an object, and every `kubectl` subcommand that changes an object records one. With kubectl v1.30, `kubectl scale` writes `.spec.replicas` as the manager `kubectl`. kustomize-controller applies the full manifest from git with the force option. The API server then gives every field in that manifest to the manager `kustomize-controller` and overwrites the values. The invariant is that forced apply takes every field the manifest declares. kustomize-controller v1.9 (Flux 2.9) also deletes the managed-field entries of `kubectl` and of the `before-first-apply` manager, and it removes the `kubectl.kubernetes.io/last-applied-configuration` annotation.
 
-### `HelmRelease` and dependencies
+Two consequences matter at 03:00. A field that is not in the git manifest stays with its other manager, so a hand-added label survives and a hand-changed replica count does not. And a HorizontalPodAutoscaler (HPA, M09) fights Flux when the Deployment manifest in git sets `replicas`. Flux resets the count on every pass, and the HPA raises it again. Remove `replicas` from the manifest when an HPA owns it. An annotation `kustomize.toolkit.fluxcd.io/ssa: Merge` keeps fields from other managers only when they do not overlap the manifest.
 
-helm-controller runs Helm — the same install/upgrade/rollback model from M17 — but driven by a `HelmRelease` object instead of a `helm` command on someone's laptop<sup><a href="https://fluxcd.io/flux/components/helm/helmreleases/">[6]</a></sup>. The chart comes from a source: a `HelmRepository`, an `OCIRepository`, or — usefully for a self-contained repo — a chart directory inside a `GitRepository`. Values live in the object's `spec.values` (or a referenced ConfigMap/Secret), so the entire release is declared in git and reconciled like everything else:
+</details>
+
+`suspend` turns the whole loop off for one object. `flux suspend kustomization apps` sets `spec.suspend: true`, and kustomize-controller then skips every pass: no new revision is applied, no drift is corrected and nothing is pruned<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[5]</a></sup>. `flux resume` clears the field and runs a pass at once. Suspend is the correct tool before a deliberate hand change during an incident, because Flux would undo the change otherwise.
+
+The hazard is the status. A suspended object keeps the condition of its last pass. If that pass succeeded, `flux get kustomizations` still shows `READY True` and the message `Applied revision: main@sha1:…`. Only the `SUSPENDED` column reads `True`. A suspend that nobody lifted after an incident stops all delivery for that object in silence. When a commit does not land and the source is current, check `SUSPENDED` first.
+
+### HelmRelease and dependsOn
+
+helm-controller runs the Helm operations from M17, driven by a `HelmRelease` object instead of a `helm` command<sup><a href="https://fluxcd.io/flux/components/helm/helmreleases/">[6]</a></sup>. The chart comes from a source. It can be a `HelmRepository`, an `OCIRepository`, or a chart directory inside a `GitRepository`:
 
 ```yaml
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -152,76 +165,85 @@ metadata:
   name: voicemail
   namespace: flux-system
 spec:
-  interval: 5m
-  targetNamespace: app-services      # where the release installs
+  interval: 1m
+  targetNamespace: app-services
   chart:
     spec:
-      chart: ./charts/voicemail       # a chart directory inside the GitRepository
+      chart: ./charts/voicemail
       sourceRef:
         kind: GitRepository
         name: polyphone-config
   dependsOn:
-    - name: message-store            # another HelmRelease, made ready first
+    - name: message-store
   values:
     replicaCount: 2
 ```
 
-`dependsOn` is the ordering primitive, and it references objects of the **same kind**: a `HelmRelease`'s `dependsOn` lists other `HelmRelease`s<sup><a href="https://fluxcd.io/flux/components/helm/helmreleases/">[6]</a></sup>, a `Kustomization`'s lists other `Kustomization`s<sup><a href="https://fluxcd.io/flux/components/kustomize/kustomizations/">[5]</a></sup>. The dependent holds until every listed object is `Ready` before it reconciles — so an app release ordered behind the datastore release it needs (here `voicemail` waits for `message-store`), or an `apps` `Kustomization` ordered behind an `infra` `Kustomization` that installs the CRDs and namespaces its manifests reference, won't apply until that dependency lands. When the named object isn't `Ready` — because it's failing, suspended, or *because the name is wrong and points at nothing* — the dependent stalls with a `dependency ... is not ready` message and never proceeds. That's working as designed: Flux would rather wait than install into a half-built world. The sharp edge is a typo or a stale rename that leaves the dependent pointing at a name (or the wrong kind) that will never be ready, which reads identically to a genuinely-blocked release. You confirm by checking the named dependency actually exists — as the right kind — and is `Ready`.
+helm-controller stores the release the way the `helm` CLI does, in Secrets, so `helm list` and `helm history` still work. Two defaults decide where to look. The release name is `<targetNamespace>-<name>`, here `app-services-voicemail`. The release record lives in the HelmRelease's own namespace, here `flux-system`, not in the target namespace<sup><a href="https://fluxcd.io/flux/components/helm/helmreleases/">[6]</a></sup>. So `helm list -n flux-system` shows the release, and `helm list -n app-services` shows nothing.
 
-helm-controller also owns remediation. `spec.install.remediation` and `spec.upgrade.remediation` let a failed release retry or auto-rollback, so the "green status hides a stuck rollout" trap from M17 can be closed declaratively — the `HelmRelease` reports `Ready: False` when the release genuinely didn't come up, not just when the manifest applied.
+A `HelmRelease` does not correct drift by default. `spec.driftDetection.mode` defaults to disabled, so a `kubectl scale` on a Helm-managed Deployment stays until the next upgrade. Set the mode to `warn` to get an event for each drift, or to `enabled` to correct it. Failure handling also starts off. A failed install or upgrade stays failed until `spec.install.remediation` or `spec.upgrade.remediation` configures retries. A new chart version or new values reset the counters and trigger a new attempt.
+
+`dependsOn` orders objects of the same kind. A HelmRelease lists other HelmReleases, and a Kustomization lists other Kustomizations. At the start of every pass, the controller reads each listed object. It continues only when each object exists, has observed its latest generation and is `Ready True`<sup><a href="https://fluxcd.io/flux/components/helm/helmreleases/">[6]</a></sup>. Otherwise it sets `Ready False` with the reason `DependencyNotReady`, and it tries again every 30 seconds by default.
+
+The message names the case. A dependency that exists and is not ready gives `dependency 'flux-system/message-store' is not ready`. A dependency that does not exist gives `unable to get 'flux-system/message-cache' dependency`, followed by the API `not found` error. Both carry the same reason, so read the message, not the reason. A stale rename leaves the dependent waiting forever, and the release never installs.
+
+The check runs on every pass, not only at install. If a dependency turns red later, the dependent's next pass stops at the gate. Flux does not uninstall the dependent, so its workload keeps running. But it receives no upgrades and no drift correction until the dependency is `Ready` again.
 
 <details>
-<summary>📖 Going deeper: Flux vs Argo CD<sup><a href="https://fluxcd.io/flux/concepts/">[2]</a></sup></summary>
+<summary>📖 Going deeper: Flux and Argo CD<sup><a href="https://fluxcd.io/flux/concepts/">[2]</a></sup></summary>
 
-The two CNCF-graduated GitOps controllers make different bets. Flux is a toolkit of composable controllers with no built-in UI; you drive it with `kubectl`/`flux` and observe it through your existing metrics and logging stack, and it leans on Kubernetes-native primitives (CRDs, server-side apply, RBAC). Argo CD ships an opinionated `Application` abstraction with a web UI and a visual diff/sync view, which teams value for at-a-glance status and manual sync gates. Mechanically they converge — both pull from git, both reconcile continuously, both correct drift — so the choice is usually about operating model: Flux fits fleets that want GitOps as plumbing under their own tooling; Argo CD fits teams that want the dashboard and the app-centric view. The concepts in this module — source vs consumer, reconcile interval, drift correction, dependency ordering — transfer to either.
+Flux and Argo CD are both CNCF-graduated GitOps controllers, and both pull from git, reconcile on a loop and correct drift. Flux is a set of controllers with no built-in UI. You drive it with `kubectl` and `flux`, and you observe it through your own metrics and events. Argo CD centers on an `Application` object and ships a web UI with a diff view and manual sync. The source and consumer split, the interval, drift correction and dependency ordering transfer to either tool.
 
 </details>
 
 ## Hands-on
 
-Four Killercoda scenarios on the full Polyphone fleet, with Flux installed (`flux install`) and reconciling from an in-cluster git server whose repo is mirrored at `/root/polyphone-config`. Work them in order.
+The baseline has five steps. Five break/fix scenarios follow: one each for the fetch, build and health stages, one for the order gate and one for the suspend switch. The apply stage is the baseline's drift step. Each runs on the full Polyphone fleet with Flux, the `flux` and `helm` CLIs, an in-cluster git server and a clone of the config repo at `/root/polyphone-config`.
 
-- **`baseline/`** — the healthy loop: read the `GitRepository` and its artifact, watch a `Kustomization` apply the repo's `apps` path, scale a managed Deployment and watch Flux revert the drift, then read a `HelmRelease` ordered behind another release by `dependsOn`. See sources, consumers, drift correction, and ordering all working.
-- **`breakfix-01-source-ref-not-found`** — the **source** layer. A `GitRepository` points at a branch that doesn't exist; the artifact is stale and every consumer runs last-known-good. Read the source's `Ready` condition first.
-- **`breakfix-02-kustomization-suspended`** — the **reconcile** layer. A `Kustomization` is suspended, so drift isn't corrected and a fix never lands, while `get` output looks healthy. Find the suspended marker and `flux resume`.
-- **`breakfix-03-helmrelease-dependency`** — the **ordering** layer. A `HelmRelease` is stuck `not ready` on a `dependsOn` that names another `HelmRelease` that doesn't exist. Read the dependency message and correct the reference.
+- **`baseline/`** — read the source, the `apps` Kustomization and its inventory, revert a hand scale, read the two HelmReleases and their release records. Then push a commit and watch a change and a prune arrive.
+- **`breakfix-01-source-ref-not-found`** — the GitOps workloads are absent from `app-services`, and no Pod fails.
+- **`breakfix-02-kustomization-suspended`** — `dialplan` runs 5 replicas against 2 in git, and `apps` reports `Ready True`.
+- **`breakfix-03-helmrelease-dependency`** — `voicemail` never installs, and its source, its chart and its backing store are healthy.
+- **`breakfix-04-path-not-found`** — a pushed commit never lands, the source has fetched it, and the old `dialplan` serves.
+- **`breakfix-05-health-check-fix-in-git`** — `apps` reports `HealthCheckFailed`, and Flux undoes every hand fix.
 
-Check yourself against `ANSWER-KEY.md` after each — it names the instinct under test and contrasts the `flux`-CLI triage with the fix-in-git durable action.
+Check yourself against `ANSWER-KEY.md` after each scenario.
 
 ## Common failure modes
 
-| Symptom | Likely cause | Where to look |
-|---------|--------------|---------------|
-| Merged commit has no effect on the cluster | The consuming `Kustomization`/`HelmRelease` is suspended, or the source isn't fetching the new ref | `flux get kustomizations` (Suspended column); `flux get sources git` (revision vs git HEAD) |
-| Cluster runs stale manifests, nothing crashing | `GitRepository` can't fetch (bad ref/URL/auth); artifact frozen at last good revision | `flux get sources git` → `Ready: False` message; `flux reconcile source git <name>` |
-| Your `kubectl edit`/`scale` keeps reverting | The object is Flux-managed; drift correction re-applies git each interval | Change it in git, or `flux suspend` before intervening; `flux diff kustomization` |
-| `Kustomization` `Ready: False`, no objects created | Build failed — `path` missing or not a valid kustomization | `flux get kustomizations` message; `flux build kustomization <name>` |
-| `HelmRelease` stuck `not ready`, never installs | `dependsOn` target missing/not ready, or chart source failing | `flux get helmreleases`; check the named dependency exists and is `Ready` |
-| Old resource still in the cluster after removal from git | `prune: false` (or was), so no garbage collection | Set `prune: true`; `flux get kustomizations` inventory; `flux tree kustomization <name>` |
-| Everything `Ready` but you're unsure it's current | Reconcile hasn't run since the last commit | Compare source revision to git HEAD; `flux reconcile kustomization <name> --with-source` |
+| Symptom | Stage | Likely cause | Where to look |
+|---------|-------|--------------|---------------|
+| Workloads absent, consumers report `Source artifact not found` | Fetch | The source never stored an artifact: wrong ref, URL or credentials | `flux get sources git` message |
+| Consumers `Ready True`, new commit missing from the cluster | Fetch | The fetch fails after an earlier success; consumers apply the old artifact | Source revision compared with git; source `Ready` message |
+| `kustomization path not found` | Build | `spec.path` names a directory the artifact lacks | `flux get kustomizations`; `ls` the repo at the source revision |
+| `HealthCheckFailed`, old Pods serving | Health | The applied change does not roll out | `kubectl describe` the Deployment's new Pods; fix in git |
+| A hand fix keeps reverting | Apply | The field is in the git manifest; drift correction | Change git, or `flux suspend` before a deliberate hand change |
+| `READY True`, drift stays, commits do not land | Suspend | The consumer is suspended | `SUSPENDED` column of `flux get kustomizations` |
+| `DependencyNotReady`, release never installs | Order gate | A `dependsOn` target is missing, renamed or not ready | Condition message; `flux get helmreleases` for the named object |
+| `helm list -n <target ns>` shows nothing | Apply (HelmRelease) | The release record lives in the HelmRelease namespace | `helm list -n flux-system` |
+| Old object still present after its file was deleted | Apply (prune) | `prune: false`, or the object carries `prune: disabled` | `flux tree kustomization <name>` |
 
 ## Recap
 
-- GitOps is continuous reconciliation, not a one-shot deploy: git is the declared truth and Flux re-asserts it every interval, so drift has a lifetime of one interval instead of living until the next push.
-- Flux splits **sources** (fetch an artifact) from **consumers** (apply it). A fetch failure freezes the artifact and stalls every consumer on the last good revision — which is why you read the source's `Ready` condition first, then the consumer, then the managed object.
-- Drift correction is the guarantee and the surprise: a Flux-managed field cannot durably hold an out-of-band edit. Fix in git, or `suspend` before you intervene — don't fight the controller.
-- `suspend` freezes reconciliation and hides in plain sight: a suspended object reports its last-healthy state. When a commit doesn't take and the source is fine, check for a suspended consumer.
-- `dependsOn` orders releases by waiting for `Ready` dependencies. A dependent stuck "not ready" is often pointing at a dependency that is failing, suspended, or misnamed — verify the named object exists and is `Ready`.
+- Flux is a pull loop with four stages: fetch, build, apply and health. Each stage records its result on a Flux object, and a failure leaves the later stages on the last good result.
+- Compare revisions, not colors. A consumer stays `Ready True` on an old artifact when the fetch fails, and a suspended consumer keeps its last green condition.
+- A `Kustomization` reverts any hand change to a field that git declares. When git holds the bad change, the only fix that sticks is a commit, confirmed when the applied revision equals the fix commit.
+- `suspend` stops every pass for one object. Use it before a deliberate hand change, and lift it when the change is in git.
+- `dependsOn` is checked at the start of every pass, for both kinds, and the message tells a missing dependency from a red one. A closed gate blocks upgrades and drift correction, and it never uninstalls.
 
 ## Production thinking
 
-- Drift correction assumes git is always right. During a real incident you may need to change the cluster *now*, ahead of a reviewed commit. What's your discipline — `suspend` the `Kustomization`, patch, then reconcile the fix back into git before you `resume` — so the emergency change doesn't get reverted mid-incident *and* doesn't silently outlive the incident?
-- A stalled source runs last-known-good indefinitely and nothing crashes, so it's invisible to Pod-level alerting. What do you alert on to catch it — `Ready: False` on Flux objects, source revision lagging git HEAD, reconcile age — and how do you page on "GitOps stopped delivering" without drowning in reconcile noise?
-- `flux bootstrap` makes Flux manage its own manifests from git, so a Flux upgrade is a commit and the controllers self-heal. What do you trade by bootstrapping — the git provider coupling, the token's blast radius, the bootstrap repo becoming a single point of control — versus running `flux install` and upgrading out of band?
-- `dependsOn` encodes ordering but not liveness: it waits for `Ready`, not for "still healthy later." If a dependency degrades *after* its dependents installed, Flux won't re-block them. Where does that matter in your fleet, and what actually guarantees a hard ordering constraint (init containers, readiness gates) versus a soft one?
-- Two GitOps controllers, a Helm release, and a hand-run `kubectl apply` can all claim one object. Before you touch a live resource, how do you find out whether Flux — via a `Kustomization` or `HelmRelease` — already owns that field and will reconcile you away on the next pass?
+- A fetch failure after a good fetch leaves every consumer green, and a suspended consumer looks green too. What single signal would page you for both, and what does it cost you in false pages during a normal deploy?
+- During an incident you suspend a `Kustomization` and patch the cluster by hand. What step in your runbook moves the patch into git and resumes the object, and what tells you a week later that a suspend is still in place?
+- Your HelmReleases run with drift detection disabled, and your Kustomizations correct drift on every pass. Would you enable `driftDetection` fleet-wide, and what does an HPA do to that decision?
 
 ## References
 
-1. OpenGitOps — Principles (CNCF) — https://opengitops.dev/
-2. Flux — Core Concepts — https://fluxcd.io/flux/concepts/
-3. Flux — Source Controller — https://fluxcd.io/flux/components/source/
-4. Flux — GitRepository API — https://fluxcd.io/flux/components/source/gitrepositories/
-5. Flux — Kustomization API (path, prune, suspend, dependsOn) — https://fluxcd.io/flux/components/kustomize/kustomizations/
-6. Flux — HelmRelease API — https://fluxcd.io/flux/components/helm/helmreleases/
-7. Flux — Installation — https://fluxcd.io/flux/installation/
+1. OpenGitOps — Principles: https://opengitops.dev/
+2. Flux — Core Concepts: https://fluxcd.io/flux/concepts/
+3. Flux — Source Controller: https://fluxcd.io/flux/components/source/
+4. Flux — GitRepositories: https://fluxcd.io/flux/components/source/gitrepositories/
+5. Flux — Kustomizations (path, prune, wait, suspend, dependsOn, drift): https://fluxcd.io/flux/components/kustomize/kustomizations/
+6. Flux — HelmReleases (release name, storage namespace, drift detection, remediation, dependsOn): https://fluxcd.io/flux/components/helm/helmreleases/
+7. Flux — Installation: https://fluxcd.io/flux/installation/
+8. Kubernetes — Server-Side Apply: https://kubernetes.io/docs/reference/using-api/server-side-apply/

@@ -1,54 +1,54 @@
-# Step 1 — Flux and its sources
+# Step 1 — Flux and its source
 
-Flux is a set of controllers running in the `flux-system` namespace. Each owns one job: source-controller fetches, kustomize-controller and helm-controller apply. Start by confirming they're healthy and reading the source they fetch from.
+Flux runs as controllers in the `flux-system` namespace. The **source-controller** fetches content from git. The **kustomize-controller** and the **helm-controller** apply it.
 
-## Confirm the controllers are up
+## Check the installation
 
 ```bash
 flux check
 ```{{exec}}
 
-You should see the three controllers (`source-controller`, `kustomize-controller`, `helm-controller`) with green checks. These are ordinary Deployments — `kubectl get deploy -n flux-system` shows them too.
+The controller and CRD lines are green, and the command still ends with `check failed`. Two prerequisite lines fail:
+
+- `Kubernetes version v1.30... does not match >=1.33.0-0`. This Flux release supports only newer Kubernetes minor versions than the lab cluster runs. The controllers still run here. In production, this line is a cluster upgrade to plan.
+- `new CLI version is available`. The lab pins its Flux version, so this line is expected.
+
+```bash
+kubectl get deploy -n flux-system
+```{{exec}}
+
+The controllers are ordinary Deployments, next to the `gitea` git server.
 
 ## Read the source
 
-A `GitRepository` is a **source**: it clones a git URL on an interval and packages the result as an artifact other objects consume.
+A `GitRepository` is a **source**: it clones a git ref on an interval and stores the tree as an **artifact**.
 
 ```bash
 flux get sources git
 ```{{exec}}
 
-One source: `polyphone-config`, `READY True`, with a message like `stored artifact for revision 'main@sha1:...'`. That revision is the exact commit Flux fetched — the content it will hand to consumers.
-
-Look at the object itself:
+`polyphone-config` is `READY True`. The `REVISION` column reads `main@sha1:` and the first 8 characters of a commit hash. That revision is the exact commit Flux fetched.
 
 ```bash
-kubectl get gitrepository polyphone-config -n flux-system -o yaml | grep -A15 '^spec:'
+kubectl describe gitrepository polyphone-config -n flux-system
 ```{{exec}}
 
-`spec.url` points at the in-cluster git server; `spec.ref.branch` is `main`; `spec.interval` is `1m`. Every minute source-controller re-checks the branch and re-packages only if the revision changed.
+Under `Spec`, read `Interval`, `Ref` and `URL`. Under `Status`, the `Artifact` block holds the same revision.
 
-The repo is mirrored on disk so you can read what Flux is delivering:
+## Compare with git
 
 ```bash
-ls -R /root/polyphone-config
+cd /root/polyphone-config
+git log --oneline
+ls apps charts
 ```{{exec}}
 
-An `apps/` directory of plain manifests and a `charts/voicemail/` Helm chart. Those are the two things the consumers below apply.
+One commit. Its short hash matches the start of the revision. The repo has an `apps/` directory of plain manifests and two charts.
 
-## See everything at once
+## See the whole pipeline
 
 ```bash
 flux get all
 ```{{exec}}
 
-Sources, Kustomizations, and HelmReleases in one view — the whole pipeline and each object's `Ready` state. This is the first command at 3am.
-
-## Verify
-
-```bash
-kubectl get gitrepository polyphone-config -n flux-system \
-  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}{"\n"}'
-```{{exec}}
-
-`True` — the source has a good artifact. Move on to step 2.
+The source, the `apps` Kustomization, two HelmReleases and two HelmCharts, each with `READY` and a revision. This is the first command during an incident.

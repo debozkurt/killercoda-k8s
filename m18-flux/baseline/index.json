@@ -1,6 +1,6 @@
 {
   "title": "M18 — Flux (GitOps Delivery) — Baseline",
-  "description": "Tour a healthy Flux pipeline on the Polyphone cluster. Read a GitRepository source and its artifact, watch a Kustomization apply the repo, see Flux revert drift, and read a HelmRelease ordered by dependsOn.",
+  "description": "Tour a healthy Flux pipeline: read the source and its revision, the apps Kustomization and its inventory, drift correction, and two HelmReleases ordered by dependsOn. Then push a commit and watch a change and a prune arrive.",
   "details": {
     "intro": {
       "text": "intro.md",
@@ -8,12 +8,35 @@
       "foreground": "foreground.sh"
     },
     "steps": [
-      { "title": "Flux and its sources", "text": "step1/text.md", "verify": "step1/verify.sh" },
-      { "title": "The Kustomization", "text": "step2/text.md", "verify": "step2/verify.sh" },
-      { "title": "Drift correction", "text": "step3/text.md", "verify": "step3/verify.sh" },
-      { "title": "HelmRelease and dependencies", "text": "step4/text.md", "verify": "step4/verify.sh" }
+      {
+        "title": "Flux and its source",
+        "text": "step1/text.md",
+        "verify": "step1/verify.sh"
+      },
+      {
+        "title": "The Kustomization",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      },
+      {
+        "title": "Drift correction",
+        "text": "step3/text.md",
+        "verify": "step3/verify.sh"
+      },
+      {
+        "title": "HelmRelease and dependsOn",
+        "text": "step4/text.md",
+        "verify": "step4/verify.sh"
+      },
+      {
+        "title": "Ship a change through git",
+        "text": "step5/text.md",
+        "verify": "step5/verify.sh"
+      }
     ],
-    "finish": { "text": "finish.md" }
+    "finish": {
+      "text": "finish.md"
+    }
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Waiting for the Polyphone baseline + Flux (with a suspended consumer) to come up..."
+echo "Waiting for the Polyphone fleet, Flux, the git server and the first reconcile..."
 echo ""
 
 while [ ! -f /tmp/.setup-complete ]; do
@@ -9,8 +9,7 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "Cluster is up. dialplan is drifted at 5 replicas and Flux isn't reverting it:"
+echo "Cluster is ready. dialplan runs more replicas than git declares:"
 echo ""
 echo "  kubectl get deploy dialplan -n app-services"
-echo "  flux get kustomizations"
 echo ""

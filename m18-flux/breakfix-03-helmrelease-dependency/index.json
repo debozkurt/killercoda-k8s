@@ -1,6 +1,6 @@
 {
   "title": "M18 — Break/fix 03: HelmRelease Dependency",
-  "description": "A HelmRelease is stuck not-ready and never installs, though the source, the apps Kustomization, and its message-store dependency are all healthy. Read the dependsOn message and correct the reference.",
+  "description": "The voicemail HelmRelease never installs, and its source, its chart and its backing store are healthy. Read the gate that holds it.",
   "details": {
     "intro": {
       "text": "intro.md",
@@ -8,10 +8,19 @@
       "foreground": "foreground.sh"
     },
     "steps": [
-      { "title": "Why the release won't install", "text": "step1/text.md" },
-      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+      {
+        "title": "Find what holds the release",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
     ],
-    "finish": { "text": "finish.md" }
+    "finish": {
+      "text": "finish.md"
+    }
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"

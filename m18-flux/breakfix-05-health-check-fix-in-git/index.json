@@ -1,0 +1,28 @@
+{
+  "title": "M18 — Break/fix 05: Health Check, Fix in Git",
+  "description": "The apps Kustomization reports HealthCheckFailed after a release commit, and Flux undoes every hand fix. Restore dialplan so that the fix stays.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      {
+        "title": "Try the hand fix",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
+    ],
+    "finish": {
+      "text": "finish.md"
+    }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

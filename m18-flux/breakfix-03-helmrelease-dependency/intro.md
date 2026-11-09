@@ -1,18 +1,17 @@
 # M18 — Break/fix 03: HelmRelease Dependency
 
-> Pre-req: completed the M18 baseline tour, or comfortable with `flux get helmreleases`, `dependsOn`, and reading `Ready` conditions.
+> Pre-req: the M18 baseline, or working knowledge of `flux get helmreleases` and `dependsOn`.
 
-The `voicemail` HelmRelease was reworked to install only after its backing store is up. Since that change, it never installs. `dialplan` (from the `apps` Kustomization) is running fine, the `message-store` release is up, the git source is healthy, and the chart renders — but `voicemail` is stuck `not ready` and no `voicemail` Deployment ever appears in `app-services`.
+The `voicemail` HelmRelease waits for its backing store with `dependsOn`. Last sprint the store's HelmRelease was renamed. This cluster was built from the repo this morning, and `voicemail` never installed:
 
 ```text
 +------------------------------------------------------------+
-| voicemail (HelmRelease): stuck, never installs             |
+| voicemail (app-services): no Deployment                    |
 | source: Ready   apps: Ready   message-store: Ready         |
-| dialplan: Running 2/2                                       |
-| ...so why is this one release blocked?                     |
+| chart: renders with helm template                          |
 +------------------------------------------------------------+
 ```
 
-Everything upstream is green, which rules out the usual suspects. This scenario tests reading a `HelmRelease` that is waiting *on purpose* — blocked by `dependsOn` — and recognizing when the thing it waits for will never arrive.
+Everything around the release is green. Find what holds it, and get `voicemail` installed.
 
-The cluster takes 2–4 minutes to come up. Click **Start** when ready.
+Setup takes about four minutes. Click **Start** when the terminal says the cluster is ready.

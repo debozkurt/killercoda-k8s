@@ -1,46 +1,45 @@
 # Step 3 — Drift correction
 
-Flux re-applies the desired state every interval, so the cluster cannot durably disagree with git. Any out-of-band change is reverted. This is the property that makes GitOps trustworthy — and the one that surprises operators mid-incident.
+**Drift** is a difference between a live object and git. Each pass of the kustomize-controller applies the git manifests again, so drift on a field that git declares lasts at most one interval.
 
-## Cause drift by hand
-
-`dialplan` is declared at 2 replicas in git. Scale it out of band, as if you were reacting to load:
+## Scale a Flux-managed Deployment
 
 ```bash
 kubectl scale deployment dialplan -n app-services --replicas=5
 kubectl get deploy dialplan -n app-services
 ```{{exec}}
 
-`READY 5/5` (or heading there). The live cluster now disagrees with git — this is **drift**.
+The Deployment wants 5. Git declares 2.
 
-## Watch Flux correct it
+## Run a pass
 
-Flux would fix this on its own within the reconcile interval (1m). Force it now so you don't wait:
-
-```bash
-flux reconcile kustomization apps --with-source
-```{{exec}}
-
-This re-fetches the source and re-applies `./apps`. Now re-read the Deployment:
+The interval is 1m. Ask for a pass now instead of waiting:
 
 ```bash
+flux reconcile kustomization apps
 kubectl get deploy dialplan -n app-services
 ```{{exec}}
 
-Back to `2/2`. Flux server-side-applied the git manifest (`replicas: 2`) over your change and reverted it. The correct way to make 5 replicas permanent is to change the number in git, not with `kubectl` — the controller owns that field.
-
-## See the reconcile in the events
+Back to 2. The controller applied the manifest from git with server-side apply and took the `replicas` field back from `kubectl`. A hand fix on a Flux-managed field does not last: the change that lasts is a commit.
 
 ```bash
-flux events --for Kustomization/apps | tail -5
+flux events --for Kustomization/apps
 ```{{exec}}
 
-You'll see the reconcile that re-applied the Deployment. Every correction is recorded.
+Near the bottom, a `Progressing` event reads `Deployment/app-services/dialplan configured`. That is the pass that took the field back.
 
-## Verify
+## A HelmRelease keeps the same drift
+
+Scale the Deployment that the `voicemail` HelmRelease installed, and run a pass of that release:
 
 ```bash
-kubectl get deploy dialplan -n app-services -o jsonpath='{.spec.replicas}{"\n"}'
+kubectl scale deployment voicemail -n app-services --replicas=3
+flux reconcile helmrelease voicemail
+kubectl get deploy voicemail -n app-services
 ```{{exec}}
 
-`2` — the declared state won. Move on to step 4.
+It stays at 3. A `HelmRelease` does not correct drift unless `spec.driftDetection.mode` is `enabled`, and the default is disabled. Put it back by hand:
+
+```bash
+kubectl scale deployment voicemail -n app-services --replicas=2
+```{{exec}}

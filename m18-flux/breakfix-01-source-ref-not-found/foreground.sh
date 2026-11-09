@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Waiting for the Polyphone baseline + Flux (with a stalled source) to come up..."
+echo "Waiting for the Polyphone fleet, Flux, the git server and the first reconcile..."
 echo ""
 
 while [ ! -f /tmp/.setup-complete ]; do
@@ -9,8 +9,7 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "Cluster is up. The GitOps workloads never deployed. Start at the source:"
+echo "Cluster is ready. dialplan and voicemail never arrived in app-services:"
 echo ""
-echo "  flux get sources git"
-echo "  flux get kustomizations"
+echo "  kubectl get deploy -n app-services"
 echo ""

@@ -1,44 +1,33 @@
 # Step 2 — Fix it and verify
 
-The source points at `release-2024`; the repo only has `main`. Point the `GitRepository` at the branch that exists.
+The `GitRepository` must name a branch that exists. In this cluster the Flux objects were applied by hand, so the fix is a patch on the live object.
 
-## Correct the ref
+## Point the source at main
 
 ```bash
 kubectl patch gitrepository polyphone-config -n flux-system \
   --type=merge -p '{"spec":{"ref":{"branch":"main"}}}'
-```{{exec}}
-
-Then force source-controller to re-fetch immediately instead of waiting out the interval:
-
-```bash
 flux reconcile source git polyphone-config
 ```{{exec}}
 
-The command returns once the artifact is stored. Confirm the source recovered:
+`fetched revision main@sha1:...`. The source stored its first artifact.
+
+## Watch the consumers follow
+
+A new artifact triggers each consumer at once, without waiting for its interval. The HelmReleases need about a minute: `message-store` installs first, and `voicemail` waits for it.
 
 ```bash
-flux get sources git
+flux get kustomizations
+flux get helmreleases
+kubectl get deploy -n app-services
 ```{{exec}}
 
-`READY True`, with `stored artifact for revision 'main@sha1:...'`. The source is feeding the pipeline again.
+`apps` reads `Applied revision: main@sha1:...`, with the same hash as the source. Run the commands again until both HelmReleases read `Helm install succeeded` and the three Deployments are ready.
 
-## Let the consumers catch up
-
-The Kustomization and HelmRelease will reconcile on their own interval; nudge them so you see it now:
+## Verify
 
 ```bash
-flux reconcile kustomization apps --with-source
+flux get all
 ```{{exec}}
 
-```bash
-kubectl get deploy -n app-services -l 'app in (dialplan,voicemail)'
-```{{exec}}
-
-`dialplan` appears and becomes ready; `voicemail` follows once its dependency (the `message-store` release) is ready and helm-controller installs it. Give it a few seconds and re-run the `get` if `voicemail` isn't up yet.
-
-## The durable fix
-
-Patching the live `GitRepository` fixes this cluster. In a bootstrapped setup the `GitRepository` manifest itself lives in git, so the real fix is a reviewed commit correcting `spec.ref.branch` — otherwise the next `flux bootstrap` or reconcile of Flux's own config reapplies `release-2024`. For the triage-vs-git-source contrast, see [ANSWER-KEY.md](https://github.com/debozkurt/killercoda-k8s/blob/main/m18-flux/ANSWER-KEY.md).
-
-You're done with breakfix-01. See `finish.md`.
+Every object is `READY True`. In a bootstrapped fleet, the `GitRepository` manifest lives in git too, and the durable fix is a reviewed commit to that manifest.

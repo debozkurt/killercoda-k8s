@@ -1,49 +1,38 @@
 # Step 2 — The Kustomization
 
-A Flux `Kustomization` is a **consumer**: it takes a source, builds a path inside it (the same Kustomize engine as `kubectl apply -k` from M16), and applies the result. Note the name collision — the Flux CRD `Kustomization` is not the `kustomization.yaml` file it builds.
+A Flux **`Kustomization`** is a **consumer**: it reads the source's artifact, builds a `path` with Kustomize (the engine behind `kubectl apply -k` in M16) and applies the result. It is a different object from the `kustomization.yaml` file it builds.
 
-## Read the Kustomization
+## Read the consumer
 
 ```bash
 flux get kustomizations
 ```{{exec}}
 
-One Kustomization: `apps`, `READY True`, message `Applied revision: main@sha1:...`. When that SHA matches the source's revision from step 1, the cluster is in sync with git.
+`apps` is `READY True`, and its message reads `Applied revision: main@sha1:...`. That revision equals the source revision from step 1, so the cluster runs the newest fetched commit.
 
 ```bash
-kubectl get kustomization apps -n flux-system -o yaml | grep -A12 '^spec:'
+kubectl describe kustomization apps -n flux-system
 ```{{exec}}
 
-`path: ./apps`, `prune: true` (removals from git get garbage-collected), `targetNamespace: app-services` (where the manifests land), `wait: true` (report `Ready` only when the applied workloads are healthy).
+Under `Spec`, read `Path: ./apps`, `Prune: true`, `Target Namespace: app-services`, `Wait: true` and `Timeout: 1m`. `Wait` makes the controller report `Ready` only after the applied objects are healthy.
 
 ## See what it applied
 
 ```bash
-kubectl get deploy -n app-services -l app=dialplan
-```{{exec}}
-
-`dialplan`, `READY 2/2`. Flux built `./apps` and applied it — the Deployment is an ordinary object; nothing in it records that Flux is involved.
-
-```bash
+cat /root/polyphone-config/apps/kustomization.yaml
 flux tree kustomization apps
 ```{{exec}}
 
-The inventory of what this Kustomization manages — the `dialplan` Deployment (and its Namespace). This is the list Flux prunes against.
-
-## Read the desired state
+The file lists two resources, and the tree lists the same two objects: the `dialplan` Deployment and the `dialplan-routes` ConfigMap. That tree is the **inventory**, the list Flux prunes against.
 
 ```bash
-cat /root/polyphone-config/apps/dialplan.yaml
+kubectl get deploy,configmap -n app-services -l app=dialplan
 ```{{exec}}
 
-`replicas: 2`. That number in git is the desired state Flux enforces — which is what step 3 tests.
-
-## Verify
+Both objects run in `app-services`. The manifests in git name no namespace; `targetNamespace` put them there.
 
 ```bash
-kubectl get kustomization apps -n flux-system \
-  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}{"\n"}'
-kubectl get deploy dialplan -n app-services -o jsonpath='{.spec.replicas}{"\n"}'
+grep replicas /root/polyphone-config/apps/dialplan.yaml
 ```{{exec}}
 
-`True` and `2` — the Kustomization reconciled and dialplan is at its declared replica count. Move on to step 3.
+`replicas: 2`. Step 3 changes that number in the cluster.

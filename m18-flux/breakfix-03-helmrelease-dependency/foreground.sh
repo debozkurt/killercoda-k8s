@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Waiting for the Polyphone baseline + Flux (voicemail release blocked) to come up..."
+echo "Waiting for the Polyphone fleet, Flux, the git server and the first reconcile..."
 echo ""
 
 while [ ! -f /tmp/.setup-complete ]; do
@@ -9,8 +9,7 @@ while [ ! -f /tmp/.setup-complete ]; do
 done
 echo ""
 echo ""
-echo "Cluster is up. The voicemail HelmRelease is stuck not-ready:"
+echo "Cluster is ready. voicemail never installed:"
 echo ""
 echo "  flux get helmreleases"
-echo "  flux get kustomizations"
 echo ""

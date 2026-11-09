@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>M18 — Flux (GitOps Delivery)</title>
+<title>M18 Flux</title>
 <style>
   :root{
     --bg:#0f0f0f;
@@ -205,444 +205,356 @@
 <div class="hint">← → navigate · F fullscreen</div>
 <div class="brand">M18 · FLUX</div>
 <div class="hud"><b id="cur">1</b> / <span id="tot">1</span></div>
+
 <div class="deck" id="deck">
 
-  <!-- 1 · TITLE -->
+
   <section class="slide">
     <div class="wrap">
-      <h1>Flux — GitOps Delivery</h1>
-      <p class="lead">Git holds the desired state; a controller in the cluster makes it true and
-        keeps it true. Flux fetches a source, reconciles it into live objects, and corrects drift
-        every interval.</p>
+      <h1>Flux:<br/>fetch, build, apply, health</h1>
+      <p class="lead">Git holds the desired state. Controllers in the cluster fetch it and make the cluster match it, on a loop.</p>
       <div class="note" style="margin-top:1.8rem">
-        <p>A Flux failure is rarely a crashing Pod — it's a <strong>stalled reconcile</strong>. The
-          workload looks fine or looks stale, and the real signal is in Flux's own objects.</p>
+        <p>A failure stops one stage and leaves the later stages on the last good result. Read the Flux objects in pipeline order, and compare revisions.</p>
       </div>
     </div>
   </section>
 
-  <!-- 2 · OBJECTIVES -->
   <section class="slide">
     <div class="wrap">
-      <h2>What you'll walk away with</h2>
+      <h2>GitOps pulls on a loop;<br/>a CI job pushes once</h2>
+      <div class="cards c2">
+        <div class="card bad">
+          <h3>Push: CI runs <code>kubectl apply</code></h3>
+          <p>The job applies once, when it runs.</p>
+          <p>A later hand change stays until the next deploy, and the job does not know about it.</p>
+        </div>
+        <div class="card good">
+          <h3>Pull: an agent in the cluster</h3>
+          <p>The agent reads git every interval and makes the cluster match it.</p>
+          <p>Drift lasts at most one interval.</p>
+        </div>
+      </div>
+      <div class="note"><p>OpenGitOps principles: declarative, versioned and immutable, pulled automatically, continuously reconciled.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Four stages, two controls</h2>
+      <div class="flow" style="margin:1.4rem 0;justify-content:center">
+        <div class="node"><div class="t">FETCH</div><div class="s">source-controller</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="t">BUILD</div><div class="s">path or chart</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="t">APPLY</div><div class="s">server-side apply, prune</div></div>
+        <div class="arrow">→</div>
+        <div class="node good"><div class="t">HEALTH</div><div class="s">wait for rollout</div></div>
+      </div>
+      <div class="sigs">
+        <div class="sig"><span class="lbl">order gate</span><span class="val"><code>dependsOn</code> holds a consumer until its dependencies are <code>Ready</code></span></div>
+        <div class="sig"><span class="lbl">suspend</span><span class="val"><code>spec.suspend: true</code> stops every stage for one object</span></div>
+      </div>
+      <p>The kustomize-controller and the helm-controller run build, apply and health. Each stage records its result on a Flux object.</p>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>A source stores an artifact;<br/>the revision names the commit</h2>
+      <div class="grid-2">
+<div class="terminal">
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: polyphone-config
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: http://gitea.../polyphone-config.git
+  ref:
+    branch: main
+</div>
+<div class="terminal">
+<span class="c">$ flux get sources git</span>
+NAME              REVISION            READY
+polyphone-config  main@sha1:42b1aaba  True
+MESSAGE
+stored artifact for revision
+  'main@sha1:42b1aaba'
+</div>
+      </div>
       <ul>
-        <li>Explain <strong>GitOps</strong> — declarative state in git, continuously reconciled by an
-          in-cluster agent — and how Flux implements it as controllers and CRDs</li>
-        <li>Separate a <strong>source</strong> (<code>GitRepository</code>) from a
-          <strong>consumer</strong> (<code>Kustomization</code>, <code>HelmRelease</code>), and read
-          each object's <code>Ready</code> condition top-down to find a stall</li>
-        <li>Trace the <strong>reconcile loop</strong>: source artifact &rarr; server-side apply &rarr;
-          live objects, on an interval you can force with <code>flux reconcile</code></li>
-        <li>Reason about <strong>drift correction</strong> — why a manual <code>kubectl edit</code> on
-          a managed object is reverted — and when <code>suspend</code> turns that off</li>
-        <li>Order releases with <code>dependsOn</code>, and read why a dependent is stuck waiting</li>
-        <li>Drive the fleet with the <code>flux</code> CLI: <code>get sources</code>,
-          <code>get kustomizations</code>, <code>reconcile</code>, <code>suspend</code>/<code>resume</code>,
-          <code>logs</code>, <code>events</code></li>
+        <li>A source only fetches. It never applies anything.</li>
+        <li>Consumers (<code>Kustomization</code>, <code>HelmRelease</code>) read the artifact; they never clone git.</li>
       </ul>
     </div>
   </section>
 
-  <!-- 3 · GITOPS: PULL, NOT PUSH -->
   <section class="slide">
     <div class="wrap">
-      <h2>GitOps is continuous reconciliation,<br/>not a one-shot deploy</h2>
-      <p class="sub">Four principles: the desired state is declarative, versioned and immutable
-        (git history), pulled automatically by an agent, and continuously reconciled. The last two
-        are what separate it from a CI job that runs <code>kubectl apply</code>.</p>
-      <div class="cards c2" style="margin-top:1.5rem">
-        <div class="card">
-          <h3>A CI pipeline pushes once</h3>
-          <p>It applies when it happens to run. Edit the cluster afterward and the pipeline neither
-            knows nor cares until the next push — drift lives until the next deploy.</p>
-        </div>
-        <div class="card good">
-          <h3>A GitOps agent pulls on a loop</h3>
-          <p>It pulls the declared state every interval and re-asserts it, dragging the cluster back
-            toward git. Drift has a bounded lifetime — one reconcile interval.</p>
-        </div>
-      </div>
-      <div class="note" style="margin-top:1.4rem">
-        <p>The shift is from a deploy that happens <em>to</em> the cluster to a loop that
-          continuously holds the cluster equal to git.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 4 · FLUX IS CONTROLLERS -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Flux is a set of controllers,<br/>each owning one CRD family</h2>
-      <p class="sub">There is no central "Flux daemon" to restart. Each controller writes status on
-        its own objects and coordinates only through the Kubernetes API — so the whole system is
-        debuggable with <code>kubectl get</code> and <code>flux get</code>.</p>
-      <div class="boundary" style="margin-top:1.5rem">
-        <span class="tag">flux-system</span>
-        <div class="items">
-          <div class="item"><b>source-controller</b><span>fetch &rarr; artifact</span></div>
-          <div class="item"><b>kustomize-controller</b><span>build + apply</span></div>
-          <div class="item"><b>helm-controller</b><span>install release</span></div>
-          <div class="item"><b>notification-controller</b><span>report + webhooks</span></div>
-        </div>
-        <div class="substrate">coordinate only through the <b>Kubernetes API</b> — status on each
-          object, no shared bus, no central daemon</div>
-      </div>
-      <div class="note" style="margin-top:1.3rem">
-        <p><code>flux install</code> lays these controllers into the <code>flux-system</code>
-          namespace; each then reconciles its own kind on its own interval.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 5 · THE SPLIT: SOURCE vs CONSUMER (mental model) -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>The load-bearing split:<br/>a source fetches, consumers apply</h2>
-      <p class="sub">source-controller fetches and packages a <em>source</em>; kustomize-controller
-        and helm-controller <em>consume</em> the artifact and apply it. Read it top-down and the
-        failures fall out.</p>
-      <div class="flow" style="justify-content:center;gap:.7rem;margin:1.4rem 0 .4rem">
-        <div class="node"><div class="t">git repo</div><div class="s">desired state</div></div>
-        <div class="arrow"><span class="lbl">clone</span>&rarr;</div>
-        <div class="node"><div class="t">GitRepository</div><div class="s">source-controller</div></div>
-        <div class="arrow"><span class="lbl">packages</span>&rarr;</div>
-        <div class="node good"><div class="t">artifact</div><div class="s">main@sha1</div></div>
-      </div>
-      <div class="flow" style="justify-content:center;gap:.7rem;margin:.4rem 0">
-        <div class="node good"><div class="t">artifact</div><div class="s">one, shared</div></div>
-        <div class="arrow"><span class="lbl">build + apply</span>&rarr;</div>
-        <div class="node"><div class="t">Kustomization<br/>HelmRelease</div><div class="s">consumers</div></div>
-        <div class="arrow"><span class="lbl">reconcile</span>&rarr;</div>
-        <div class="node"><div class="t">live objects</div><div class="s">Deployments, release</div></div>
-      </div>
-      <div class="note" style="margin-top:1.2rem">
-        <p>The objects carry the diagnosis, not the workload. A stale Deployment isn't the bug — the
-          <code>GitRepository</code> that stopped feeding it is.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 6 · GITREPOSITORY + ARTIFACT -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>A GitRepository fetches and packages;<br/>it never applies</h2>
-      <p class="sub">Every interval, source-controller clones the ref, packages the tree as an
-        artifact, and stamps it with a revision like <code>main@sha1:9c4f</code>. Consumers read the
-        artifact — they don't clone git themselves.</p>
-      <div class="flow" style="justify-content:center;gap:.7rem;margin:1.3rem 0">
-        <div class="node"><div class="t">url + ref</div><div class="s">branch: main</div></div>
-        <div class="arrow"><span class="lbl">every interval</span>&rarr;</div>
-        <div class="node"><div class="t">clone</div><div class="s">source-controller</div></div>
-        <div class="arrow"><span class="lbl">stamp</span>&rarr;</div>
-        <div class="node good"><div class="t">artifact</div><div class="s">revision digest</div></div>
-        <div class="arrow"><span class="lbl">served to</span>&rarr;</div>
-        <div class="node"><div class="t">consumers</div><div class="s">read, not clone</div></div>
-      </div>
-      <div class="card bad">
-        <h3>A fetch failure freezes the artifact — nothing crashes</h3>
-        <p>When the ref is wrong or the server is unreachable, the <code>GitRepository</code> goes
-          <code>Ready: False</code> with the git error verbatim, its artifact freezes at the last good
-          revision, and every consumer keeps reconciling <em>that stale revision</em> — reporting it's
-          waiting on the source. A green consumer on a red source means the cluster is running
-          yesterday's truth, which is why the source is the first object you read.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 7 · KUSTOMIZATION -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>A Kustomization builds a path<br/>from a source and applies it</h2>
-      <p class="sub">The Flux CRD (kustomize-controller) — distinct from the
-        <code>kustomization.yaml</code> file it may build. It points at a source, builds a
-        <code>path</code> inside the artifact, and applies with server-side apply.</p>
-      <div class="grid-2 vcenter" style="margin-top:1rem">
-        <div class="card">
-          <h3>The object, field by field</h3>
-          <div class="sigs">
-            <div class="sig"><span class="lbl">sourceRef</span><span class="val">which <code>GitRepository</code> to read</span></div>
-            <div class="sig"><span class="lbl">path</span><span class="val">a directory inside the artifact to build</span></div>
-            <div class="sig"><span class="lbl">prune</span><span class="val">garbage-collect what's removed from git</span></div>
-            <div class="sig"><span class="lbl">wait</span><span class="val">block on applied objects reporting healthy</span></div>
-          </div>
-        </div>
-        <div>
-          <div class="card bad">
-            <h3>The <code>path</code> is the field that bites</h3>
-            <p>If it doesn't exist or isn't a buildable kustomization, the build fails and the object
-              goes <code>Ready: False</code> <em>before</em> anything is applied — the cluster is
-              untouched and there's no Pod to inspect.</p>
-          </div>
-          <div class="note" style="margin-top:1.1rem">
-            <p><code>flux build kustomization</code> and <code>flux diff kustomization</code> reproduce
-              and preview the build without touching the cluster.</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 8 · DRIFT + PRUNE -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Drift correction is the guarantee<br/>and the surprise</h2>
-      <p class="sub">Because a Kustomization re-applies the declared manifests every interval, a
-        Flux-managed field cannot durably hold an out-of-band edit.</p>
-      <div class="cards c2" style="margin-top:1.3rem">
-        <div class="card good">
-          <h3>Drift is reverted</h3>
-          <p>Scale a managed Deployment out of band and Flux resets it to git's replica count within
-            one interval. The cluster cannot durably disagree with the declared state.</p>
-        </div>
-        <div class="card">
-          <h3>Prune garbage-collects</h3>
-          <p>With <code>prune: true</code>, a manifest removed from git is deleted from the cluster;
-            Flux tracks an inventory of what it applied. Without it, removed resources linger as
-            orphans that no longer appear in git.</p>
-        </div>
-      </div>
-      <div class="note warn" style="margin-top:1.3rem">
-        <p>The property that makes GitOps trustworthy is the one that surprises operators mid-incident:
-          your <code>kubectl edit</code> fix vanishes because Flux owns that field. Fix it in git, or
-          <code>suspend</code> first — don't fight the controller.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 9 · SUSPEND -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>suspend freezes reconciliation —<br/>and hides in plain sight</h2>
-      <p class="sub"><code>spec.suspend: true</code> (or <code>flux suspend</code>) stops the
-        controller from touching an object: no drift correction, no new applies, no pruning.
-        <code>flux resume</code> turns it back on and reconciles immediately.</p>
-      <div class="cards c2" style="margin-top:1.3rem">
-        <div class="card">
-          <h3>A real operational tool</h3>
-          <p>Suspend a <code>Kustomization</code> before a manual intervention so Flux won't fight
-            you, or to freeze a subsystem during an incident while you work upstream.</p>
+      <h2>A fetch failure has two cases,<br/>and they look different</h2>
+      <div class="cards c2">
+        <div class="card bad">
+          <h3>No artifact was ever stored</h3>
+          <p>e.g. a branch that the repo never had.</p>
+          <p>The <code>Kustomization</code> reports <code>Source artifact not found</code>. The <code>HelmRelease</code> reports that its <code>HelmChart</code> has no artifact.</p>
+          <p>The workloads are absent.</p>
         </div>
         <div class="card warn">
-          <h3>The hazard: it looks healthy</h3>
-          <p>A suspended object reports its last state, which was <code>Ready: True</code>, so
-            <code>get</code> output looks fine at a glance. Only the explicit Suspended marker
-            distinguishes it.</p>
+          <h3>An earlier artifact exists</h3>
+          <p>e.g. an expired credential after a good fetch.</p>
+          <p>Consumers keep applying the old artifact and stay <code>Ready True</code>. Only the source is red.</p>
+          <p>The new commit never arrives.</p>
         </div>
       </div>
-      <div class="note warn" style="margin-top:1.3rem">
-        <p>The classic outage: a fix merged, CI green, dashboards green — and nothing lands, because a
-          consumer was suspended during last week's incident and never resumed. When a commit doesn't
-          take and the source is fine, check for a suspended consumer first.</p>
-      </div>
+      <div class="note"><p>Consumers check whether an artifact exists, not whether the source is <code>Ready</code>. Compare the source revision with git, and each consumer's revision with the source.</p></div>
     </div>
   </section>
 
-  <!-- 10 · HELMRELEASE -->
   <section class="slide">
     <div class="wrap">
-      <h2>A HelmRelease drives Helm<br/>from an object, not a laptop</h2>
-      <p class="sub">helm-controller runs the same install/upgrade/rollback model as
-        <code>helm</code> — but driven by a <code>HelmRelease</code> object, declared in git and
-        reconciled like everything else.</p>
-      <div class="grid-2 vcenter" style="margin-top:1rem">
-        <div>
-          <p>The chart comes from a source, and the entire release is declared in one object — so
-            there is no laptop state to drift from.</p>
-          <ul>
-            <li>The <strong>chart</strong> is a <code>HelmRepository</code>, an
-              <code>OCIRepository</code>, or a chart directory inside a <code>GitRepository</code></li>
-            <li><strong>Values</strong> live in <code>spec.values</code> (or a referenced ConfigMap /
-              Secret)</li>
-            <li><strong>Remediation</strong> can auto-retry or roll back a failed release</li>
-          </ul>
-        </div>
-        <div class="card">
-          <h3>The object, field by field</h3>
-          <div class="sigs">
-            <div class="sig"><span class="lbl">chart</span><span class="val"><code>./charts/x</code> from a source ref</span></div>
-            <div class="sig"><span class="lbl">targetNamespace</span><span class="val">where the release installs</span></div>
-            <div class="sig"><span class="lbl">values</span><span class="val">the release's inputs, in git</span></div>
-            <div class="sig"><span class="lbl">remediation</span><span class="val">retry / rollback on failure</span></div>
-          </div>
-        </div>
+      <h2>One pass of a Kustomization</h2>
+      <div class="ladder">
+        <div class="rung"><div class="rail"><div class="dot"></div><div class="line"></div></div>
+            <div class="body"><b>Build</b><span>the <code>path</code> with Kustomize. A missing path fails with <code>kustomization path not found</code>; kustomize-controller applies and deletes nothing.</span></div></div>
+        <div class="rung"><div class="rail"><div class="dot"></div><div class="line"></div></div>
+            <div class="body"><b>Apply</b><span>every built object with server-side apply, forcing ownership of the fields in the manifest.</span></div></div>
+        <div class="rung"><div class="rail"><div class="dot"></div><div class="line"></div></div>
+            <div class="body"><b>Prune</b><span>(<code>prune: true</code>): delete inventory objects that the new build no longer contains.</span></div></div>
+        <div class="rung"><div class="rail"><div class="dot"></div><div class="line"></div></div>
+            <div class="body"><b>Health</b><span>(<code>wait: true</code>): wait up to <code>timeout</code> for every applied object to become healthy.</span></div></div>
       </div>
-      <div class="note" style="margin-top:1.1rem">
-        <p>Remediation closes the "green status hides a stuck rollout" trap: a <code>HelmRelease</code>
-          reports <code>Ready: False</code> when the release genuinely didn't come up.</p>
-      </div>
+      <div class="note"><p>Apply and prune together form the apply stage. A failure stops the pass at that step, and a failed build leaves the objects from the last good build running.</p></div>
     </div>
   </section>
 
-  <!-- 11 · dependsOn -->
   <section class="slide">
     <div class="wrap">
-      <h2>dependsOn orders releases —<br/>and references the same kind only</h2>
-      <p class="sub">A <code>HelmRelease</code>'s <code>dependsOn</code> lists other
-        <code>HelmRelease</code>s; a <code>Kustomization</code>'s lists other
-        <code>Kustomization</code>s. The dependent holds until every listed object is
-        <code>Ready</code> before it reconciles.</p>
-      <div class="flow" style="justify-content:center;gap:1rem;margin:1.3rem 0">
-        <div class="node good"><div class="t">datastore</div><div class="s">Ready first</div></div>
-        <div class="arrow"><span class="lbl">unblocks</span>&rarr;</div>
-        <div class="node"><div class="t">app release</div><div class="s">waits, then applies</div></div>
-      </div>
-      <div class="card bad">
-        <h3>The sharp edge: a name that will never be ready</h3>
-        <p>A typo or a stale rename leaves the dependent pointing at a name (or the wrong kind) that
-          will never be <code>Ready</code> — which reads identically to a genuinely-blocked release,
-          both stalling with a <code>dependency ... is not ready</code> message. Confirm the named
-          dependency actually exists, as the right kind, and is <code>Ready</code>.</p>
-      </div>
-      <div class="note" style="margin-top:1.1rem">
-        <p>Waiting is working as designed: Flux would rather hold than install into a half-built
-          world.</p>
-      </div>
+      <h2>A build failure: the source has the commit,<br/>the consumer trails it</h2>
+<div class="terminal">
+<span class="c">$ flux get sources git</span>
+polyphone-config  main@sha1:84dcaf2b  True   stored artifact ...
+<span class="c">$ flux get kustomizations</span>
+apps  main@sha1:565e580f  False  kustomization path not found:
+  stat /tmp/kustomization-2020937857/apps: no such file or directory
+</div>
+      <ul>
+        <li>The revisions differ: the source holds the new commit, and <code>apps</code> last applied the old one.</li>
+        <li>e.g. a repo restructure moved the directory, and nobody updated <code>spec.path</code>.</li>
+        <li>The old workload keeps serving, so no Pod-level alert fires.</li>
+      </ul>
     </div>
   </section>
 
-  <!-- 12 · THREE PLACES IT STALLS -->
   <section class="slide">
     <div class="wrap">
-      <h2>Three places the pipeline stalls —<br/>and nothing crashes</h2>
-      <p class="sub">In every case the workload looks fine or looks stale; the real signal is in
-        Flux's objects, not the Pod.</p>
-      <div class="cards c3" style="margin-top:1.5rem">
-        <div class="card bad">
-          <h3>Source</h3>
-          <p>The <code>GitRepository</code> can't fetch — bad ref or URL. The artifact freezes; every
-            consumer runs last-known-good and reports it's blocked on the source.</p>
-        </div>
-        <div class="card warn">
-          <h3>Reconcile</h3>
-          <p>A <code>Kustomization</code> is suspended. Drift isn't corrected and new commits aren't
-            applied, while <code>get</code> output looks healthy.</p>
-        </div>
-        <div class="card bad">
-          <h3>Ordering</h3>
-          <p>A <code>HelmRelease</code> lists a <code>dependsOn</code> that isn't <code>Ready</code> —
-            failing, suspended, or misnamed. The release waits and never installs.</p>
-        </div>
+      <h2>A Kustomization reverts a hand change<br/>on the next pass</h2>
+      <div class="grid-2">
+<div class="terminal">
+<span class="c">$ kubectl scale deploy dialplan --replicas=5</span>
+<span class="c">$ flux reconcile kustomization apps</span>
+✔ applied revision main@sha1:42b1aaba...
+<span class="c">$ kubectl get deploy dialplan</span>
+dialplan   2/2     2            2
+</div>
+<div class="terminal">
+<span class="c"># managedFields after kubectl scale</span>
+manager: kustomize-controller
+operation: Apply
+manager: kubectl
+operation: Update
+subresource: scale
+</div>
       </div>
-      <div class="note" style="margin-top:1.4rem">
-        <p>Source, reconcile, ordering — one layer each. Name the layer and the fix is already
-          narrowed.</p>
-      </div>
+      <ul>
+        <li>The controller applies the git manifest with force, so it takes back every field the manifest declares.</li>
+        <li>The controller leaves alone a field that git does not declare.</li>
+        <li>An HPA fights Flux when the manifest sets <code>replicas</code>. Remove the field when an HPA owns it.</li>
+      </ul>
     </div>
   </section>
 
-  <!-- 13 · DIAGNOSTIC ORDER -->
   <section class="slide">
     <div class="wrap">
-      <h2>The diagnostic order is fixed:<br/>source, then consumer, then object</h2>
-      <div class="grid-2 vcenter">
-        <div class="ladder">
-          <div class="rung"><div class="rail"><div class="dot"></div><div class="line"></div></div>
-            <div class="body"><b>Read the source</b><span><code>flux get sources git</code> — Ready, and revision matches git HEAD</span></div></div>
-          <div class="rung"><div class="rail"><div class="dot"></div><div class="line"></div></div>
-            <div class="body"><b>Read the consumer</b><span><code>flux get kustomizations</code> / <code>helmreleases</code> — Ready, and not Suspended</span></div></div>
-          <div class="rung"><div class="rail"><div class="dot k"></div></div>
-            <div class="body"><b class="bad">Only now, the object</b><span>the managed Deployment or release — reached last, not first</span></div></div>
-        </div>
-        <div>
-          <div class="card good">
-            <h3>Flux's objects carry the diagnosis</h3>
-            <p>Each layer's <code>Ready</code> condition either clears it or names the failure. Don't
-              stare at a Deployment Flux isn't even touching — climb the two Flux layers above it
-              first.</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 14 · flux CLI -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Driving the loop with the flux CLI</h2>
-      <div class="terminal">
-<span class="o"># read the pipeline top-down — source, then consumers</span>
-<span class="c">flux</span> get sources git
-<span class="c">flux</span> get kustomizations
-<span class="c">flux</span> get helmreleases
-
-<span class="o"># force a reconcile now, pulling the latest source first</span>
-<span class="c">flux</span> reconcile kustomization apps <span class="g">--with-source</span>
-
-<span class="o"># freeze / unfreeze one object's reconciliation</span>
-<span class="c">flux</span> suspend kustomization apps
-<span class="c">flux</span> resume  kustomization apps
-
-<span class="o"># the controller's own logs and an object's events</span>
-<span class="c">flux</span> logs --kind Kustomization --name apps
-<span class="c">flux</span> events --for Kustomization/apps
-      </div>
-      <div class="note" style="margin-top:1.2rem">
-        <p><code>reconcile --with-source</code> forces the source to fetch before the consumer
-          applies — the fastest way to answer "is the cluster current with git?"</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 15 · FAILURE MODES TABLE -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Common failure modes</h2>
+      <h2>A HelmRelease keeps a hand change;<br/>drift detection is off by default</h2>
+<div class="terminal">
+<span class="c">$ kubectl scale deployment voicemail --replicas=3</span>
+<span class="c">$ flux reconcile helmrelease voicemail</span>
+✔ applied revision 0.1.0
+<span class="c">$ kubectl get deploy voicemail</span>
+voicemail   3/3     3            3
+</div>
       <table>
-        <tr><th>Symptom</th><th>Likely cause</th><th>Where to look</th></tr>
-        <tr>
-          <td>Merged commit has no effect</td>
-          <td>consumer suspended, or source not fetching the new ref</td>
-          <td class="muted"><code>flux get kustomizations</code> (Suspended); <code>flux get sources git</code> (revision vs HEAD)</td>
-        </tr>
-        <tr>
-          <td>Stale manifests, nothing crashing</td>
-          <td><code>GitRepository</code> can't fetch; artifact frozen</td>
-          <td class="muted"><code>flux get sources git</code> &rarr; <code>Ready: False</code>; <code>flux reconcile source git</code></td>
-        </tr>
-        <tr>
-          <td><code>kubectl edit</code> keeps reverting</td>
-          <td>object is Flux-managed; drift correction re-applies git</td>
-          <td class="muted">change it in git, or <code>flux suspend</code> first</td>
-        </tr>
-        <tr>
-          <td><code>Ready: False</code>, no objects created</td>
-          <td>build failed — <code>path</code> missing or not buildable</td>
-          <td class="muted"><code>flux get kustomizations</code> message; <code>flux build kustomization</code></td>
-        </tr>
-        <tr>
-          <td><code>HelmRelease</code> stuck not ready</td>
-          <td><code>dependsOn</code> target missing / not ready, or chart source failing</td>
-          <td class="muted"><code>flux get helmreleases</code>; check the named dependency</td>
-        </tr>
-        <tr>
-          <td>Old resource still present after git removal</td>
-          <td><code>prune: false</code> — no garbage collection</td>
-          <td class="muted">set <code>prune: true</code>; <code>flux tree kustomization</code></td>
-        </tr>
+        <tr><th><code>spec.driftDetection.mode</code></th><th>Effect</th></tr>
+        <tr><td>disabled (default)</td><td>Drift stays until the next upgrade</td></tr>
+        <tr><td><code>warn</code></td><td>An event for each drift</td></tr>
+        <tr><td><code>enabled</code></td><td>The controller corrects the drift</td></tr>
       </table>
     </div>
   </section>
 
-  <!-- 16 · RECAP -->
   <section class="slide">
     <div class="wrap">
-      <h2>What to carry forward</h2>
+      <h2>A health failure: applied,<br/>but the applied revision stays old</h2>
+<div class="terminal">
+<span class="c">$ flux get kustomizations</span>
+apps  main@sha1:66caf5fd  False  health check failed after 1m0s:
+  timeout waiting for: [Deployment/app-services/dialplan status: 'InProgress']
+<span class="c">$ kubectl describe kustomization apps -n flux-system</span>
+  Last Applied Revision:      main@sha1:66caf5fd...
+  Last Attempted Revision:    main@sha1:1df556f3...
+</div>
       <ul>
-        <li><strong>GitOps is continuous reconciliation, not a one-shot deploy.</strong> Git is the
-          declared truth and Flux re-asserts it every interval, so drift lasts one interval, not until
-          the next push.</li>
-        <li><strong>Flux splits sources from consumers.</strong> A fetch failure freezes the artifact
-          and stalls every consumer on the last good revision — read the source's <code>Ready</code>
-          first, then the consumer, then the managed object.</li>
-        <li><strong>Drift correction is the guarantee and the surprise.</strong> A managed field can't
-          durably hold an out-of-band edit — fix in git, or <code>suspend</code> before you
-          intervene.</li>
-        <li><strong>suspend freezes reconciliation and hides in plain sight.</strong> A suspended
-          object reports its last-healthy state; when a commit doesn't take and the source is fine,
-          check for a suspended consumer.</li>
-        <li><strong>dependsOn orders releases by waiting for Ready.</strong> A dependent stuck "not
-          ready" is often pointing at a dependency that's failing, suspended, or misnamed — verify the
-          named object exists and is <code>Ready</code>.</li>
+        <li>The new objects are live: old Pods serve, the new Pod is in <code>ImagePullBackOff</code>.</li>
+        <li><code>lastAppliedRevision</code> moves only when a whole pass succeeds, health check included.</li>
+        <li>Between retries the condition reads <code>Ready Unknown</code>, <code>Reconciliation in progress</code>.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>When git holds the bad change,<br/>the fix that lasts is a commit</h2>
+      <div class="cards c2">
+        <div class="card bad">
+          <h3><code>kubectl set image</code></h3>
+          <p>The rollout completes. On the next pass the controller applies the bad image from git again.</p>
+          <p>The hand fix lasts about one interval.</p>
+        </div>
+        <div class="card good">
+          <h3>Revert in git</h3>
+<div class="terminal">
+git revert --no-edit HEAD
+git push
+flux reconcile kustomization apps --with-source
+</div>
+          <p>Confirm with revisions: the newest commit, the source revision and the applied revision are the same hash.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>A suspended object keeps<br/>its last green condition</h2>
+<div class="terminal">
+<span class="c">$ flux get kustomizations</span>
+NAME  REVISION            SUSPENDED  READY  MESSAGE
+apps  main@sha1:f3fe863c  True       True   Applied revision: main@sha1:f3fe863c
+<span class="c">$ flux reconcile kustomization apps</span>
+✗ resource is suspended
+</div>
+      <ul>
+        <li>Suspended: no new revision, no drift correction, no prune.</li>
+        <li>Suspend before a deliberate hand change; put the change in git; then <code>flux resume</code>.</li>
+        <li>When a commit does not land and the source is current, read <code>SUSPENDED</code> first.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>helm-controller stores the release<br/>under a different name and namespace</h2>
+<div class="terminal">
+<span class="c">$ helm list -n app-services</span>
+NAME  NAMESPACE  REVISION  UPDATED  STATUS  CHART  APP VERSION
+<span class="c">$ helm list -n flux-system</span>
+NAME                        NAMESPACE     REVISION  STATUS    CHART
+app-services-message-store  app-services  1         deployed  message-store-0.1.0
+app-services-voicemail      app-services  1         deployed  voicemail-0.1.0
+</div>
+      <div class="sigs">
+        <div class="sig"><span class="lbl">name</span><span class="val"><code>&lt;targetNamespace&gt;-&lt;name&gt;</code></span></div>
+        <div class="sig"><span class="lbl">record</span><span class="val">in the HelmRelease's namespace, not the target namespace</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>The controller checks <code>dependsOn</code><br/>at the start of every pass</h2>
+      <div class="cards c2">
+        <div class="card warn">
+          <h3>The dependency is red</h3>
+          <p><code>dependency 'flux-system/message-store' is not ready</code></p>
+          <p>Fix the dependency.</p>
+        </div>
+        <div class="card bad">
+          <h3>The dependency does not exist</h3>
+          <p><code>unable to get 'flux-system/message-cache' dependency: helmreleases.helm.toolkit.fluxcd.io "message-cache" not found</code></p>
+          <p>Fix the reference.</p>
+        </div>
+      </div>
+      <ul>
+        <li>Both carry the reason <code>DependencyNotReady</code>: read the message. The controller retries every 30 seconds.</li>
+        <li>Same kind only: a HelmRelease lists HelmReleases, a Kustomization lists Kustomizations.</li>
+        <li>A closed gate later blocks upgrades and drift correction. It never uninstalls.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2><code>flux check</code> tests the Kubernetes version<br/>before the controllers</h2>
+<div class="terminal">
+<span class="c">$ flux check</span>
+► checking prerequisites
+✗ flux 2.9.6 &lt;2.10.0 (new CLI version is available, please upgrade)
+✗ Kubernetes version v1.30.10 does not match &gt;=1.33.0-0
+► checking controllers
+✔ helm-controller: deployment ready
+✔ kustomize-controller: deployment ready
+✔ source-controller: deployment ready
+✗ check failed
+</div>
+      <ul>
+        <li>Each Flux release supports a range of Kubernetes minor versions; the project supports the latest three.</li>
+        <li>Controllers can run outside the supported range. The version failure is a cluster upgrade to plan.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>The diagnostic walk</h2>
+      <div class="flow" style="margin:1.4rem 0;justify-content:center">
+        <div class="node"><div class="t">SOURCES</div><div class="s">flux get sources git</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="t">CONSUMERS</div><div class="s">kustomizations, helmreleases</div></div>
+        <div class="arrow">→</div>
+        <div class="node"><div class="t">COMPARE</div><div class="s">revision vs source vs git</div></div>
+        <div class="arrow">→</div>
+        <div class="node good"><div class="t">WORKLOAD</div><div class="s">kubectl describe</div></div>
+      </div>
+      <p>The first stage that is red, or behind, is the stage that stopped. Read <code>SUSPENDED</code> on the way.</p>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Locate the stage, then pick the command</h2>
+      <table>
+        <tr><th>Signature</th><th>Stage</th><th>First command</th></tr>
+        <tr><td>Workloads absent; <code>Source artifact not found</code></td><td>Fetch</td><td><code>flux get sources git</code></td></tr>
+        <tr><td>Consumers green, new commit missing</td><td>Fetch</td><td>Source revision vs git</td></tr>
+        <tr><td><code>kustomization path not found</code></td><td>Build</td><td><code>flux get kustomizations</code></td></tr>
+        <tr><td>A hand fix keeps reverting</td><td>Apply</td><td>Change git</td></tr>
+        <tr><td><code>health check failed</code></td><td>Health</td><td><code>kubectl describe kustomization</code></td></tr>
+        <tr><td><code>DependencyNotReady</code></td><td>Order gate</td><td>The condition message</td></tr>
+        <tr><td><code>READY True</code>, drift stays</td><td>Suspend</td><td>The <code>SUSPENDED</code> column</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Recap</h2>
+      <ul>
+        <li>Flux is a pull loop with four stages: fetch, build, apply and health. A failure leaves the later stages on the last good result.</li>
+        <li>Compare revisions, not colors. A consumer stays green on an old artifact, and a suspended consumer keeps its last green condition.</li>
+        <li>A <code>Kustomization</code> reverts any hand change to a field that git declares. When git holds the bad change, fix it with a commit.</li>
+        <li><code>suspend</code> stops every pass for one object. Lift it when the change is in git.</li>
+        <li>The controller checks <code>dependsOn</code> on every pass, and the message tells a missing dependency from a red one.</li>
       </ul>
     </div>
   </section>

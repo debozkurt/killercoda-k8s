@@ -1,6 +1,6 @@
 {
   "title": "M18 — Break/fix 02: Kustomization Suspended",
-  "description": "A hand-scaled Deployment won't revert to its git-declared count, and get output looks healthy. Find the suspended consumer and resume it.",
+  "description": "dialplan runs 5 replicas against 2 in git, and the apps Kustomization reports Ready True. Find why Flux does not revert the drift.",
   "details": {
     "intro": {
       "text": "intro.md",
@@ -8,10 +8,19 @@
       "foreground": "foreground.sh"
     },
     "steps": [
-      { "title": "Why the drift won't revert", "text": "step1/text.md" },
-      { "title": "Fix it and verify", "text": "step2/text.md", "verify": "step2/verify.sh" }
+      {
+        "title": "Find why the drift stays",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
     ],
-    "finish": { "text": "finish.md" }
+    "finish": {
+      "text": "finish.md"
+    }
   },
   "backend": {
     "imageid": "kubernetes-kubeadm-2nodes"

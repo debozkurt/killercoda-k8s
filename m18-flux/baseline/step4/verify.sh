@@ -1,14 +1,14 @@
 #!/bin/bash
-# Checks: the voicemail HelmRelease is Ready and its Deployment is up at 2
-# replicas — the dependsOn-ordered release installed cleanly. Read-only tour step.
-command -v flux >/dev/null 2>&1 || { echo "flux CLI not found on PATH" >&2; exit 1; }
+# Checks: both HelmReleases are Ready and the helm CLI sees the release record in flux-system.
+for hr in message-store voicemail; do
+  READY=$(kubectl get helmrelease "$hr" -n flux-system \
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+  [ "$READY" = "True" ] || { echo "HelmRelease $hr is not Ready (got: ${READY:-none}). Run:" >&2; echo "  flux reconcile helmrelease $hr" >&2; exit 1; }
+done
 
-READY=$(kubectl get helmrelease voicemail -n flux-system \
-  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
-[ "$READY" = "True" ] || { echo "HelmRelease voicemail is not Ready (got: ${READY:-none})" >&2; exit 1; }
+command -v helm >/dev/null 2>&1 || { echo "helm CLI not found on PATH. Setup did not finish; reload the scenario." >&2; exit 1; }
+helm status app-services-voicemail -n flux-system >/dev/null 2>&1 \
+  || { echo "No release app-services-voicemail in flux-system. Run:" >&2; echo "  helm list -n flux-system" >&2; exit 1; }
 
-RR=$(kubectl get deploy voicemail -n app-services -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
-[ "$RR" = "2" ] || { echo "Expected voicemail Deployment 2 ready replicas, got ${RR:-none}" >&2; exit 1; }
-
-echo "✓ HelmRelease voicemail Ready; voicemail Deployment at $RR ready replicas"
+echo "✓ message-store and voicemail are Ready; release app-services-voicemail is recorded in flux-system"
 exit 0

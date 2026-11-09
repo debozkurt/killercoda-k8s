@@ -686,39 +686,49 @@ EOF
 
 
 # ===========================================================================
-# >>> M18 addition: install Flux + an in-cluster git server, seed the config
-#     repo, and wire up a GitOps delivery pipeline.
-#
-#     Flux is a GitOps controller: git holds the desired state, and Flux's
-#     controllers (source / kustomize / helm) continuously reconcile the
-#     cluster to match it. This block:
-#       1. installs the pinned `flux` CLI and its controllers (`flux install`)
-#       2. runs a tiny in-cluster Gitea git server (source for GitRepository)
-#       3. seeds a config repo (an `apps` Kustomize dir + a `voicemail` Helm
-#          chart) and pushes it to Gitea
-#       4. applies the Flux custom resources that reconcile that repo
-#     Per-scenario mutations are appended AFTER this shared block.
+# >>> M18 addition: the flux and helm CLIs, the Flux controllers, an in-cluster
+#     git server, the polyphone-config repo, and the Flux objects that deliver
+#     it. Flux keeps the cluster equal to git: source-controller fetches the
+#     repo, kustomize-controller and helm-controller apply what it fetched.
+#     Module setup runs BEFORE the fleet settle-wait (Killercoda caps
+#     background runtime; see AGENTS.md setup order).
 # ===========================================================================
 
-# --- 1. install the pinned flux CLI (fetch-and-extract, like helm/k9s above) --
-FLUX_VERSION=2.8.6
-curl -sL "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_linux_amd64.tar.gz" \
-  | tar xz -C /usr/local/bin flux 2>/dev/null
-chmod +x /usr/local/bin/flux 2>/dev/null
+FLUX_VERSION=2.9.6
+HELM_VERSION=v4.3.1
+# Download to a file and retry: a truncated stream piped into tar leaves a
+# partial binary that segfaults.
+for _ in 1 2 3; do
+  curl -fsSL --retry 3 -o /tmp/flux.tgz \
+    "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_linux_amd64.tar.gz" \
+    && tar xzf /tmp/flux.tgz -C /tmp flux \
+    && install -m 0755 /tmp/flux /usr/local/bin/flux \
+    && flux version --client 2>/dev/null | grep -q "${FLUX_VERSION}" && break
+  sleep 3
+done
+if ! flux version --client 2>/dev/null | grep -q "${FLUX_VERSION}"; then
+  echo "FATAL: flux ${FLUX_VERSION} did not install" >&2
+  exit 1
+fi
+for _ in 1 2 3; do
+  curl -fsSL --retry 3 -o /tmp/helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+    && tar xzf /tmp/helm.tgz -C /tmp linux-amd64/helm \
+    && install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm \
+    && helm version --short 2>/dev/null | grep -q "^${HELM_VERSION}" && break
+  sleep 3
+done
 
-# Install just the three controllers the GitRepository -> Kustomization ->
-# HelmRelease chain needs. `flux install` needs no git provider or token
-# (that is `flux bootstrap`); it lays the controllers into flux-system and
-# waits for them to become ready.
+# `flux install` needs no git provider and no token (that is `flux bootstrap`).
+# It applies the CRDs and the three controllers this module uses, then waits
+# for them to become ready.
 flux install \
   --components=source-controller,kustomize-controller,helm-controller \
   --network-policy=false >/dev/null 2>&1
 
-# --- 2. in-cluster Gitea (the git server behind the GitRepository source) -----
-# source-controller (go-git) speaks smart HTTP; Gitea serves it out of the box.
-# SQLite + emptyDir keeps it single-pod and disposable — this is a lab source of
-# truth, not production storage. A NodePort lets the host seed the repo; Flux
-# reaches it in-cluster over the ClusterIP DNS name.
+# --- the git server behind the GitRepository ---------------------------------
+# Gitea serves git over smart HTTP, which source-controller speaks. SQLite on
+# an emptyDir keeps it to one disposable Pod. Flux clones it over the Service
+# DNS name; an /etc/hosts entry gives the node the same name for `git push`.
 cat <<'EOF' | kubectl apply -f - >/dev/null
 apiVersion: apps/v1
 kind: Deployment
@@ -743,7 +753,6 @@ spec:
             - { name: GITEA__service__REQUIRE_SIGNIN_VIEW, value: "false" }
             - { name: GITEA__server__DISABLE_SSH, value: "true" }
             - { name: GITEA__server__ROOT_URL, value: "http://gitea.flux-system.svc.cluster.local:3000/" }
-            - { name: GITEA__repository__DEFAULT_PUSH_CREATE_PRIVATE, value: "false" }
           ports:
             - { containerPort: 3000, name: http }
           resources:
@@ -762,46 +771,42 @@ metadata:
   namespace: flux-system
   labels: { app: gitea, plane: control, tier: lab }
 spec:
-  type: NodePort
   selector: { app: gitea }
   ports:
-    - { port: 3000, targetPort: 3000, nodePort: 30300, name: http }
+    - { port: 3000, targetPort: 3000, name: http }
 EOF
 
 kubectl rollout status deployment/gitea -n flux-system --timeout=120s >/dev/null 2>&1
-
-# Wait until Gitea's HTTP API answers on the NodePort before seeding.
-for i in $(seq 1 60); do
-  curl -sf "http://localhost:30300/api/v1/version" >/dev/null 2>&1 && break
+GITEA_IP=$(kubectl get svc gitea -n flux-system -o jsonpath='{.spec.clusterIP}')
+GITEA=gitea.flux-system.svc.cluster.local
+echo "$GITEA_IP $GITEA" >> /etc/hosts
+for _ in $(seq 1 60); do
+  curl -sf -m 5 "http://$GITEA:3000/api/v1/version" >/dev/null 2>&1 && break
   sleep 2
 done
 
-# --- 3. seed the config repo -------------------------------------------------
-# Create the admin user Flux will (anonymously) clone from, then a PUBLIC repo.
-kubectl exec deploy/gitea -n flux-system -- \
-  gitea admin user create --username flux --password flux-admin \
-  --email flux@polyphone.example --admin --must-change-password=false >/dev/null 2>&1
-curl -sf -u flux:flux-admin -X POST "http://localhost:30300/api/v1/user/repos" \
+# The gitea CLI refuses to run as root, and the container shell is root.
+kubectl exec deploy/gitea -n flux-system -- su git -c \
+  "gitea admin user create --username flux --password flux-admin --email flux@polyphone.example --admin --must-change-password=false" \
+  >/dev/null 2>&1
+curl -sf -u flux:flux-admin -X POST "http://$GITEA:3000/api/v1/user/repos" \
   -H 'Content-Type: application/json' \
   -d '{"name":"polyphone-config","private":false,"auto_init":false}' >/dev/null 2>&1
 
-# Write the repo tree to /root/polyphone-config (a mirror the learner can read).
-# `cat > file` (not piped to kubectl) so the Helm chart's Go-template YAML is
-# written verbatim, not applied.
+# --- the polyphone-config repo -----------------------------------------------
+# /root/polyphone-config is a clone the learner edits, commits and pushes.
+# Files are written with `cat >` so the chart templates stay verbatim.
 REPO=/root/polyphone-config
-mkdir -p "$REPO/apps" "$REPO/charts/voicemail/templates"
+mkdir -p "$REPO/apps" "$REPO/charts/voicemail/templates" "$REPO/charts/message-store/templates"
 
-# apps/ — a plain-manifest Kustomize dir the Flux `apps` Kustomization builds.
 cat > "$REPO/apps/kustomization.yaml" <<'GIT_EOF'
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - dialplan.yaml
+  - dialplan-routes.yaml
 GIT_EOF
 
-# dialplan — the GitOps-managed Deployment. Declared at 2 replicas in git;
-# that number is the desired state Flux enforces. No namespace here — the
-# Kustomization's targetNamespace lands it in app-services.
 cat > "$REPO/apps/dialplan.yaml" <<'GIT_EOF'
 apiVersion: apps/v1
 kind: Deployment
@@ -824,13 +829,22 @@ spec:
             limits:   { cpu: 100m, memory: 64Mi }
 GIT_EOF
 
-# charts/voicemail — a small Helm chart the `voicemail` HelmRelease renders.
-# Same shape as the M17 chart, hosted inside the git repo so the HelmRelease
-# can source it from the GitRepository (no external Helm repository needed).
+cat > "$REPO/apps/dialplan-routes.yaml" <<'GIT_EOF'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dialplan-routes
+  labels: { app: dialplan, tier: lab }
+data:
+  routes.conf: |
+    +1303 -> trunk-west
+    +1212 -> trunk-east
+GIT_EOF
+
 cat > "$REPO/charts/voicemail/Chart.yaml" <<'GIT_EOF'
 apiVersion: v2
 name: voicemail
-description: Polyphone voicemail service — lab chart for M18 (Flux)
+description: Polyphone voicemail service
 type: application
 version: 0.1.0
 appVersion: "1.25"
@@ -902,45 +916,93 @@ spec:
       targetPort: 80
 GIT_EOF
 
-# Commit the tree and push it to Gitea as branch `main` (the host has git and
-# reaches Gitea on the NodePort). This is the one and only revision the repo
-# starts with.
-git -C "$REPO" init -q -b main 2>/dev/null || { git -C "$REPO" init -q; git -C "$REPO" checkout -q -b main; }
-git -C "$REPO" -c user.email=setup@polyphone.example -c user.name=setup add -A
-git -C "$REPO" -c user.email=setup@polyphone.example -c user.name=setup commit -q -m "seed polyphone-config" 2>/dev/null
-git -C "$REPO" push -q "http://flux:flux-admin@localhost:30300/flux/polyphone-config.git" main 2>/dev/null
+cat > "$REPO/charts/message-store/Chart.yaml" <<'GIT_EOF'
+apiVersion: v2
+name: message-store
+description: Polyphone voicemail message store
+type: application
+version: 0.1.0
+appVersion: "1.25"
+GIT_EOF
 
-# --- 4. apply the Flux custom resources (with a drifted + suspended app) ------
-# The incident story: last night an engineer scaled `dialplan` to 5 by hand and
-# SUSPENDED the `apps` Kustomization so Flux wouldn't revert the emergency
-# change. The incident is over, but the suspend was never lifted — so dialplan
-# is stuck at 5 (git declares 2) and every future change to `apps` is ignored.
+cat > "$REPO/charts/message-store/values.yaml" <<'GIT_EOF'
+replicaCount: 1
+image:
+  repository: nginx
+  tag: "1.25"
+  pullPolicy: IfNotPresent
+service:
+  port: 80
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits:   { cpu: 100m, memory: 64Mi }
+GIT_EOF
 
-# The hand-scaled, drifted live Deployment (5 replicas). Applied directly, NOT
-# through Flux — this is the out-of-band change Flux would normally correct.
-cat <<'EOF' | kubectl apply -f - >/dev/null
+cat > "$REPO/charts/message-store/templates/deployment.yaml" <<'GIT_EOF'
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: dialplan
-  namespace: app-services
-  labels: { app: dialplan, plane: control, tier: lab }
+  name: message-store
+  labels:
+    app: message-store
+    plane: app
+    tier: lab
 spec:
-  replicas: 5                         # drift: git declares 2 (see ./apps/dialplan.yaml)
-  selector: { matchLabels: { app: dialplan } }
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: message-store
   template:
     metadata:
-      labels: { app: dialplan, plane: control, tier: lab }
+      labels:
+        app: message-store
+        plane: app
+        tier: lab
     spec:
       containers:
         - name: app
-          image: nginx:1.25
-          ports: [{ containerPort: 80 }]
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 80
           resources:
-            requests: { cpu: 25m, memory: 32Mi }
-            limits:   { cpu: 100m, memory: 64Mi }
-EOF
+            {{- toYaml .Values.resources | nindent 12 }}
+GIT_EOF
 
+cat > "$REPO/charts/message-store/templates/service.yaml" <<'GIT_EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: message-store
+  labels:
+    app: message-store
+    plane: app
+    tier: lab
+spec:
+  selector:
+    app: message-store
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: 80
+GIT_EOF
+
+# One commit on `main`, pushed to Gitea. `origin` carries the lab credentials
+# so a plain `git push` works for the learner.
+git config --global user.name "oncall"
+git config --global user.email "oncall@polyphone.example"
+git config --global init.defaultBranch main
+git -C "$REPO" init -q
+git -C "$REPO" checkout -q -B main
+git -C "$REPO" remote add origin "http://flux:flux-admin@$GITEA:3000/flux/polyphone-config.git"
+git -C "$REPO" add -A
+git -C "$REPO" commit -q -m "seed polyphone-config"
+git -C "$REPO" push -q -u origin main 2>/dev/null
+if ! git -C "$REPO" ls-remote --exit-code origin main >/dev/null 2>&1; then
+  echo "FATAL: the polyphone-config push to Gitea failed" >&2
+  exit 1
+fi
+
+# --- the Flux objects: one source, one Kustomization, two HelmReleases --
 cat <<'EOF' | kubectl apply -f - >/dev/null
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
@@ -966,27 +1028,74 @@ spec:
   path: ./apps
   prune: true
   wait: true
-  timeout: 2m
+  timeout: 1m
   targetNamespace: app-services
-  # >>> breakfix-02 mutation: the Kustomization is suspended, so kustomize-
-  #     controller does not reconcile it — the drifted dialplan (5 replicas) is
-  #     never pulled back to the git-declared 2, and no new commit would apply.
-  suspend: true                       # MUTATED (baseline: false / omitted)
-  # <<< breakfix-02 mutation ends
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: message-store
+  namespace: flux-system
+spec:
+  interval: 1m
+  targetNamespace: app-services
+  chart:
+    spec:
+      chart: ./charts/message-store
+      sourceRef:
+        kind: GitRepository
+        name: polyphone-config
+  values:
+    replicaCount: 1
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: voicemail
+  namespace: flux-system
+spec:
+  interval: 1m
+  targetNamespace: app-services
+  chart:
+    spec:
+      chart: ./charts/voicemail
+      sourceRef:
+        kind: GitRepository
+        name: polyphone-config
+  # voicemail installs only after the message-store HelmRelease is Ready.
+  dependsOn:
+    - name: message-store
+  values:
+    replicaCount: 2
 EOF
 
-# Make the source Ready so the only thing wrong is the suspend (not the fetch).
-flux reconcile source git polyphone-config --timeout=90s >/dev/null 2>&1
+# First reconcile now, so the learner does not wait out the interval. The
+# dependency (message-store) goes before voicemail.
+flux reconcile source git polyphone-config --timeout=2m >/dev/null 2>&1
+flux reconcile kustomization apps --timeout=2m >/dev/null 2>&1
+flux reconcile helmrelease message-store --timeout=2m >/dev/null 2>&1
+flux reconcile helmrelease voicemail --timeout=2m >/dev/null 2>&1
+kubectl rollout status deployment/dialplan -n app-services --timeout=90s >/dev/null 2>&1
+kubectl rollout status deployment/voicemail -n app-services --timeout=90s >/dev/null 2>&1
+
+# >>> breakfix-02 mutation: after a healthy reconcile, suspend apps and scale
+#     dialplan by hand. apps keeps its last condition (Ready True) while it is
+#     suspended, so nothing reverts the drift.
+flux suspend kustomization apps >/dev/null 2>&1
+kubectl scale deployment dialplan -n app-services --replicas=5 >/dev/null   # MUTATED (baseline: 2 from git)
+kubectl rollout status deployment/dialplan -n app-services --timeout=60s >/dev/null 2>&1
+# <<< breakfix-02 mutation ends
 # <<< M18 addition ends
 
 # ---------------------------------------------------------------------------
-# Wait for the fleet to come up
+# Wait for the fleet to come up (last, so nothing above sits behind it)
 # ---------------------------------------------------------------------------
 
 kubectl wait --for=condition=Available deployment --all -A --timeout=120s >/dev/null 2>&1
-# StatefulSets don't have an Available condition; wait for at least one ready pod
+# StatefulSets don't have an Available condition; wait for at least one ready pod.
+# dialplan is excluded: breakfix-05 leaves one of its Pods unready on purpose.
 for ns in media signaling app-services edge; do
-  kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=60s >/dev/null 2>&1
+  kubectl wait --for=condition=Ready pod -l 'plane,app!=dialplan' -n "$ns" --timeout=60s >/dev/null 2>&1
 done
 
 touch /tmp/.setup-complete

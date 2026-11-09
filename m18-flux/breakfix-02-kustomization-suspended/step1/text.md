@@ -1,30 +1,24 @@
-# Step 1 — Why the drift won't revert
+# Step 1 — Find why the drift stays
 
-In the baseline, scaling `dialplan` by hand was reverted within one reconcile. Here the same drift persists. Something turned reconciliation off.
+In the baseline, one pass of `apps` reverted a hand scale. Here the scale has lasted for hours. Read the pipeline in order.
 
 ## Confirm the drift
 
 ```bash
 kubectl get deploy dialplan -n app-services
-```{{exec}}
-
-`READY 5/5`. The live count is 5.
-
-```bash
 grep replicas /root/polyphone-config/apps/dialplan.yaml
 ```{{exec}}
 
-Git declares `replicas: 2`. So the cluster disagrees with git by 3 replicas — drift Flux should be correcting.
+The Deployment runs 5 replicas. Git declares 2.
 
-## Rule out the source
-
-Top-down: is the source healthy?
+## Read the source
 
 ```bash
 flux get sources git
+git -C /root/polyphone-config log --oneline -1
 ```{{exec}}
 
-`polyphone-config` is `READY True` with a stored artifact. The source is fine — it isn't a fetch problem this time. Move to the consumer.
+`READY True`, and the revision hash matches the newest commit. The fetch stage works.
 
 ## Read the consumer
 
@@ -32,12 +26,18 @@ flux get sources git
 flux get kustomizations
 ```{{exec}}
 
-Look at the `SUSPENDED` column: `apps` shows `SUSPENDED True`. Its `READY` is frozen at whatever it last was — that's why a glance looks healthy. A suspended Kustomization is not reconciling: no drift correction, no new commits applied, no pruning.
-
-Confirm on the object:
+`apps` reads `READY True` and `Applied revision: main@sha1:...`, the same hash as the source. A glance says the pipeline is healthy. Now read the `SUSPENDED` column: `True`.
 
 ```bash
-kubectl get kustomization apps -n flux-system -o jsonpath='{.spec.suspend}{"\n"}'
+kubectl describe kustomization apps -n flux-system
 ```{{exec}}
 
-`true`. That's the whole bug. Nothing is broken or failing — reconciliation was deliberately paused and never resumed, so the drift just sits there. Move to step 2 to turn it back on.
+Under `Spec`, `Suspend: true`. A suspended Kustomization skips every pass: no drift correction, no new revision, no prune. Its conditions are frozen at its last pass, which succeeded before the suspend.
+
+## Prove that nothing runs
+
+```bash
+flux reconcile kustomization apps
+```{{exec}}
+
+The CLI refuses: `resource is suspended`. Nothing in the cluster will revert the drift until the suspend is lifted.
