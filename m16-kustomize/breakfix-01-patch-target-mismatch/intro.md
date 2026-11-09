@@ -1,9 +1,11 @@
 # M16 — Break/fix 01: Patch Target Mismatch
 
-> Pre-req: the M16 baseline tour. You've seen a prod overlay render and apply cleanly; this one won't build.
+> Pre-req: the M16 baseline tour.
 
-The `edge-relay` prod promotion isn't taking. The deploy job that runs `kubectl apply -k overlays/prod` exits non-zero, and there's no `edge-relay` Deployment in the `edge` namespace at all — not crashing, not pending, *absent*. The rest of the fleet is healthy.
+**Alert:** the deploy job for the `edge-relay` prod promotion failed.
 
-This is the first place Kustomize can fail: **build time**, before a single object is sent to the API server. `apply -k` is `kustomize build` piped into `apply` — if the build errors, nothing is applied, and the cluster shows no trace of what you intended. Your usual `kubectl describe`/`logs` loop has nothing to describe.
+The job runs `kubectl apply -k overlays/prod` from `/root/edge-relay` and exits non-zero. The rest of the fleet is healthy. Nobody has looked at the cluster yet.
 
-The tree is at `/root/edge-relay`. Your job: stop looking at the cluster, render the overlay yourself, read the build error, and fix the file it points at. The cluster takes 60–120 seconds to come up. Click **Start** when ready.
+Your job: find why the promotion fails, and land prod at 3 replicas.
+
+The cluster takes 60 to 120 seconds to start. Click **Start** when ready.

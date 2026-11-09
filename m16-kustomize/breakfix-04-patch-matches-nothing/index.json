@@ -1,0 +1,28 @@
+{
+  "title": "M16 — Break/fix 04: Patch Matches Nothing",
+  "description": "The edge-relay prod deploy passed and the rollout completed, and prod runs one third of its planned capacity. Find the change that never landed, and fix it in the Kustomize tree.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      {
+        "title": "Diagnose",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
+    ],
+    "finish": {
+      "text": "finish.md"
+    }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

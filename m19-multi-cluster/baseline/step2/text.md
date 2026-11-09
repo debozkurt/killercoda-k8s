@@ -31,4 +31,4 @@ That is the entire trace algorithm: render the value, grep each layer in the pat
 
 ## Why the names must match
 
-The generator merges across three layers only because every layer names it `edge-relay-config`. That's the same name-match rule from M16, now operating up the stack — break the name in any layer and the merge (and the reference rewrite) silently stops. Step 3 moves from config vars to the image, and to promotion.
+The generator merges across three layers only because every layer names it `edge-relay-config`. That's the same name-match rule from M16, now operating up the stack — break the name in a `behavior: merge` layer and the build fails with `does not exist; cannot merge or replace`, and break it in a reference and the rewrite stops without an error. Step 3 moves from config vars to the image, and to promotion.

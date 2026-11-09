@@ -1,47 +1,42 @@
-# Step 1 — Trace the missing ConfigMap
+# Step 1 — Diagnose
 
-The build and apply succeeded, so the cluster has objects to inspect. Start with the Pod:
+## The normal loop works this time
+
+Apply succeeded, so objects exist.
 
 ```bash
 kubectl get pods -n edge -l app=edge-relay
 ```{{exec}}
 
-`0/1  CreateContainerConfigError` — the Pod scheduled, but the kubelet can't assemble the container's configuration. `describe` names the reason:
+Three Pods in `CreateContainerConfigError`. The kubelet cannot assemble a container's configuration. The events name the reason:
 
 ```bash
-kubectl describe pod -n edge -l app=edge-relay | grep -A3 -E 'Events:|Warning'
+kubectl events -n edge --types=Warning
 ```{{exec}}
 
-```text
-Error: configmap "edge-relay-conf" not found
-```
-
-The container's `envFrom` wants a ConfigMap called `edge-relay-conf`, and it isn't there. Confirm what *is* there:
+The repeated `edge-relay` lines, marked `(xN over ...)`, read `Error: configmap "edge-relay-conf" not found`. A single `failed to sync configmap cache` line before them is the kubelet's first attempt. Compare with what exists:
 
 ```bash
-kubectl get configmap -n edge | grep edge-relay
+kubectl get cm -n edge -l app=edge-relay
 ```{{exec}}
 
-There's an `edge-relay-config-<hash>` — but no `edge-relay-conf`. So the generator produced a ConfigMap under one name and the Deployment is asking for another. This is the hash-reference machinery from the baseline, failing.
+One ConfigMap, `edge-relay-config-` plus a hash. Nothing is named `edge-relay-conf`.
 
-## Read the render, not just the cluster
+## Read the render
 
-The cluster shows the *result*; the render shows *why*. Look at what Kustomize built:
+The cluster shows the result. The render shows why.
 
 ```bash
 cd /root/edge-relay
-kubectl kustomize overlays/prod | grep -E 'kind: ConfigMap|name: edge-relay|configMapRef'
+kubectl kustomize overlays/prod | grep -n edge-relay-conf
 ```{{exec}}
 
-The generated ConfigMap is `edge-relay-config-<hash>`, but the Deployment's `configMapRef.name` is a bare `edge-relay-conf` — **no hash, and it doesn't match the generated object.** In the healthy baseline, that reference was rewritten to the hashed name. Here it wasn't. Why?
+Two lines. The ConfigMap's `name:` carries the hash. The Deployment's `configMapRef` reads the bare `edge-relay-conf`. In the baseline, Kustomize rewrote this reference to the hashed name. Here it did not.
 
-## The name-match rule
-
-Kustomize rewrites a reference to a generated ConfigMap only when the reference's name **exactly matches the generator's declared name**. Line the two up:
+## Line up the names
 
 ```bash
-grep -A1 configMapRef base/deployment.yaml
-grep -A1 configMapGenerator base/kustomization.yaml
+grep -n edge-relay-conf base/deployment.yaml base/kustomization.yaml
 ```{{exec}}
 
-The Deployment references `edge-relay-conf`; the generator is named `edge-relay-config`. They differ, so Kustomize never treated the `envFrom` as a reference to *its* ConfigMap — it left the bare name in place, and the hash suffix was never applied. The Deployment points at a ConfigMap that was never created. On to the fix.
+The Deployment references `edge-relay-conf`. The generator is named `edge-relay-config`. Kustomize rewrites a reference only when it names the generator exactly, so it left this one alone. Build and apply both succeeded, and the reference points at a ConfigMap that nothing creates.

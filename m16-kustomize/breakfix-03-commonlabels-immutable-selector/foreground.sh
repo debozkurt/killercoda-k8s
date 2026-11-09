@@ -1,16 +1,13 @@
 #!/bin/bash
 
-echo "Provisioning the fleet, deploying edge-relay to lab, then promoting to prod..."
-echo "(the prod promotion is expected to be rejected by the API server — that's the scenario)"
-echo ""
-
+echo "Waiting for the Polyphone fleet and the edge-relay Kustomize tree (about 1 to 2 minutes)..."
 while [ ! -f /tmp/.setup-complete ]; do
   sleep 3
   echo -n "."
 done
 echo ""
 echo ""
-echo "Ready. edge-relay is on the lab spec; the prod promotion didn't take. Look:"
+echo "Alert: the edge-relay promotion from lab to prod failed. The deploy job runs, from /root/edge-relay:"
 echo ""
-echo "  kubectl get deploy edge-relay -n edge"
+echo "  kubectl apply -k overlays/prod"
 echo ""

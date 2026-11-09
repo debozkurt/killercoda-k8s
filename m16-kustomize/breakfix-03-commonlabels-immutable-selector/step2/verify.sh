@@ -1,21 +1,33 @@
 #!/bin/bash
-# Checks: the prod promotion landed (3 replicas, prod image) AND the fix kept the
-# tier label OUT of the immutable selector (selector unchanged, tier on metadata).
+# Checks: the prod spec landed (3 ready, nginx:1.27), the selector is still
+# app=edge-relay only, and tier=prod is a metadata label.
 NS=edge
-
+FIX="Replace commonLabels with labels: [{pairs: {tier: prod}, includeSelectors: false}] in overlays/prod, then:"
 READY=$(kubectl get deploy edge-relay -n "$NS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
-[ "${READY:-0}" -ge 3 ] || { echo "prod promotion not landed yet (${READY:-0}/3). After the transformer swap: kubectl apply -k /root/edge-relay/overlays/prod" >&2; exit 1; }
-
 IMG=$(kubectl get deploy edge-relay -n "$NS" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)
-[ "$IMG" = "nginx:1.27" ] || { echo "Expected the prod image nginx:1.27, got '$IMG' — did the prod overlay apply?" >&2; exit 1; }
-
-# The selector must NOT carry tier (proves the label was kept off the immutable field)
-SELTIER=$(kubectl get deploy edge-relay -n "$NS" -o jsonpath='{.spec.selector.matchLabels.tier}' 2>/dev/null)
-[ -z "$SELTIER" ] || { echo "spec.selector still carries tier='$SELTIER'. Use labels: with includeSelectors:false so the label stays off the selector." >&2; exit 1; }
-
-# ...but tier=prod SHOULD be present as a metadata label
-METATIER=$(kubectl get deploy edge-relay -n "$NS" -o jsonpath='{.metadata.labels.tier}' 2>/dev/null)
-[ "$METATIER" = "prod" ] || { echo "Expected metadata label tier=prod on the Deployment, got '$METATIER'." >&2; exit 1; }
-
-echo "✓ Promotion landed: edge-relay 3/3 on nginx:1.27, selector still {app: edge-relay}, tier=prod on metadata only."
+if [ "${READY:-0}" -lt 3 ] || [ "$IMG" != "nginx:1.27" ]; then
+  echo "edge-relay runs ${READY:-0} ready replicas of '$IMG'; prod is 3 of nginx:1.27." >&2
+  echo "$FIX" >&2
+  echo "  kubectl apply -k /root/edge-relay/overlays/prod" >&2
+  exit 1
+fi
+SEL=$(kubectl get deploy edge-relay -n "$NS" -o jsonpath='{.spec.selector.matchLabels}' 2>/dev/null)
+if [ "$SEL" != '{"app":"edge-relay"}' ]; then
+  echo "The Deployment selector is $SEL, not {\"app\":\"edge-relay\"}. The fix must not change the selector." >&2
+  exit 1
+fi
+TIER=$(kubectl get deploy edge-relay -n "$NS" -o jsonpath='{.metadata.labels.tier}' 2>/dev/null)
+if [ "$TIER" != "prod" ]; then
+  echo "The Deployment label tier is '$TIER', not prod. $FIX" >&2
+  echo "  kubectl apply -k /root/edge-relay/overlays/prod" >&2
+  exit 1
+fi
+SVCSEL=$(kubectl get svc edge-relay -n "$NS" -o jsonpath='{.spec.selector}' 2>/dev/null)
+EPS=$(kubectl get endpoints edge-relay -n "$NS" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null)
+if [ "$SVCSEL" != '{"app":"edge-relay"}' ] || [ -z "$EPS" ]; then
+  echo "The Service selector is $SVCSEL with endpoints '$EPS'; it must be {\"app\":\"edge-relay\"} with Pod addresses. Apply the fixed overlay:" >&2
+  echo "  kubectl apply -k /root/edge-relay/overlays/prod" >&2
+  exit 1
+fi
+echo "✓ Prod landed: edge-relay 3/3 on nginx:1.27, selector app=edge-relay, label tier=prod, Service has endpoints"
 exit 0

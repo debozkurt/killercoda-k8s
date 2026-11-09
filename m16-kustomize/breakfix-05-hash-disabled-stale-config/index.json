@@ -1,0 +1,28 @@
+{
+  "title": "M16 — Break/fix 05: Hash Disabled, Stale Config",
+  "description": "A MAX_SESSIONS change from 5000 to 6000 shipped and the deploy passed, and edge-relay still enforces 5000. Find why, and fix it so the next config change does not repeat it.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      {
+        "title": "Diagnose",
+        "text": "step1/text.md"
+      },
+      {
+        "title": "Fix it and verify",
+        "text": "step2/text.md",
+        "verify": "step2/verify.sh"
+      }
+    ],
+    "finish": {
+      "text": "finish.md"
+    }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-2nodes"
+  }
+}

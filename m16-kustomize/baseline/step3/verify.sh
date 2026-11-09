@@ -17,5 +17,5 @@ REF=$(kubectl get deploy edge-relay -n "$NS" -o jsonpath='{.spec.template.spec.c
 kubectl get configmap "$REF" -n "$NS" >/dev/null 2>&1 || {
   echo "The Deployment references ConfigMap '$REF' but it does not exist in $NS." >&2; exit 1; }
 
-echo "✓ Prod overlay is live: edge-relay 3/3 on nginx:1.27, referencing ConfigMap '$REF' (which exists)."
+echo "✓ Prod overlay is live: edge-relay 3/3 on nginx:1.27, referencing ConfigMap $REF, which exists"
 exit 0

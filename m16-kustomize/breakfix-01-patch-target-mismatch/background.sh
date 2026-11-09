@@ -685,40 +685,22 @@ spec:
 EOF
 
 # ---------------------------------------------------------------------------
-# Wait for the fleet to come up
+# M16 additions: the edge-relay Kustomize tree at /root/edge-relay.
+#
+#   base/                          Deployment + Service + configMapGenerator
+#   components/regional-affinity/  Component: nodeAffinity disktype=ssd
+#   overlays/lab/                  base + tier=lab label
+#   overlays/prod/                 base + component + replicas patch + image pin + config merge
+#
+# The tree is written BEFORE any wait, so a slow boot that hits the Killercoda
+# background runtime cap still leaves the learner the files. The fleet settle
+# wait runs last. Kustomize is client-side: `kubectl apply -k` renders, then applies.
 # ---------------------------------------------------------------------------
-
-kubectl wait --for=condition=Available deployment --all -A --timeout=120s >/dev/null 2>&1
-# StatefulSets don't have an Available condition; wait for at least one ready pod
-for ns in media signaling app-services edge; do
-  kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=60s >/dev/null 2>&1
-done
-
-
-# ===========================================================================
-# M16 additions — the edge-relay Kustomize base + overlays this module teaches.
-#
-# edge-relay is a per-environment SIP/RTP edge relay managed entirely with
-# Kustomize: one base plus a `lab` and a `prod` overlay. The whole tree is
-# written to /root/edge-relay so the learner can read and edit real files:
-#
-#   base/            deployment + service + a configMapGenerator (the source of truth)
-#   components/       regional-affinity — a reusable Component (nodeAffinity)
-#   overlays/lab/     base as-is + a tier label (dev-close-to-base)
-#   overlays/prod/    base + component + replicas patch + image pin + config merge
-#
-# This scenario ships a BROKEN prod overlay: its replicas patch targets a
-# resource name no base resource carries, so `kubectl kustomize` / `apply -k`
-# fails at BUILD time and nothing reaches the cluster — edge-relay never deploys.
-# See the fenced breakfix-01 mutation below.
-# ===========================================================================
 
 mkdir -p /root/edge-relay/base \
          /root/edge-relay/components/regional-affinity \
          /root/edge-relay/overlays/lab \
          /root/edge-relay/overlays/prod
-
-# --- base: the environment-agnostic definition -----------------------------
 cat > /root/edge-relay/base/deployment.yaml <<'EOF'
 apiVersion: apps/v1
 kind: Deployment
@@ -736,9 +718,6 @@ spec:
         - name: app
           image: nginx:1.25
           ports: [{ containerPort: 5060, name: sip }]
-          # The whole config lands as env vars from the generated ConfigMap.
-          # `edge-relay-config` must match the generator's name for Kustomize
-          # to rewrite this reference to the hash-suffixed object it creates.
           envFrom:
             - configMapRef: { name: edge-relay-config }
           resources:
@@ -764,24 +743,19 @@ namespace: edge
 resources:
   - deployment.yaml
   - service.yaml
-# A generator OWNS the ConfigMap. It appends a content hash to the name
-# (edge-relay-config-<hash>) and rewrites every matching reference, so a config
-# change forces a new object name and therefore a rollout.
 configMapGenerator:
   - name: edge-relay-config
     literals:
       - LOG_LEVEL=info
       - MAX_SESSIONS=500
       - REGION=us-east-1
+    options:
+      labels: { app: edge-relay }
 EOF
 
-# --- component: a reusable, opt-in slice pulled in by whichever overlay wants it
 cat > /root/edge-relay/components/regional-affinity/kustomization.yaml <<'EOF'
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
-# Pin edge-relay to the SSD-class nodes the media plane runs on. A Component is
-# reusable across overlays (unlike a base, it can add patches and generators)
-# and is wired in via `components:`. Only the prod overlay opts in here.
 patches:
   - target: { kind: Deployment, name: edge-relay }
     patch: |
@@ -795,34 +769,26 @@ patches:
                     - { key: disktype, operator: In, values: [ssd] }
 EOF
 
-# --- lab overlay: base as-is, just tagged. Close to the source of truth. -----
 cat > /root/edge-relay/overlays/lab/kustomization.yaml <<'EOF'
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
-# `labels` (the modern transformer) stamps metadata only — includeSelectors:false
-# keeps it away from the Deployment's immutable spec.selector.
 labels:
   - pairs: { tier: lab }
     includeSelectors: false
 EOF
 
-# --- prod overlay: the full promotion — component + patch + image + config ----
-# >>> breakfix-01 mutation: the prod replicas patch names its target `edge-relayer`,
-#     but the base Deployment is `edge-relay`. A `patches:` entry selects its target
-#     by the patch's own apiVersion/kind/name; when nothing matches, Kustomize does
-#     NOT silently skip it — it errors at build time ("no matches for Id ...;
-#     failed to find unique target for patch ..."). So `kubectl apply -k
-#     overlays/prod` fails before any object is sent to the API server, and
-#     edge-relay is absent from the cluster. Models a base resource that was renamed
-#     without updating the overlay patch that targets it.
-#     Fix = point the patch's metadata.name back at `edge-relay`.
+# >>> breakfix-01 mutation: the prod replicas patch file names Deployment edge-relayer; the base Deployment is edge-relay.
+#     A patch file with no target: selects by its own kind/name, so the build fails and
+#     apply -k sends nothing. edge-relay never exists in the cluster.
+# MUTATED (baseline: metadata.name: edge-relay)
+# The marker sits outside the heredoc so the learner's file carries no hint.
 cat > /root/edge-relay/overlays/prod/replicas-patch.yaml <<'EOF'
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: edge-relayer   # MUTATED (baseline: edge-relay — the name the base Deployment carries)
+  name: edge-relayer
 spec:
   replicas: 3
 EOF
@@ -841,8 +807,6 @@ labels:
 images:
   - name: nginx
     newTag: "1.27"
-# Merge new values onto the base ConfigMap. behavior:merge keeps REGION from the
-# base and overrides the two prod cares about. New content -> new hash -> rollout.
 configMapGenerator:
   - name: edge-relay-config
     behavior: merge
@@ -853,9 +817,13 @@ patches:
   - path: replicas-patch.yaml
 EOF
 
-# --- attempt the prod apply — it FAILS at build (patch target not found), so
-#     nothing is applied and edge-relay never appears. Error is suppressed here;
-#     the learner reproduces it with `kubectl kustomize overlays/prod` in step 1.
+# --- the deploy job's apply: fails at build, so nothing is created ---
 kubectl apply -k /root/edge-relay/overlays/prod >/dev/null 2>&1
+
+# --- fleet settle (best-effort, LAST so nothing critical sits behind it) ------
+kubectl wait --for=condition=Available deployment --all -A --timeout=120s >/dev/null 2>&1
+for ns in media signaling app-services edge; do
+  kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=60s >/dev/null 2>&1
+done
 
 touch /tmp/.setup-complete

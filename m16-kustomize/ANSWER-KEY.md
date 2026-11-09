@@ -1,211 +1,283 @@
 # M16 — Kustomize Bases & Overlays — Answer Key
 
-> Self-grading reference. Try each scenario first, then check your diagnostic path against the canonical one. Instructors running the lab live can use these sections as a teaching script.
-> Environment: Killercoda `kubernetes-kubeadm-2nodes` with the Polyphone baseline + the `edge-relay` Kustomize tree at `/root/edge-relay`.
+> Self-grading reference. Try each scenario first, then compare your diagnostic path with the canonical one. Instructors can use these sections as a teaching script.
+> Environment: Killercoda `kubernetes-kubeadm-2nodes` (kubectl v1.30, Kustomize v5.0.4 built in) with the Polyphone fleet and the `edge-relay` tree at `/root/edge-relay`.
 
 ## Lesson summary
 
-M16 teaches the base/overlay composition model and the four mechanisms that make it work — patches, generators, transformers, components — plus the one idea that ties diagnosis together: **Kustomize renders, it never runs**, so its failures land in three distinct layers. The `baseline/` scenario tours the healthy machine. Three break/fix scenarios then fault one layer each:
+M16 teaches the base/overlay model and its four mechanisms: patches, generators, transformers, and components. One idea ties the diagnosis together: **Kustomize renders, it never runs**. A failure therefore lands in one stage, and the stage decides the first command:
 
-- `breakfix-01-patch-target-mismatch` — the **build** layer: `kustomize build` errors, nothing reaches the cluster
-- `breakfix-02-generator-name-mismatch` — the **runtime** layer: build and apply succeed, the Pod won't start
-- `breakfix-03-commonlabels-immutable-selector` — the **apply** layer: the render is valid, the API server rejects it
+| Stage | Trace | First command | Scenario |
+|-------|-------|---------------|----------|
+| Build | Error, nothing created | `kubectl kustomize <dir>` | `breakfix-01-patch-target-mismatch` |
+| Apply | API server rejects an object | `kubectl diff -k <dir>` | `breakfix-03-commonlabels-immutable-selector` |
+| Runtime | Pods fail at start | `get → describe → events`, then the render | `breakfix-02-generator-name-mismatch` |
+| Wrong render | No error anywhere | `kubectl kustomize <dir>`, read the expected field | `breakfix-04-patch-matches-nothing`, `breakfix-05-hash-disabled-stale-config` |
 
-The through-line: your first command is set by the layer, not by habit. `kubectl kustomize` for build; the API error + a live-vs-render diff for apply; the normal `get → describe → events → logs` loop for runtime.
+Five labs is above the usual count. The set is one differential: one lab per stage, plus the two "all green, still wrong" signatures that an SRE meets most often (a change that never reached the render, and a change that reached the cluster and never reached the containers).
 
 ## Baseline tour reference
 
-The baseline has no broken state. Each step has a `verify.sh`; here's what "correct" looks like.
-
-- **Step 1 (the base):** `kubectl kustomize base` renders a ConfigMap named `edge-relay-config-<hash>` and a Deployment whose `envFrom` reference was rewritten to that same hashed name. If the reference *isn't* rewritten, the reference name and generator name don't match — the exact fault in break/fix 02.
-- **Step 2 (two overlays):** `diff <(kubectl kustomize overlays/lab) <(kubectl kustomize overlays/prod)` shows prod diverging by replicas (1 → 3, a patch), image (`nginx:1.25` → `1.27`, the `images` transformer), config (`MAX_SESSIONS` 500 → 5000, a generator merge), a `nodeAffinity` block (the `regional-affinity` component), and a different ConfigMap hash.
-- **Step 3 (apply and observe):** `kubectl apply -k overlays/prod` lands `edge-relay` at `3/3` on `nginx:1.27`; the live Deployment's `envFrom` names a ConfigMap that exists. The cluster holds the rendered objects — it has no concept of the kustomization.
-- **Step 4 (the hash contract):** editing `MAX_SESSIONS` to 6000 and re-applying produces a *new* ConfigMap name, which changes the Pod template, which rolls the Deployment. The old generated ConfigMap lingers — `apply` never prunes.
+- **Step 1 (the base):** `kubectl kustomize base | grep -n edge-relay-config` prints two lines with the same hashed name: the ConfigMap's `name:` and the Deployment's `configMapRef`. The file `base/deployment.yaml` asks for the plain `edge-relay-config`. The rewrite works because the names match.
+- **Step 2 (two overlays):** the lab-versus-prod diff shows `replicas` 1 → 3 (patch), `nginx:1.25` → `1.27` (`images`), `LOG_LEVEL` and `MAX_SESSIONS` (generator merge; `REGION` stays), an `affinity:` block (component), a different hash, and `tier: lab` → `tier: prod`.
+- **Step 3 (compare with live):** `kubectl diff -k overlays/prod` prints nothing and exits 0. `get deploy,svc,cm -l app=edge-relay` lists the hashed ConfigMap, because the base generator sets the label through `options.labels`. `describe deploy` shows `Replicas: 3 desired`, `Image: nginx:1.27`, and the hashed name under `Environment Variables from:`.
+- **Step 4 (hash contract):** after the edit to 6000, `kubectl diff -k` shows a new ConfigMap and one changed `configMapRef` line, and exits 1. The apply creates a second ReplicaSet, `printenv` reads 6000, and two ConfigMaps exist. `apply -k --prune -l app=edge-relay` prints `configmap/edge-relay-config-<old hash> pruned`, after a `Deprecated:` warning about cluster-scoped pruning.
 
 ---
 
-## Break/fix 01 — Patch Target Mismatch
+## Break/fix 01 — Patch target mismatch
 
-**Symptom:** The `edge-relay` prod promotion isn't landing; the deploy job running `kubectl apply -k overlays/prod` exits non-zero, and there is no `edge-relay` Deployment in `edge` at all — not crashing, absent. The rest of the fleet is healthy.
+**Symptom:** the deploy job for the prod promotion exits non-zero. `kubectl get deploy -n edge` prints `No resources found in edge namespace.` The workload is absent, not broken.
 
-**Root cause:** The prod overlay's replicas patch (`overlays/prod/replicas-patch.yaml`) names its target `edge-relayer`, but the base Deployment is `edge-relay`. A `patches:` entry with a `path:` and no explicit `target:` selects by the patch's own `apiVersion`/`kind`/`metadata.name`; when nothing matches, Kustomize fails the whole build rather than skip the patch<sup><a href="https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/patches/">[1]</a></sup>. `apply -k` never sends anything to the API server, so nothing exists to describe.
+**Root cause:** `overlays/prod/replicas-patch.yaml` is a partial Deployment named `edge-relayer`, and the base Deployment is `edge-relay`. A patch file with no `target:` selects the one resource with its own kind and name<sup><a href="https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/patches/">[1]</a></sup>. That resource is missing, so the build fails, and `apply -k` sends nothing to the API server.
 
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. Confirm the workload is absent, not broken — nothing to run the normal loop on
+# 1. Nothing exists, so suspect the build
 kubectl get deploy -n edge
-kubectl get pods -n edge -l app=edge-relay
-# No edge-relay. When apply -k yields nothing, suspect the build.
+# No resources found in edge namespace.
 
-# 2. Run the build half yourself and READ the error
+# 2. Run the build half and read the error
 cd /root/edge-relay
-kubectl kustomize overlays/prod
-# Error: ... no matches for Id Deployment.v1.apps/edge-relayer...;
-#        failed to find unique target for patch ...
+kubectl kustomize overlays/prod; echo "exit=$?"
+# error: no matches for Id Deployment.v1.apps/edge-relayer.[noNs];
+#   failed to find unique target for patch Deployment.v1.apps/edge-relayer.[noNs]
+# exit=1   (newer kubectl prefixes: no resource matches strategic merge patch "...")
 
-# 3. Line up what the patch targets against what the base names
-cat overlays/prod/replicas-patch.yaml            # metadata.name: edge-relayer
-kubectl kustomize base | grep -E '^kind:|  name:'  # base Deployment is edge-relay
+# 3. Line up the two names
+cat overlays/prod/replicas-patch.yaml   # name: edge-relayer
+cat base/deployment.yaml                # name: edge-relay
 ```
 
 **Fix:**
 
 ```bash
-# Point the patch at the name that exists
 sed -i 's/name: edge-relayer/name: edge-relay/' overlays/prod/replicas-patch.yaml
-# (Mirror-image fix: if the BASE was renamed and everything else expects
-#  edge-relayer, rename the base instead. Fix whichever side drifted.)
-```
-
-**Verify:**
-
-```bash
-kubectl kustomize overlays/prod | grep -E 'kind: Deployment|replicas:'   # builds now; replicas: 3
+kubectl kustomize overlays/prod | grep -n replicas   # replicas: 3
 kubectl apply -k overlays/prod
-kubectl rollout status deployment/edge-relay -n edge --timeout=90s
-kubectl get deploy edge-relay -n edge                                    # READY 3/3
 ```
 
-**What this scenario tests:**
+If the base was the side that was renamed, and the rest of the tree expects `edge-relayer`, rename the base instead. Fix the side that drifted.
 
-- When `apply -k` produces *nothing*, did you run `kubectl kustomize` and read the build error — instead of poking a cluster that had nothing to show? A build error is a first-class diagnosis, not a mystery.
-- Did you read the error literally? It names the target identity (`Deployment/edge-relayer`) that couldn't be matched.
-- Do you understand that a `patches:` entry selects its target by the patch's own name, so `metadata.name` must match a real resource?
+**Verify:** `kubectl get deploy edge-relay -n edge` reads `READY 3/3`.
 
-The anti-pattern: run `kubectl describe`/`logs` against a workload that was never created, then conclude the cluster is broken.
+**What this scenario tests:** reading a build error when the cluster has nothing to show. Self-grading questions:
 
-**Expected time:** 1–3 min once "no output → read the build" is a reflex; 5–10 min the first time.
+- When `apply -k` left no object, did you run `kubectl kustomize` before any `describe`?
+- Did you read the identity in the error (`Deployment/edge-relayer`) and compare it with the base?
+- Can you say why this patch failed loudly, while the patch in break/fix 04 did not?
 
-**Production thinking:** This entire class of failure is a CI gate. Running `kustomize build` (or `kubectl kustomize`) on every overlay in the pipeline and failing on error catches bad patch targets, missing `resources:` paths, and duplicate ids *before* a human waits on a deploy. The fix also belongs in git, not in a live `sed` — a GitOps controller (M18) would re-render the committed overlay; an out-of-band edit is overwritten on the next reconciliation.
+**Expected time:** 1–3 min once "nothing exists, read the build" is a reflex; 5–10 min the first time.
+
+**Production thinking:** a build error is a CI gate. Render every overlay on every pull request and fail on a non-zero exit. That catches bad patch targets, wrong paths, and duplicate ids before a person waits on a deploy. Commit the fix: a GitOps controller (M18) renders the committed tree and would undo an edit made only on a machine.
 
 ---
 
-## Break/fix 02 — Generator Name Mismatch
+## Break/fix 02 — Generator name mismatch
 
-**Symptom:** The prod overlay built cleanly and `apply -k` reported success, but `edge-relay` is `0/3`: its Pod is stuck in `CreateContainerConfigError`.
+**Symptom:** the deploy job reported success, and `edge-relay` is at 0 of 3 available. Every Pod is in `CreateContainerConfigError`.
 
-**Root cause:** The base Deployment's `envFrom` references `edge-relay-conf`, while the `configMapGenerator` is named `edge-relay-config`. Kustomize rewrites a reference to a generated object only when the reference's name matches the generator's declared name<sup><a href="https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/configmapgenerator/">[2]</a></sup>. They differ, so the reference is left as the bare `edge-relay-conf`; the render emits a ConfigMap named `edge-relay-config-<hash>` and a Deployment pointing at a name that doesn't exist. The object is valid, so admission accepts it; the kubelet then can't find the ConfigMap and fails container creation.
+**Root cause:** the Deployment's `envFrom` references `edge-relay-conf`, and the generator is `edge-relay-config`. Kustomize rewrites a reference to the hashed name only when the reference names the generator exactly<sup><a href="https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/">[2]</a></sup>. The reference stays bare, and the render holds `edge-relay-config-<hash>` plus a Deployment that asks for a ConfigMap nothing creates. The object is valid, so the API server accepts it. The kubelet then fails the container.
 
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. The object exists, so the normal loop works this time
-kubectl get pods -n edge -l app=edge-relay          # 0/1 CreateContainerConfigError
-kubectl describe pod -n edge -l app=edge-relay | grep -A3 Events
-#   Error: configmap "edge-relay-conf" not found
+# 1. Objects exist, so the normal loop works
+kubectl get pods -n edge -l app=edge-relay        # CreateContainerConfigError x3
+kubectl events -n edge --types=Warning
+# (x11 over 4m) ... Error: configmap "edge-relay-conf" not found
+# A single earlier "failed to sync configmap cache" line is the first attempt.
 
-# 2. What ConfigMaps actually exist?
-kubectl get configmap -n edge | grep edge-relay
-#   edge-relay-config-<hash>  exists; edge-relay-conf does not
+# 2. What exists
+kubectl get cm -n edge -l app=edge-relay          # edge-relay-config-<hash> only
 
-# 3. Read the render to see WHY the reference wasn't rewritten
+# 3. The render shows why
 cd /root/edge-relay
-kubectl kustomize overlays/prod | grep -E 'kind: ConfigMap|name: edge-relay|configMapRef'
-#   generator produced edge-relay-config-<hash>; Deployment asks for bare edge-relay-conf
+kubectl kustomize overlays/prod | grep -n edge-relay-conf
+#   11:  name: edge-relay-config-<hash>
+#   63:            name: edge-relay-conf          <- not rewritten
 
-# 4. Line up the two names
-grep -A1 configMapRef base/deployment.yaml          # edge-relay-conf
-grep -A1 configMapGenerator base/kustomization.yaml # edge-relay-config
+# 4. Line up the names
+grep -n edge-relay-conf base/deployment.yaml base/kustomization.yaml
 ```
 
 **Fix:**
 
 ```bash
-# Make the reference match the generator name so Kustomize rewrites it to the hashed object
 sed -i 's/name: edge-relay-conf }/name: edge-relay-config }/' base/deployment.yaml
-# (Mirror-image fix: rename the generator to edge-relay-conf instead. Either
-#  way the two names must be identical — that match is what triggers the rewrite.)
-```
-
-**Verify:**
-
-```bash
-kubectl kustomize overlays/prod | grep -A1 configMapRef   # now edge-relay-config-<hash>
+kubectl kustomize overlays/prod | grep -n edge-relay-conf   # both lines hashed
 kubectl apply -k overlays/prod
 kubectl rollout status deployment/edge-relay -n edge --timeout=90s
-kubectl get pods -n edge -l app=edge-relay                # Running, 1/1
 ```
 
-**What this scenario tests:**
+**Verify:** `kubectl get pods -n edge -l app=edge-relay` shows three new Pods `Running` at 1/1. The changed reference changed the Pod template, so the Deployment rolled to a new ReplicaSet.
 
-- When a generated object seems "missing," did you compare the *render* to the *cluster*? `kubectl kustomize` shows the hashed name Kustomize created and the exact reference it wrote (or didn't).
-- Do you understand that reference rewriting is a name match — not magic — and that a four-character drift silently disables it?
-- Did you resist "just create the missing ConfigMap by hand"? That treats the symptom; the next render would regenerate the hashed name and drift again.
+**What this scenario tests:** following a runtime failure back to the render. Self-grading questions:
 
-**Expected time:** 3–5 min; longer if you stop at `describe` (which tells you *what's* missing but not *why* Kustomize didn't wire it).
+- Did you compare the reference in the render with the generated name, instead of stopping at `describe`?
+- Can you state the rewrite rule as a name match?
+- Did you resist creating an `edge-relay-conf` ConfigMap by hand? That copy would never receive the next config change.
 
-**Production thinking:** The hash-and-rewrite machinery is what makes config changes roll a workload automatically — that's why you keep it rather than hand-writing ConfigMaps. Two operational corollaries: run `apply -k --prune` (or let a GitOps controller GC) so superseded `*-<hash>` ConfigMaps don't accumulate, and remember that `secretGenerator` behaves identically but only base64-encodes — encrypting secrets for git is a separate concern (M11).
+**Expected time:** 3–5 min; longer if you stop at the event, which says what is missing but not why.
+
+**Production thinking:** a CI check that greps each render for `configMapRef` and `secretRef` names, and confirms that every name is either hashed or a known external object, catches this class before deploy. A policy engine (M20) can reject a Pod template that references a ConfigMap missing from its namespace.
 
 ---
 
-## Break/fix 03 — commonLabels vs the Immutable Selector
+## Break/fix 03 — commonLabels and the immutable selector
 
-**Symptom:** `edge-relay` is running and healthy on the *lab* spec (one replica, the lab image). Promoting the same base to prod fails: `kubectl apply -k overlays/prod` exits non-zero and the prod spec never lands.
+**Symptom:** `edge-relay` runs the lab spec (1/1, `nginx:1.25`). The promotion to prod exits non-zero, and calls to `edge-relay` started to fail at the same time.
 
-**Root cause:** The prod overlay uses `commonLabels: {tier: prod}`. `commonLabels` applies its labels to metadata, Pod templates, **and every selector** — including the Deployment's `spec.selector`, which is immutable after creation<sup><a href="https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#selector">[3]</a></sup>. The build is valid, but applying it onto the already-running Deployment tries to change the selector from `{app: edge-relay}` to `{app: edge-relay, tier: prod}`, and the API server rejects it: `spec.selector ... field is immutable`. (The lab overlay avoided this by using the modern `labels:` transformer with `includeSelectors: false`<sup><a href="https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/labels/">[4]</a></sup>.)
+**Root cause:** the prod overlay sets `tier: prod` with `commonLabels`, which writes into metadata, Pod templates, and every selector<sup><a href="https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/labels/">[3]</a></sup>. The Deployment's selector is immutable after creation<sup><a href="https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#label-selector-updates">[4]</a></sup>, so the API server rejects the Deployment. `apply -k` is not a transaction: the Service in the same apply succeeded, its selector gained `tier: prod`, and no running Pod carries that label.
 
 **Diagnostic commands (the canonical path):**
 
 ```bash
-# 1. Which spec is live? (prod should be 3 replicas)
-kubectl get deploy edge-relay -n edge               # READY 1/1 — still the lab spec
+# 1. Which spec is live
+kubectl get deploy edge-relay -n edge -o wide      # 1/1, nginx:1.25, SELECTOR app=edge-relay
 
-# 2. Reproduce the rejection and read the field the API server names
+# 2. Ask the API server, without changing anything
 cd /root/edge-relay
-kubectl apply -k overlays/prod
-#   The Deployment "edge-relay" is invalid: spec.selector: ... field is immutable
+kubectl diff -k overlays/prod                      # exits 2
+# The Deployment "edge-relay" is invalid: spec.selector: Invalid value:
+#   v1.LabelSelector{MatchLabels:map[string]string{"app":"edge-relay", "tier":"prod"}, ...}: field is immutable
 
-# 3. Diff the live selector against what the overlay renders
-kubectl get deploy edge-relay -n edge -o jsonpath='{.spec.selector.matchLabels}{"\n"}'  # {"app":"edge-relay"}
-kubectl kustomize overlays/prod | grep -A2 matchLabels                                   # app + tier: prod
+# 3. Live selector versus rendered selector
+kubectl describe deploy edge-relay -n edge         # Selector: app=edge-relay
+kubectl kustomize overlays/prod | grep -n -A3 'selector:'   # Service and Deployment gain tier: prod
 
-# 4. Find the transformer that reached into the selector
-grep -A1 commonLabels overlays/prod/kustomization.yaml
+# 4. Why calls fail
+kubectl describe svc edge-relay -n edge            # Selector: app=edge-relay,tier=prod / Endpoints: <none>
+
+# 5. The transformer
+cat overlays/prod/kustomization.yaml               # commonLabels: tier: prod
 ```
 
-**Fix:** Replace `commonLabels` with the `labels:` transformer set to leave selectors alone.
+**Fix:** replace `commonLabels` with the `labels:` transformer, which leaves selectors alone:
 
 ```bash
-# In overlays/prod/kustomization.yaml, replace:
-#   commonLabels:
-#     tier: prod
-# with:
-#   labels:
-#     - pairs: { tier: prod }
-#       includeSelectors: false
-awk '
-  /^commonLabels:/ { print "labels:"; print "  - pairs: { tier: prod }"; print "    includeSelectors: false"; skip=1; next }
-  skip==1 && /^[[:space:]]+tier: prod[[:space:]]*$/ { skip=0; next }
-  { print }
-' overlays/prod/kustomization.yaml > /tmp/prod.yaml && mv /tmp/prod.yaml overlays/prod/kustomization.yaml
-```
-
-If the label genuinely must be *in* the selector, the only path is to delete and recreate the Deployment (`kubectl delete deploy edge-relay -n edge`, then apply) — an outage — which is exactly why you keep selector-touching labels out of promotions.
-
-**Verify:**
-
-```bash
-kubectl kustomize overlays/prod | grep -A2 matchLabels    # selector back to app only
+sed -i 's/^commonLabels:/labels:\n  - pairs: { tier: prod }\n    includeSelectors: false/; /^  tier: prod$/d' \
+  overlays/prod/kustomization.yaml
+kubectl diff -k overlays/prod        # replicas, image, labels change; Service selector loses tier
 kubectl apply -k overlays/prod
 kubectl rollout status deployment/edge-relay -n edge --timeout=90s
-kubectl get deploy edge-relay -n edge -o jsonpath='selector={.spec.selector.matchLabels}  meta-tier={.metadata.labels.tier}{"\n"}'
-# selector={"app":"edge-relay"}  meta-tier=prod  — label applied, selector untouched, READY 3/3
 ```
 
-**What this scenario tests:**
+If the label must be in the selector, the only path is to delete and recreate the Deployment, which is an outage. Keep selector labels out of promotions.
 
-- When an apply is rejected for an immutable field, did you diff the live object against the render? The rejection names the field; the render shows what your overlay tried to put there.
-- Did you connect the injected selector label back to `commonLabels` — and know that `labels:` with `includeSelectors: false` is the surgical alternative?
-- Did you understand *why* this passed in the baseline (fresh create) but failed here (promotion over a live object)? The bug only exists relative to an already-running selector.
+**Verify:** `kubectl get deploy edge-relay -n edge -o wide --show-labels` shows 3/3 on `nginx:1.27`, `SELECTOR app=edge-relay`, and `tier=prod` in the labels. `kubectl describe svc edge-relay -n edge` shows `Selector: app=edge-relay` and three endpoint addresses.
 
-**Expected time:** 3–6 min; longer if you try to "fix" the running Deployment's selector directly (you can't — it's immutable).
+**What this scenario tests:** reading an apply-stage rejection, and noticing what the partial apply already changed. Self-grading questions:
 
-**Production thinking:** `commonLabels` is deprecated precisely because of this footgun; prefer the explicit `labels:` transformer and reserve `includeSelectors: true` for greenfield resources. More broadly: a change that's valid in isolation can still be rejected by the state already in the cluster, which is why promotion pipelines apply to a canary/stage environment before prod — the immutable-field rejection surfaces one environment earlier, where the blast radius is small.
+- Did you run `kubectl diff -k` before applying again?
+- Did you connect the selector change to `commonLabels`, and know that `labels:` with `includeSelectors: false` is the safe form?
+- Did you find the Service with no endpoints, and explain why a rejected apply changed it?
+
+**Expected time:** 4–8 min; longer if you try to edit the live Deployment's selector.
+
+**Production thinking:** run `kubectl diff -k` (a server-side dry run) against each environment in the pipeline before the apply, so an immutable-field rejection fails the job before any object changes. Promote through a stage environment first: the rejection then appears where the blast radius is small. Newer `kubectl` versions print a deprecation warning for `commonLabels`; treat that warning as a lint failure.
+
+---
+
+## Break/fix 04 — Patch matches nothing
+
+**Symptom:** prod runs 1 replica of `edge-relay` and is planned at 3. The deploy job passed, the rollout completed, and the Pod is `Running` and `Ready`.
+
+**Root cause:** the prod overlay's replicas change is an inline JSON 6902 patch with `target: {kind: Deployment, name: relay}`. A target is a selector, and its `name` is an anchored regular expression<sup><a href="https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/patches/">[1]</a></sup>: `relay` means `^relay$`. No Deployment carries that name. A selector that matches zero resources is not an error, so Kustomize applied the patch to nothing and exited 0.
+
+**Diagnostic commands (the canonical path):**
+
+```bash
+# 1. All green
+kubectl get deploy edge-relay -n edge            # READY 1/1
+
+# 2. The cluster matches the render, so the render is the problem
+cd /root/edge-relay
+kubectl diff -k overlays/prod; echo "exit=$?"    # no output, exit=0
+kubectl kustomize overlays/prod | grep -n replicas   # replicas: 1
+
+# 3. The mechanism that should set 3
+cat overlays/prod/kustomization.yaml
+# patches:
+#   - target: { kind: Deployment, name: relay }
+```
+
+**Fix:**
+
+```bash
+sed -i 's/name: relay }/name: edge-relay }/' overlays/prod/kustomization.yaml
+kubectl kustomize overlays/prod | grep -n replicas   # replicas: 3
+kubectl apply -k overlays/prod
+kubectl rollout status deployment/edge-relay -n edge --timeout=90s
+```
+
+**Verify:** `kubectl get deploy edge-relay -n edge` reads `READY 3/3`.
+
+**What this scenario tests:** distrusting a green pipeline when an intended change is missing. Self-grading questions:
+
+- Did `kubectl diff -k` exit 0 tell you to look at the render instead of the cluster?
+- Did you read the field you expected (`replicas`) in the render before you read the overlay?
+- Can you explain why break/fix 01 failed the build and this patch did not?
+
+**Expected time:** 3–6 min once "green but wrong means read the render" is a reflex; 10–15 min the first time.
+
+**Production thinking:** a selector patch trades loudness for reach. Keep a per-overlay assertion in CI, for example a render of prod that must contain `replicas: 3` for `edge-relay`, so a dropped patch fails the pipeline. Use a patch file with no target when the change is meant for exactly one resource; then a rename breaks the build instead of shipping without the change. Review a selector-based patch together with the list of resources it should match.
+
+---
+
+## Break/fix 05 — Hash disabled, stale config
+
+**Symptom:** `MAX_SESSIONS` was raised from 5000 to 6000 and the deploy passed, and the relay still enforces 5000. Every Pod is `Running` and `Ready`.
+
+**Root cause:** the prod overlay sets `generatorOptions: {disableNameSuffixHash: true}`<sup><a href="https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/generatoroptions/">[5]</a></sup>, so the ConfigMap keeps the fixed name `edge-relay-config`. The change updated that ConfigMap in place. The Pod template names the same ConfigMap as before, so it did not change, and the Deployment did not roll. ConfigMaps consumed as environment variables "are not updated automatically and require a pod restart"<sup><a href="https://kubernetes.io/docs/concepts/configuration/configmap/#using-configmaps-as-files-from-a-pod">[6]</a></sup>, so every container still holds 5000.
+
+**Diagnostic commands (the canonical path):**
+
+```bash
+# 1. The containers and the ConfigMap disagree
+kubectl exec -n edge deploy/edge-relay -- printenv MAX_SESSIONS   # 5000
+kubectl get cm -n edge -l app=edge-relay                          # edge-relay-config, no hash
+kubectl describe cm edge-relay-config -n edge                     # MAX_SESSIONS: 6000
+
+# 2. Nothing rolled
+kubectl rollout history deployment/edge-relay -n edge             # 1 revision
+
+# 3. The render has no hash
+cd /root/edge-relay
+kubectl kustomize overlays/prod | grep -n edge-relay-config       # both lines bare
+cat overlays/prod/kustomization.yaml                              # generatorOptions: disableNameSuffixHash: true
+```
+
+**Fix:** restore the hash, and remove the old ConfigMap with `--prune`:
+
+```bash
+sed -i '/^generatorOptions:/,/disableNameSuffixHash/d' overlays/prod/kustomization.yaml
+kubectl diff -k overlays/prod     # new hashed ConfigMap; configMapRef name changes
+kubectl apply -k overlays/prod --prune -l app=edge-relay
+# ... configmap/edge-relay-config pruned
+kubectl rollout status deployment/edge-relay -n edge --timeout=90s
+```
+
+`kubectl rollout restart deployment/edge-relay -n edge` loads 6000 today, and the next config change fails the same way. Use it only as a stopgap while the overlay fix goes through review.
+
+**Verify:** `kubectl exec -n edge deploy/edge-relay -- printenv MAX_SESSIONS` prints 6000, and `kubectl rollout history` shows revision 2.
+
+**What this scenario tests:** separating "the config object changed" from "the running containers changed". Self-grading questions:
+
+- Did you compare the container's environment with the ConfigMap before you read any Kustomize file?
+- Did `rollout history` tell you that nothing restarted, and did you connect that to the unchanged ConfigMap name?
+- Did you fix the cause (the disabled hash) and not only the symptom (a restart)?
+
+**Expected time:** 4–8 min; longer if you restart the Deployment and stop there.
+
+**Production thinking:** the hash was disabled to stop old ConfigMaps from accumulating. Solve that problem with pruning instead: `apply -k --prune -l <selector>` in the pipeline, or the garbage collection of a GitOps controller (M18). If a fixed name is truly required, for example because another system reads the ConfigMap by name, add a checksum annotation to the Pod template so that each config change still changes the template. Alert when a Pod started before the last update of a ConfigMap it reads through `envFrom`; the update time is in the ConfigMap's `managedFields`.
 
 ## References
 
 1. Kustomize — `patches` field reference: https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/patches/
-2. Kustomize — `configMapGenerator` field reference: https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/configmapgenerator/
-3. Kubernetes — Deployment selector (immutability): https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#selector
-4. Kustomize — `labels` / `commonLabels` field reference: https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/labels/
+2. Kubernetes — Declarative Management of Kubernetes Objects Using Kustomize: https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/
+3. Kustomize — `labels` field reference: https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/labels/
+4. Kubernetes — Deployments, label selector updates: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#label-selector-updates
+5. Kustomize — `generatorOptions` field reference: https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/generatoroptions/
+6. Kubernetes — ConfigMaps (environment variables are not updated automatically): https://kubernetes.io/docs/concepts/configuration/configmap/#using-configmaps-as-files-from-a-pod

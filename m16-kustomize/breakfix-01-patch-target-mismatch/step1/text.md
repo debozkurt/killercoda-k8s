@@ -1,45 +1,40 @@
-# Step 1 — Read the build error
+# Step 1 — Diagnose
 
-First confirm the symptom. The `edge` namespace runs the fleet's `sbc-edge` and `pstn-gateway`, but `edge-relay` should be here too:
+## Look at the cluster
 
 ```bash
 kubectl get deploy -n edge
-kubectl get pods -n edge -l app=edge-relay
 ```{{exec}}
 
-No `edge-relay` Deployment, no Pods. There's nothing in the cluster to diagnose — which is the tell. When an `apply -k` produces *nothing*, suspect the build, not the cluster.
+`No resources found in edge namespace.` The fleet's edge workloads are a DaemonSet and a StatefulSet, and `edge-relay` should be the one Deployment here. It is not crashing and not pending. It is absent. Nothing exists to `describe`. When `apply -k` leaves no object behind, suspect the build.
 
-## Render the overlay yourself
+## Run the build yourself
 
-Run the same build the deploy job runs. `apply -k` calls `kustomize build` first; do just that half and read what it says:
+`apply -k` builds the overlay first. Run only that half:
 
 ```bash
 cd /root/edge-relay
-kubectl kustomize overlays/prod
+kubectl kustomize overlays/prod; echo "exit=$?"
 ```{{exec}}
 
-It doesn't print manifests — it prints an error:
+No manifests: one error line and exit=1. The line ends with:
 
 ```text
-Error: no resource matches strategic merge patch "Deployment.v1.apps/edge-relayer.[noNs]":
-no matches for Id Deployment.v1.apps/edge-relayer.[noNs]; failed to find unique target for patch ...
+no matches for Id Deployment.v1.apps/edge-relayer.[noNs]; failed to find unique target for patch Deployment.v1.apps/edge-relayer.[noNs]
 ```
 
-Read it literally. Kustomize has a patch whose target is `Deployment/edge-relayer`, and **no resource with that identity exists** in what it assembled. A `patches:` entry isn't optional — if its target can't be found, the whole build fails. (This is deliberate: a patch that silently matched nothing would be a config change that quietly does nothing.)
+(Newer `kubectl` versions put `no resource matches strategic merge patch` in front of the same text.) Kustomize holds a patch for `Deployment/edge-relayer`, and the build contains no resource with that identity.
 
-## Find the mismatch
-
-Two facts to line up: what the patch targets, and what the base actually names. The prod overlay lists its patch:
+## Line up the two names
 
 ```bash
-grep -A2 'patches:' overlays/prod/kustomization.yaml
 cat overlays/prod/replicas-patch.yaml
 ```{{exec}}
 
-The patch file is a Deployment named `edge-relayer`. Now the name the base carries:
+The patch file is a partial Deployment named `edge-relayer`. It has no `target:` in the overlay, so its own kind and `metadata.name` select the resource it changes.
 
 ```bash
-kubectl kustomize base | grep -E '^kind:|  name:'
+cat base/deployment.yaml
 ```{{exec}}
 
-The base Deployment is `edge-relay`. The patch targets `edge-relayer` — a name nothing carries (someone renamed the base, or fat-fingered the patch). A `patches:` entry with a `path:` and no explicit `target:` selects by the patch's own `apiVersion`/`kind`/`metadata.name`, so that `metadata.name` has to match a real resource. It doesn't. On to the fix.
+The base Deployment's `name:` reads `edge-relay`. The patch names a resource the build never holds, so Kustomize stops the build, and `apply -k` sends nothing to the API server.

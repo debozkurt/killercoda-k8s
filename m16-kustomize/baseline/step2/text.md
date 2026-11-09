@@ -1,37 +1,38 @@
 # Step 2 — Two overlays, one base
 
-An **overlay** is a kustomization whose `resources:` points at a base (or another overlay) and then layers changes on top. Same base, different result per environment. Read the lab overlay first — it's almost nothing:
+An **overlay** is a kustomization whose `resources:` list names a base, and then changes the result.
 
 ```bash
 cat overlays/lab/kustomization.yaml
 ```{{exec}}
 
-Lab pulls in `../../base` and adds a `tier: lab` label. That's it — lab is deliberately close to the source of truth. Now the prod overlay, which is where the real layering happens:
+Lab includes `../../base` and adds a `tier: lab` label with `includeSelectors: false`. That flag keeps the label off every selector.
 
 ```bash
 cat overlays/prod/kustomization.yaml
 ```{{exec}}
 
-Prod pulls in the same base and adds four kinds of change: a **component** (`components:`), a **transformer** each for labels and images, a **generator merge** (`configMapGenerator` with `behavior: merge`), and a **patch** (`patches:`). Each is a distinct Kustomize mechanism; you'll meet all four across this module's break/fix scenarios.
+Prod uses five mechanisms on the same base:
 
-## Render both and diff them
+- `components:` includes the `regional-affinity` component
+- `labels:` adds `tier: prod`
+- `images:` changes the nginx tag
+- `configMapGenerator` with `behavior: merge` overrides two keys of the base generator
+- `patches:` applies `replicas-patch.yaml`, a partial Deployment named `edge-relay`
 
-The base never changed. Everything below is produced by the overlays:
+## Diff the two renders
 
 ```bash
 diff <(kubectl kustomize overlays/lab) <(kubectl kustomize overlays/prod)
 ```{{exec}}
 
-Walk the differences:
+Match each difference to its mechanism:
 
-- **`replicas: 1` → `replicas: 3`** — the prod `patches:` entry (a strategic-merge patch in `replicas-patch.yaml`) overrides the base's replica count.
-- **`image: nginx:1.25` → `nginx:1.27`** — the prod `images:` transformer pins a different tag without editing the Deployment YAML.
-- **`MAX_SESSIONS: "500"` → `"5000"`**, **`LOG_LEVEL: info` → `warn`** — the prod `configMapGenerator` merge overrode two values; `REGION` stayed, inherited from the base.
-- **`nodeAffinity:`** appears only in prod — that's the `regional-affinity` component, wired in by prod and skipped by lab.
-- The ConfigMap **hash differs** between the two — different content, different name.
+- `replicas: 1` becomes `replicas: 3`: the patch.
+- `image: nginx:1.25` becomes `nginx:1.27`: the `images` transformer.
+- `LOG_LEVEL` and `MAX_SESSIONS` change, and `REGION` stays: the generator merge.
+- The `affinity:` block appears only in prod: the component.
+- The ConfigMap hash differs, because the data differs.
+- `tier: lab` becomes `tier: prod`: the label transformer.
 
-## The mental model
-
-One base is the single source of truth. Each overlay is a small, reviewable diff describing how *that* environment departs from it. Nothing is copy-pasted; a fix to the base reaches every environment on the next render. This is why GitOps repos are built on Kustomize (or Helm) rather than per-environment folders of full manifests — you'll wire it into Flux in M18.
-
-Nothing is applied yet. Step 3 pushes the prod overlay to the cluster.
+The base did not change. Each overlay is a small, reviewable statement of how one environment departs from it.

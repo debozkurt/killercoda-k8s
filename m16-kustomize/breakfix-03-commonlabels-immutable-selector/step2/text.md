@@ -1,43 +1,23 @@
-# Step 2 — Move labels off the selector and verify
+# Step 2 — Fix it and verify
 
-You want `tier: prod` as a label on the objects, just not in the Deployment's selector. The `labels:` transformer with `includeSelectors: false` does exactly that — it's what the lab overlay already uses, and it's the modern replacement for `commonLabels`. Swap the prod overlay's transformer.
+Keep `tier: prod` as a label, and keep it out of the selector. The `labels:` transformer does that with `includeSelectors: false`, which is what the lab overlay uses. Do not delete the Deployment to force the label in: that is an outage.
 
-In `overlays/prod/kustomization.yaml`, replace:
-
-```yaml
-commonLabels:
-  tier: prod
-```
-
-with:
-
-```yaml
-labels:
-  - pairs: { tier: prod }
-    includeSelectors: false
-```
-
-Run this to make the swap in place:
+Replace the two `commonLabels` lines in `overlays/prod/kustomization.yaml`:
 
 ```bash
 cd /root/edge-relay
-awk '
-  /^commonLabels:/ { print "labels:"; print "  - pairs: { tier: prod }"; print "    includeSelectors: false"; skip=1; next }
-  skip==1 && /^[[:space:]]+tier: prod[[:space:]]*$/ { skip=0; next }
-  { print }
-' overlays/prod/kustomization.yaml > /tmp/prod.yaml && mv /tmp/prod.yaml overlays/prod/kustomization.yaml
-grep -A2 'labels:' overlays/prod/kustomization.yaml | head -3
+sed -i 's/^commonLabels:/labels:\n  - pairs: { tier: prod }\n    includeSelectors: false/; /^  tier: prod$/d' \
+  overlays/prod/kustomization.yaml
+cat overlays/prod/kustomization.yaml
 ```{{exec}}
 
-## Confirm the selector is clean before applying
-
-The render's selector should be back to `{app: edge-relay}`, with `tier: prod` only on metadata:
+The overlay now has a `labels:` block in place of `commonLabels`. Ask the API server again:
 
 ```bash
-kubectl kustomize overlays/prod | grep -A2 'matchLabels'
+kubectl diff -k overlays/prod
 ```{{exec}}
 
-`tier: prod` is gone from the selector. Because the selector now matches the live Deployment's selector, the apply is an ordinary update — no immutable-field change:
+No error this time. The Deployment diff shows the prod changes: `replicas`, the image tag, the `tier` label, the `affinity:` block, and the `configMapRef` hash. It shows no selector change. The Service diff removes `tier: prod` from its selector.
 
 ```bash
 kubectl apply -k overlays/prod
@@ -47,9 +27,13 @@ kubectl rollout status deployment/edge-relay -n edge --timeout=90s
 ## Verify
 
 ```bash
-kubectl get deploy edge-relay -n edge -o wide
-kubectl get deploy edge-relay -n edge \
-  -o jsonpath='selector={.spec.selector.matchLabels}  meta-tier={.metadata.labels.tier}{"\n"}'
+kubectl get deploy edge-relay -n edge -o wide --show-labels
 ```{{exec}}
 
-`READY 3/3` on `nginx:1.27` — the prod promotion landed. The selector is still `{app: edge-relay}` (untouched), and `tier: prod` is present as a metadata label. You got the label you wanted without touching the field you're not allowed to change. For the full write-up see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m16-kustomize/ANSWER-KEY.md). You're done — see `finish.md`.
+`READY` 3/3 on nginx:1.27, `SELECTOR` still `app=edge-relay`, and `tier=prod` in the labels.
+
+```bash
+kubectl describe svc edge-relay -n edge
+```{{exec}}
+
+`Selector:` reads `app=edge-relay` again, and `Endpoints:` lists three Pod addresses. For self-grading and the full path, see [`ANSWER-KEY.md`](https://github.com/debozkurt/killercoda-k8s/blob/main/m16-kustomize/ANSWER-KEY.md).

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>M16 — Kustomize: Bases &amp; Overlays</title>
+<title>M16 Kustomize</title>
 <style>
   :root{
     --bg:#0f0f0f;
@@ -205,346 +205,316 @@
 <div class="hint">← → navigate · F fullscreen</div>
 <div class="brand">M16 · KUSTOMIZE</div>
 <div class="hud"><b id="cur">1</b> / <span id="tot">1</span></div>
+
 <div class="deck" id="deck">
 
-  <!-- 1 · TITLE -->
   <section class="slide">
     <div class="wrap">
-      <h1>Kustomize —<br/>bases &amp; overlays</h1>
-      <p class="lead">One base, many environments, no templating language. Kustomize composes
-        plain YAML with more YAML — and its failures land in three separate layers.</p>
+      <h1>Kustomize:<br/>bases, overlays, and the render</h1>
+      <p class="lead">One base, many environments, no templating language. Kustomize transforms plain YAML with more YAML, and <code>kubectl</code> has it built in.</p>
       <div class="note" style="margin-top:1.8rem">
-        <p>Every Kustomize problem is a <strong>build</strong>, an <strong>apply</strong>, or a
-          <strong>runtime</strong> failure — and each has a different first command. Name the layer
-          and you have most of the fix.</p>
+        <p>A failure lands in one stage of the build, apply, and runtime pipeline. The stage decides the first command.</p>
       </div>
     </div>
   </section>
 
-  <!-- 2 · OBJECTIVES -->
   <section class="slide">
     <div class="wrap">
-      <h2>What you'll walk away with</h2>
+      <h2>Per-environment copies drift</h2>
+      <div class="cards c2">
+        <div class="card bad">
+          <h3>A folder of full manifests per environment</h3>
+          <p>An engineer copies each Pod spec fix into every file. The day one copy is missing, lab and prod diverge without notice.</p>
+        </div>
+        <div class="card good">
+          <h3>One base, one overlay per environment</h3>
+          <p>The base holds what every environment shares. Each overlay states only how its environment departs from the base.</p>
+          <div class="sigs">
+            <div class="sig"><span class="lbl">e.g. prod</span><span class="val">more replicas, a pinned image</span></div>
+            <div class="sig"><span class="lbl">lab</span><span class="val">verbose logging</span></div>
+            <div class="sig"><span class="lbl">region</span><span class="val">its own node placement</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Kustomize is a renderer, not a runtime</h2>
+      <div class="flow" style="margin:1.4rem 0;justify-content:center">
+        <div class="node"><div class="t">kustomization files</div><div class="s">base + overlay</div></div>
+        <div class="arrow"><span class="lbl">build</span>→</div>
+        <div class="node"><div class="t">render</div><div class="s">one stream of YAML</div></div>
+        <div class="arrow"><span class="lbl">apply</span>→</div>
+        <div class="node"><div class="t">live objects</div><div class="s">look hand-written</div></div>
+        <div class="arrow"><span class="lbl">kubelet</span>→</div>
+        <div class="node good"><div class="t">running Pods</div></div>
+      </div>
       <ul>
-        <li>Compose an environment from a shared <strong>base</strong> plus environment-specific
-          <strong>overlays</strong>, and read any <code>kustomization.yaml</code></li>
-        <li>Render locally with <code>kubectl kustomize</code> and apply with
-          <code>kubectl apply -k</code> — and know why rendering first is the discipline</li>
-        <li>Patch two ways — strategic-merge and JSON 6902 — and understand how a patch finds the
-          resource it targets</li>
-        <li>Generate ConfigMaps and Secrets, and reason about the <strong>name-suffix hash</strong>
-          and the reference rewriting it drives</li>
-        <li>Apply transformers — <code>namespace</code>, <code>labels</code>, <code>images</code>,
-          <code>namePrefix</code> — without the immutable-selector trap</li>
-        <li>Reuse cross-cutting slices with <strong>components</strong></li>
-        <li>Locate any failure to <strong>build</strong>, <strong>apply</strong>, or
-          <strong>runtime</strong> — each has a different first command</li>
+        <li>The build contacts no cluster.</li>
+        <li>The API server receives ordinary objects.</li>
+        <li>No cluster component knows that Kustomize exists.</li>
       </ul>
     </div>
   </section>
 
-  <!-- 3 · MENTAL MODEL: renders, never runs -->
   <section class="slide">
     <div class="wrap">
-      <h2>Kustomize renders; it never runs</h2>
-      <p class="sub"><code>kubectl kustomize &lt;dir&gt;</code> is a pure function — a directory of
-        YAML in, one stream of YAML out, no cluster touched. <code>apply -k</code> is that same
-        function with an apply stapled on the end.</p>
-      <div class="grid-2 vcenter" style="margin-top:1.2rem">
-        <div>
-          <p>The cluster never sees the kustomization — only the rendered objects, which look exactly
-            like hand-written manifests. Nothing in the cluster knows Kustomize exists.</p>
-          <p>That one fact organizes every failure you will debug: the problem is in the render, in
-            the apply, or in what the render produced at runtime.</p>
-        </div>
-        <div class="card">
-          <h3>Two commands, one function</h3>
-          <div class="sigs" style="border-top:none;padding-top:0;margin-top:0">
-            <div class="sig"><span class="lbl">kustomize</span><span class="val"><code>kubectl kustomize</code> — build, print, touch nothing</span></div>
-            <div class="sig"><span class="lbl">apply -k</span><span class="val">build, then apply the result</span></div>
-            <div class="sig"><span class="lbl">the cluster</span><span class="val">sees plain objects, never the kustomization</span></div>
-          </div>
-        </div>
-      </div>
-      <div class="note" style="margin-top:1.3rem">
-        <p>Because rendering is separate from applying, <strong>render first, every time</strong>.
-          <code>kubectl kustomize</code> shows you exactly what the cluster will get before it gets it.</p>
+      <h2>Three commands run the same build</h2>
+      <table>
+        <tr><th>Command</th><th>Contacts the cluster</th><th>Use it to</th></tr>
+        <tr><td><code>kubectl kustomize &lt;dir&gt;</code></td><td>No</td><td>See exactly what the build produces</td></tr>
+        <tr><td><code>kubectl diff -k &lt;dir&gt;</code></td><td>Yes, a server-side dry run</td><td>See what would change in the live objects</td></tr>
+        <tr><td><code>kubectl apply -k &lt;dir&gt;</code></td><td>Yes</td><td>Create and update the rendered objects</td></tr>
+      </table>
+      <div class="sigs" style="margin-top:1.2rem">
+        <div class="sig"><span class="lbl">diff exit 0</span><span class="val">nothing would change</span></div>
+        <div class="sig"><span class="lbl">diff exit 1</span><span class="val">a difference exists</span></div>
+        <div class="sig"><span class="lbl">diff exit &gt;1</span><span class="val">an error, such as an immutable-field rejection</span></div>
       </div>
     </div>
   </section>
 
-  <!-- 4 · THE SPINE: three layers -->
   <section class="slide">
     <div class="wrap">
-      <h2>Every failure lands in one of three layers</h2>
-      <p class="sub">The render is a pipeline. A Kustomize problem sits in exactly one stage, and the
-        stage decides your first command.</p>
-      <div class="flow" style="justify-content:center;gap:.7rem;margin:1.4rem 0 1.8rem">
-        <div class="node"><div class="t">base + overlay</div><div class="s">the input files</div></div>
-        <div class="arrow"><span class="lbl">build</span>&rarr;</div>
-        <div class="node"><div class="t">rendered YAML</div><div class="s">one stream</div></div>
-        <div class="arrow"><span class="lbl">apply</span>&rarr;</div>
-        <div class="node"><div class="t">API server</div><div class="s">admission</div></div>
-        <div class="arrow"><span class="lbl">run</span>&rarr;</div>
-        <div class="node good"><div class="t">running Pods</div><div class="s">the workload</div></div>
-      </div>
-      <div class="cards c3">
-        <div class="card">
-          <h3>Build</h3>
-          <p><code>kustomize build</code> errors; nothing reaches the cluster. <code>describe</code>
-            has nothing to show — nothing was created.</p>
-          <div class="sigs"><div class="sig"><span class="lbl">first</span><span class="val"><code>kubectl kustomize &lt;dir&gt;</code>, read the error</span></div></div>
-        </div>
-        <div class="card">
-          <h3>Apply</h3>
-          <p>Valid render, but the API server rejects an object — an immutable field, a quota, a bad
-            reference.</p>
-          <div class="sigs"><div class="sig"><span class="lbl">first</span><span class="val">re-run <code>apply -k</code>; diff render vs live</span></div></div>
-        </div>
-        <div class="card">
-          <h3>Runtime</h3>
-          <p>Build and apply both succeed, but the render is <em>wrong</em>, and it only bites when a
-            Pod runs.</p>
-          <div class="sigs"><div class="sig"><span class="lbl">first</span><span class="val"><code>get &rarr; describe &rarr; events &rarr; logs</code>, vs the render</span></div></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- 5 · COMPOSITION -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>One base is the source of truth;<br/>overlays are reviewable diffs</h2>
-      <p class="sub">A base captures what every environment shares. Each overlay points its
-        <code>resources:</code> at that base, then layers on only its departures.</p>
-      <div class="grid-2 tight" style="margin-top:1.1rem">
-        <div class="terminal">
-<span class="o"># base/kustomization.yaml — the common core</span>
+      <h2>An overlay names the base in <code>resources:</code></h2>
+      <div class="grid-2">
+<div class="terminal">
+# base/kustomization.yaml
+namespace: edge
 resources:
   - deployment.yaml
   - service.yaml
-namespace: edge
 configMapGenerator:
   - name: edge-relay-config
-    literals: [LOG_LEVEL=info]
-        </div>
-        <div class="terminal">
-<span class="o"># overlays/prod/kustomization.yaml — the diff</span>
+    literals: [LOG_LEVEL=info, MAX_SESSIONS=500]
+</div>
+<div class="terminal">
+# overlays/prod/kustomization.yaml
 resources:
-  - <span class="g">../../base</span>
+  - ../../base
 images:
-  - {name: nginx, newTag: <span class="g">"1.27"</span>}
+  - {name: nginx, newTag: "1.27"}
 patches:
   - path: replicas-patch.yaml
-        </div>
+</div>
       </div>
-      <div class="note" style="margin-top:1.2rem">
-        <p><code>resources:</code> does double duty — raw manifest files <em>and</em> other
-          kustomizations, which is how composition happens. A fix to the base reaches every
-          environment on the next build. A wrong relative path fails the build:
-          <code>accumulating resources ... no such file</code>.</p>
-      </div>
+      <ul>
+        <li><code>resources:</code> accepts manifest files and other kustomization directories.</li>
+        <li>A fix to the base reaches every environment on the next build.</li>
+      </ul>
     </div>
   </section>
 
-  <!-- 6 · PATCHES -->
   <section class="slide">
     <div class="wrap">
-      <h2>A transformer touches everything;<br/>a patch touches what it targets</h2>
-      <p class="sub">Because a patch changes specific resources, it must identify <em>which</em> — and
-        if it can't, Kustomize fails the build rather than silently doing nothing.</p>
-      <div class="cards c2" style="margin-top:1.1rem">
+      <h2>One name typo, two ways to target a patch:<br/>opposite failures</h2>
+      <div class="cards c2">
+        <div class="card good">
+          <h3>Patch file, no <code>target:</code></h3>
+          <p>The patch names exactly one resource by its own kind and <code>metadata.name</code>. If that resource is missing, Kustomize fails the build.</p>
+          <div class="terminal">failed to find unique target for patch</div>
+        </div>
+        <div class="card bad">
+          <h3>Patch with a <code>target:</code> selector</h3>
+          <p>Kustomize applies the patch to every resource that matches all specified fields. <code>name</code> is an anchored regular expression: <code>relay</code> means <code>^relay$</code>.</p>
+          <p>Zero matches is not an error. Kustomize prints nothing and exits 0.</p>
+        </div>
+      </div>
+      <div class="note warn"><p>The only evidence of a dropped selector patch is the render. Read the field you meant to change.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Strategic-merge sets fields;<br/>JSON 6902 operates on positions</h2>
+      <div class="cards c2">
         <div class="card">
           <h3>Strategic-merge</h3>
-          <p>A partial resource. Matched by <code>apiVersion</code>/<code>kind</code>/<code>name</code>,
-            then merged — it understands list-merge keys and reads like the resource. The default for
-            shaping fields.</p>
-          <div class="sigs"><div class="sig"><span class="lbl">miss</span><span class="val"><code>failed to find unique target for patch</code></span></div></div>
+          <p>A partial resource. Kustomize merges lists by their merge key, such as a container by its <code>name</code>.</p>
         </div>
         <div class="card">
           <h3>JSON 6902</h3>
-          <p>An operation list against explicit paths — <code>/spec/replicas</code> — on a named
-            <code>target:</code>. Positional: <code>containers/0</code> is by index. For
-            <code>add</code>/<code>remove</code>/<code>replace</code> where merge semantics get in the way.</p>
-          <div class="sigs"><div class="sig"><span class="lbl">trait</span><span class="val">precise and brittle — reorder the list, break the index</span></div></div>
+          <p>An operation list (<code>add</code>, <code>replace</code>, <code>remove</code>) against exact paths. It needs a <code>target:</code>, and a reordered list breaks an index path.</p>
         </div>
       </div>
-      <div class="note" style="margin-top:1.2rem">
-        <p>A mismatched target is a <strong>build</strong> failure — nothing reaches the cluster.
-          Reconcile the two names: either the patch is stale, or the base was renamed.</p>
-      </div>
+      <div class="note"><p>Kustomize detects the dialect from what the entry contains. <code>patchesStrategicMerge</code> and <code>patchesJson6902</code> are deprecated in favor of <code>patches:</code>.</p></div>
     </div>
   </section>
 
-  <!-- 7 · GENERATORS: name tracks content -->
   <section class="slide">
     <div class="wrap">
-      <h2>A generator ties a config object's name<br/>to its contents</h2>
-      <p class="sub"><code>configMapGenerator</code> builds a ConfigMap and appends a hash of its data
-        to the name — <code>edge-relay-config-4f9dk2</code>. Different content, different name.</p>
-      <div class="grid-2 vcenter" style="margin-top:1.1rem">
-        <div>
-          <p>A hand-written ConfigMap has a fixed name; edit its data and running Pods keep their old
-            values, because no Pod template changed to trigger a rollout.</p>
-          <p>A generator ties the name to the content, so any edit becomes a new name, a reference
-            change, a Pod-template change — a rollout. <strong>Config change becomes rollout,
-            automatically.</strong></p>
-        </div>
-        <div class="flow" style="flex-direction:column;align-items:stretch;gap:.55rem">
-          <div class="node"><div class="t">edit literals</div><div class="s">data changes</div></div>
-          <div class="arrow" style="align-self:center">&darr;</div>
-          <div class="node"><div class="t">new hash</div><div class="s">new object name</div></div>
-          <div class="arrow" style="align-self:center">&darr;</div>
-          <div class="node"><div class="t">references rewritten</div><div class="s">Pod template changes</div></div>
-          <div class="arrow" style="align-self:center">&darr;</div>
-          <div class="node good"><div class="t">Deployment rolls</div><div class="s">new config live</div></div>
-        </div>
+      <h2>A config change becomes a rollout<br/>through the name-suffix hash</h2>
+      <div class="ladder">
+        <div class="rung"><b>1</b> New data gives a new hash and a new ConfigMap name.</div>
+        <div class="rung"><b>2</b> Kustomize writes the new name into every reference.</div>
+        <div class="rung"><b>3</b> The Deployment's Pod template changes.</div>
+        <div class="rung"><b>4</b> The Deployment controller starts a rollout, and the new containers read the new values.</div>
       </div>
-      <div class="note" style="margin-top:1.2rem">
-        <p><code>secretGenerator</code> works identically but base64-encodes — base64 is not
-          encryption. <code>disableNameSuffixHash: true</code> gives a stable name, at the cost of the
-          automatic rollout.</p>
-      </div>
+      <div class="note"><p>Step 2 depends on a name match. A reference that does not name the generator exactly stays bare, and the kubelet fails the container with <code>CreateContainerConfigError</code>.</p></div>
     </div>
   </section>
 
-  <!-- 8 · THE NAME MATCH (runtime layer) -->
   <section class="slide">
     <div class="wrap">
-      <h2>Reference rewriting binds<br/>only on a name match</h2>
-      <p class="sub">For the hash to reach a Deployment, Kustomize rewrites references — but only where
-        the reference's name equals the generator's declared name.</p>
-      <div class="grid-2 vcenter" style="margin-top:1.1rem">
-        <div>
-          <p>A Deployment whose <code>envFrom</code> names <code>edge-relay-config</code> gets
-            rewritten to the hashed name. One that names <code>edge-relay-conf</code> does not —
-            Kustomize never recognizes it as a reference to this generator.</p>
-          <p>The name match is the load-bearing detail. Get it wrong and the render is internally
-            inconsistent while still being valid YAML.</p>
+      <h2>A container reads <code>envFrom</code> once, at start</h2>
+      <div class="cards c2">
+        <div class="card good">
+          <h3>Name-suffix hash on</h3>
+          <p>A config edit gives a new ConfigMap name. The Pod template changes, the Deployment rolls, and the new containers hold the new value.</p>
         </div>
         <div class="card bad">
-          <h3>A valid apply that can't start</h3>
-          <p>The render holds a hashed ConfigMap and a Deployment pointing at a plain name that
-            doesn't exist. Valid YAML, clean apply, and a Pod stuck in
-            <code>CreateContainerConfigError</code>.</p>
+          <h3><code>disableNameSuffixHash: true</code></h3>
+          <p>The name stays fixed. The edit updates the ConfigMap in place, no Pod template changes, and nothing rolls. Every running container keeps the old value.</p>
         </div>
       </div>
-      <div class="note warn" style="margin-top:1.2rem">
-        <p>This is the <strong>runtime</strong> layer — build and apply both succeeded. First move:
-          <code>kubectl kustomize</code> and compare the generated name to the reference.</p>
+      <div class="note warn"><p>Teams disable the name-suffix hash to stop old ConfigMaps from accumulating. <code>apply -k --prune -l &lt;selector&gt;</code> removes the leftovers and keeps the rollout.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Generator rules that matter in operations</h2>
+      <div class="sigs">
+        <div class="sig"><span class="lbl"><code>behavior: merge</code></span><span class="val">binds to the base generator by name and namespace; a name that matches nothing stops the build</span></div>
+        <div class="sig"><span class="lbl">old objects</span><span class="val"><code>apply -k</code> creates and updates, never deletes; each change leaves the previous hashed ConfigMap</span></div>
+        <div class="sig"><span class="lbl"><code>secretGenerator</code></span><span class="val">works the same way; base64 is an encoding, not encryption</span></div>
       </div>
     </div>
   </section>
 
-  <!-- 9 · IMMUTABLE-SELECTOR TRAP (apply layer) -->
   <section class="slide">
     <div class="wrap">
-      <h2>Labels that reach the selector<br/>collide with immutability</h2>
-      <p class="sub"><code>commonLabels</code> writes onto metadata, Pod templates, <em>and every
-        selector</em>. The modern <code>labels:</code> transformer leaves selectors alone unless you
-        set <code>includeSelectors: true</code>.</p>
-      <div class="grid-2 vcenter" style="margin-top:1.1rem">
-        <div>
-          <p>A Deployment's selector is <strong>immutable after creation</strong> — it's the identity
-            link between the Deployment and the ReplicaSets and Pods it owns.</p>
-          <p>On a fresh namespace, <code>commonLabels</code> is harmless; the selector is being set for
-            the first time. Promote that same overlay over an <em>already-running</em> Deployment and
-            the API server rejects it.</p>
-        </div>
-        <div class="card bad">
-          <h3>The apply rejection</h3>
-          <p><code>spec.selector ... field is immutable</code> — the build was fine, the render valid.
-            The object already in the cluster is what made the apply illegal.</p>
-        </div>
-      </div>
-      <div class="note warn" style="margin-top:1.2rem">
-        <p>This is the <strong>apply</strong> layer. Keep labels off the selector —
-          <code>labels:</code> with <code>includeSelectors: false</code> — for anything already
-          running; reserve selector-touching labels for greenfield resources.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 10 · COMPONENTS -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>A base can't carry patches;<br/>a component can</h2>
-      <p class="sub">A component — <code>kind: Component</code> — is a reusable slice of patches,
-        resources, and generators that an overlay opts into via <code>components:</code>.</p>
-      <div class="cards c2" style="margin-top:1.1rem">
-        <div class="card">
-          <h3>Base <span class="tag">what everyone builds on</span></h3>
-          <p>Raw resources plus the transforms common to every environment. It renders on its own.</p>
-          <div class="sigs"><div class="sig"><span class="lbl">reach for it</span><span class="val">when the same <em>resources</em> recur across overlays</span></div></div>
-        </div>
-        <div class="card">
-          <h3>Component <span class="tag">a capability you turn on</span></h3>
-          <p>An optional slice some environments enable — a regional-affinity pin, a debug sidecar, a
-            monitoring annotation set. Prod enables it, lab skips it, from one definition.</p>
-          <div class="sigs"><div class="sig"><span class="lbl">reach for it</span><span class="val">when the same <em>change</em> recurs across overlays</span></div></div>
-        </div>
-      </div>
-      <div class="note" style="margin-top:1.2rem">
-        <p>Extract a component when the same change is copy-pasted across overlays — but not too early.
-          A premature abstraction is its own cost.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 11 · FAILURE MODES TABLE -->
-  <section class="slide">
-    <div class="wrap">
-      <h2>Common failure modes</h2>
+      <h2>Two label transformers,<br/>different reach</h2>
       <table>
-        <tr><th>Symptom</th><th>Likely cause</th><th>Where to look</th></tr>
-        <tr>
-          <td><code>find unique target for patch</code></td>
-          <td>a patch target matches no resource</td>
-          <td class="muted">the patch's name/kind vs the base's real names</td>
-        </tr>
-        <tr>
-          <td><code>accumulating resources ... no such file</code></td>
-          <td>a <code>resources:</code> path is wrong</td>
-          <td class="muted">the relative paths in <code>kustomization.yaml</code></td>
-        </tr>
-        <tr>
-          <td>Pod <code>CreateContainerConfigError</code></td>
-          <td>a reference name ≠ the generator's name</td>
-          <td class="muted"><code>kubectl kustomize</code> — generated name vs reference</td>
-        </tr>
-        <tr>
-          <td><code>spec.selector ... field is immutable</code></td>
-          <td>a label transformer wrote into the selector</td>
-          <td class="muted">the live selector vs the render</td>
-        </tr>
-        <tr>
-          <td>stale <code>*-&lt;hash&gt;</code> ConfigMaps piling up</td>
-          <td>generators create; <code>apply</code> never deletes</td>
-          <td class="muted"><code>apply -k --prune</code>, or a GitOps controller's GC</td>
-        </tr>
+        <tr><th>Field</th><th>Writes labels to</th></tr>
+        <tr><td><code>commonLabels</code> (deprecated)</td><td>metadata, Pod templates, and every selector</td></tr>
+        <tr><td><code>labels:</code> (defaults)</td><td>metadata only</td></tr>
+        <tr><td><code>labels:</code> with <code>includeTemplates: true</code></td><td>metadata and Pod templates</td></tr>
+        <tr><td><code>labels:</code> with <code>includeSelectors: true</code></td><td>metadata, Pod templates, and selectors</td></tr>
+      </table>
+      <div class="note"><p>Other transformers: <code>namespace</code>, <code>images</code>, and <code>namePrefix</code>/<code>nameSuffix</code>, which also update references.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>A Deployment selector is immutable<br/>after creation</h2>
+<div class="terminal">
+$ kubectl diff -k overlays/prod
+The Deployment "edge-relay" is invalid: spec.selector:
+  Invalid value: ...: field is immutable
+</div>
+      <ul>
+        <li>The selector is how the Deployment finds the ReplicaSets and Pods it owns.</li>
+        <li>On a first create, <code>commonLabels</code> is harmless. Over a running Deployment, the API server rejects the selector change.</li>
+        <li>If the label must be in the selector, the only path is to delete and recreate the Deployment, which is an outage.</li>
+        <li>Fix: <code>labels:</code> with <code>includeSelectors: false</code>, plus <code>includeTemplates: true</code> if the Pods need the label.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2><code>apply -k</code> is not a transaction</h2>
+<div class="terminal">
+$ kubectl apply -k overlays/prod
+configmap/edge-relay-config-... created
+service/edge-relay configured
+The Deployment "edge-relay" is invalid: spec.selector:
+  Invalid value: ...: field is immutable
+</div>
+      <ul>
+        <li><code>apply -k</code> sends each rendered object on its own. When the API server rejects one object, the others still apply.</li>
+        <li>e.g. <code>commonLabels</code> over a running Deployment: the API server rejects the Deployment and accepts the Service, because a Service selector is mutable.</li>
+        <li>The Service selector then carries a label that no running Pod has, so the Service selects no Pods. A rejected lab-to-prod promotion becomes a traffic outage.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>A base packages resources;<br/>a component packages a change</h2>
+      <div class="cards c2">
+        <div class="card">
+          <h3>Base</h3>
+          <p>Resources every overlay starts from. Its patches change only its own resources.</p>
+        </div>
+        <div class="card">
+          <h3>Component</h3>
+          <p>A kustomization with <code>kind: Component</code>. An overlay includes it through <code>components:</code>. Its patches and generators apply to the resources of the overlay that includes it.</p>
+        </div>
+      </div>
+      <div class="note"><p>e.g. a regional-affinity pin: prod enables it, lab skips it, one definition serves both.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>The stage decides the first command</h2>
+      <table>
+        <tr><th>Stage</th><th>Trace</th><th>First command</th></tr>
+        <tr><td>Build</td><td class="muted">error, nothing created</td><td><code>kubectl kustomize &lt;dir&gt;</code></td></tr>
+        <tr><td>Apply</td><td class="muted">API server rejects an object</td><td><code>kubectl diff -k &lt;dir&gt;</code></td></tr>
+        <tr><td>Runtime</td><td class="muted">Pods fail at start</td><td><code>get → describe → events → logs</code>, then the render</td></tr>
+        <tr><td>Wrong render</td><td class="muted">no error anywhere</td><td><code>kubectl kustomize &lt;dir&gt;</code>, read the expected field</td></tr>
+      </table>
+      <div class="note warn"><p>In the last row the headline status lies: a green CI deploy job, a complete rollout, and <code>Running</code> Pods report on the render you produced, not the render you meant.</p></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Symptoms and causes</h2>
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th></tr>
+        <tr><td><code>failed to find unique target for patch</code></td><td class="muted">a patch file names a resource the build does not hold</td></tr>
+        <tr><td><code>CreateContainerConfigError</code>, configmap not found</td><td class="muted">reference name differs from the generator name</td></tr>
+        <tr><td><code>spec.selector ... field is immutable</code></td><td class="muted"><code>commonLabels</code> changed a live selector</td></tr>
+        <tr><td>Everything green, an overlay change is missing</td><td class="muted">a <code>target:</code> selector matched zero resources</td></tr>
+        <tr><td>ConfigMap shows the new value, the app runs the old one</td><td class="muted">the name-suffix hash is disabled, so nothing rolled</td></tr>
       </table>
     </div>
   </section>
 
-  <!-- 12 · RECAP -->
   <section class="slide">
     <div class="wrap">
-      <h2>What to carry forward</h2>
+      <h2>Recap</h2>
       <ul>
-        <li><strong>Kustomize renders; it never runs.</strong> <code>kubectl kustomize</code> is a
-          pure function; <code>apply -k</code> is that plus an apply. Render before you apply.</li>
-        <li><strong>One base is the source of truth; overlays are reviewable diffs.</strong> No
-          templating language — YAML transformed by YAML.</li>
-        <li><strong>A generator ties a ConfigMap's name to its contents and rewrites references by name
-          match.</strong> Break the match and you get a valid apply that can't start.</li>
-        <li><strong>Failures live in three layers — build, apply, runtime.</strong> An empty cluster
-          means read the build; an immutable-field rejection means diff live-vs-render; a broken Pod
-          means the normal loop.</li>
-        <li><strong>Transformers that reach into selectors collide with immutability.</strong> Keep
-          labels off the selector for anything already running.</li>
+        <li><strong>Kustomize renders; it never runs.</strong> The cluster receives plain objects.</li>
+        <li><strong>The stage decides the first command.</strong> A wrong render produces no error, so read the render.</li>
+        <li><strong>A patch file fails loudly; a <code>target:</code> selector can match nothing in silence.</strong></li>
+        <li><strong>The name-suffix hash turns a config change into a rollout through a name match.</strong></li>
+        <li><strong>Transformers that reach a selector collide with immutability.</strong></li>
       </ul>
     </div>
   </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Production thinking</h2>
+      <ul>
+        <li>A selector patch that matches nothing ships an environment without its change. Which CI assertions would you add per overlay, and who owns the list of fields each overlay must set?</li>
+        <li>The team disabled the name-suffix hash to stop old ConfigMaps from piling up. What changes on the next edit, and which cleanup would keep the hash on?</li>
+        <li>A render is clean on a laptop and different in CI. What would you pin so that a build is reproducible everywhere?</li>
+        <li>The same patch is copied into five overlays. When does it become a component, and what does an early extraction cost?</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="wrap">
+      <h2>Where to read more</h2>
+      <ul>
+        <li>Kubernetes documentation: declarative management of objects using Kustomize, <code>kubectl diff</code>, <code>kubectl patch</code>, ConfigMaps, Deployments</li>
+        <li>Kustomize field reference: <code>patches</code>, <code>configMapGenerator</code>, <code>generatorOptions</code>, <code>images</code>, <code>labels</code></li>
+        <li>Kustomize components guide</li>
+        <li>The companion lesson holds the full source list with links</li>
+      </ul>
+    </div>
+  </section>
+
 
 </div>
 

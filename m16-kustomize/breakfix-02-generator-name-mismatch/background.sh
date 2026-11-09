@@ -685,51 +685,27 @@ spec:
 EOF
 
 # ---------------------------------------------------------------------------
-# Wait for the fleet to come up
+# M16 additions: the edge-relay Kustomize tree at /root/edge-relay.
+#
+#   base/                          Deployment + Service + configMapGenerator
+#   components/regional-affinity/  Component: nodeAffinity disktype=ssd
+#   overlays/lab/                  base + tier=lab label
+#   overlays/prod/                 base + component + replicas patch + image pin + config merge
+#
+# The tree is written BEFORE any wait, so a slow boot that hits the Killercoda
+# background runtime cap still leaves the learner the files. The fleet settle
+# wait runs last. Kustomize is client-side: `kubectl apply -k` renders, then applies.
 # ---------------------------------------------------------------------------
-
-kubectl wait --for=condition=Available deployment --all -A --timeout=120s >/dev/null 2>&1
-# StatefulSets don't have an Available condition; wait for at least one ready pod
-for ns in media signaling app-services edge; do
-  kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=60s >/dev/null 2>&1
-done
-
-
-# ===========================================================================
-# M16 additions — the edge-relay Kustomize base + overlays this module teaches.
-#
-# edge-relay is a per-environment SIP/RTP edge relay managed entirely with
-# Kustomize: one base plus a `lab` and a `prod` overlay. The whole tree is
-# written to /root/edge-relay so the learner can read and edit real files:
-#
-#   base/            deployment + service + a configMapGenerator (the source of truth)
-#   components/       regional-affinity — a reusable Component (nodeAffinity)
-#   overlays/lab/     base as-is + a tier label (dev-close-to-base)
-#   overlays/prod/    base + component + replicas patch + image pin + config merge
-#
-# This scenario ships a base Deployment whose config reference has DRIFTED from
-# the generator name, so Kustomize never rewrites it to the hashed ConfigMap.
-# The render and the apply both succeed, but the Pod references a ConfigMap that
-# does not exist and lands in CreateContainerConfigError. See the fenced
-# breakfix-02 mutation below.
-# ===========================================================================
 
 mkdir -p /root/edge-relay/base \
          /root/edge-relay/components/regional-affinity \
          /root/edge-relay/overlays/lab \
          /root/edge-relay/overlays/prod
-
-# --- base: the environment-agnostic definition -----------------------------
-# >>> breakfix-02 mutation: the Deployment's envFrom references `edge-relay-conf`,
-#     but the configMapGenerator (below) is named `edge-relay-config`. Kustomize
-#     rewrites a reference to a generated object only when the reference's NAME
-#     matches the generator's declared name. These differ, so the reference is left
-#     untouched: the render emits a ConfigMap named `edge-relay-config-<hash>` and
-#     a Deployment that asks for a plain `edge-relay-conf` (no hash, does not exist).
-#     Build succeeds, apply succeeds, and the Pod fails at container creation with
-#     CreateContainerConfigError ("configmap \"edge-relay-conf\" not found").
-#     Fix = make the reference match the generator name (`edge-relay-config`) so
-#     Kustomize rewrites it to the hashed object it actually creates.
+# >>> breakfix-02 mutation: the Deployment's envFrom names edge-relay-conf; the generator is edge-relay-config.
+#     Kustomize rewrites a reference only when its name matches the generator name, so the
+#     reference stays bare. Build and apply succeed; Pods hit CreateContainerConfigError.
+# MUTATED (baseline: configMapRef name: edge-relay-config)
+# The marker sits outside the heredoc so the learner's file carries no hint.
 cat > /root/edge-relay/base/deployment.yaml <<'EOF'
 apiVersion: apps/v1
 kind: Deployment
@@ -747,11 +723,8 @@ spec:
         - name: app
           image: nginx:1.25
           ports: [{ containerPort: 5060, name: sip }]
-          # The whole config lands as env vars from the generated ConfigMap.
-          # This name must match the generator's name for Kustomize to rewrite
-          # it to the hash-suffixed object the generator creates.
           envFrom:
-            - configMapRef: { name: edge-relay-conf }   # MUTATED (baseline: edge-relay-config — the generator's name)
+            - configMapRef: { name: edge-relay-conf }
           resources:
             requests: { cpu: 25m, memory: 32Mi }
             limits:   { cpu: 100m, memory: 64Mi }
@@ -776,24 +749,19 @@ namespace: edge
 resources:
   - deployment.yaml
   - service.yaml
-# A generator OWNS the ConfigMap. It appends a content hash to the name
-# (edge-relay-config-<hash>) and rewrites every matching reference, so a config
-# change forces a new object name and therefore a rollout.
 configMapGenerator:
   - name: edge-relay-config
     literals:
       - LOG_LEVEL=info
       - MAX_SESSIONS=500
       - REGION=us-east-1
+    options:
+      labels: { app: edge-relay }
 EOF
 
-# --- component: a reusable, opt-in slice pulled in by whichever overlay wants it
 cat > /root/edge-relay/components/regional-affinity/kustomization.yaml <<'EOF'
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
-# Pin edge-relay to the SSD-class nodes the media plane runs on. A Component is
-# reusable across overlays (unlike a base, it can add patches and generators)
-# and is wired in via `components:`. Only the prod overlay opts in here.
 patches:
   - target: { kind: Deployment, name: edge-relay }
     patch: |
@@ -807,20 +775,16 @@ patches:
                     - { key: disktype, operator: In, values: [ssd] }
 EOF
 
-# --- lab overlay: base as-is, just tagged. Close to the source of truth. -----
 cat > /root/edge-relay/overlays/lab/kustomization.yaml <<'EOF'
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
-# `labels` (the modern transformer) stamps metadata only — includeSelectors:false
-# keeps it away from the Deployment's immutable spec.selector.
 labels:
   - pairs: { tier: lab }
     includeSelectors: false
 EOF
 
-# --- prod overlay: the full promotion — component + patch + image + config ----
 cat > /root/edge-relay/overlays/prod/replicas-patch.yaml <<'EOF'
 apiVersion: apps/v1
 kind: Deployment
@@ -843,8 +807,6 @@ labels:
 images:
   - name: nginx
     newTag: "1.27"
-# Merge new values onto the base ConfigMap. behavior:merge keeps REGION from the
-# base and overrides the two prod cares about. New content -> new hash -> rollout.
 configMapGenerator:
   - name: edge-relay-config
     behavior: merge
@@ -855,16 +817,17 @@ patches:
   - path: replicas-patch.yaml
 EOF
 
-# --- apply the prod overlay: build + apply both succeed; the Pod then fails at
-#     container creation. Don't rollout-wait (it never becomes Available). Give
-#     the Pod a bounded moment to reach CreateContainerConfigError so the learner
-#     walks into the broken state.
+# --- apply: build and apply succeed; do not wait for a rollout that cannot finish ---
 kubectl apply -k /root/edge-relay/overlays/prod >/dev/null 2>&1
-for i in $(seq 1 20); do
-  kubectl get pods -n edge -l app=edge-relay \
-    -o jsonpath='{.items[*].status.containerStatuses[*].state.waiting.reason}' 2>/dev/null \
-    | grep -q CreateContainerConfigError && break
+for i in $(seq 1 30); do
+  kubectl get pods -n edge -l app=edge-relay 2>/dev/null | grep -q CreateContainerConfigError && break
   sleep 2
+done
+
+# --- fleet settle (best-effort, LAST so nothing critical sits behind it) ------
+kubectl wait --for=condition=Available deployment --all -A --timeout=120s >/dev/null 2>&1
+for ns in media signaling app-services edge; do
+  kubectl wait --for=condition=Ready pod -l plane -n "$ns" --timeout=60s >/dev/null 2>&1
 done
 
 touch /tmp/.setup-complete

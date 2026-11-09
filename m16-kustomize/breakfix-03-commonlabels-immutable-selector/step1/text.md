@@ -1,48 +1,52 @@
-# Step 1 — Read the rejected apply
+# Step 1 — Diagnose
 
-First confirm which spec is live. edge-relay is running, but check the replica count against what prod should be (3):
+## Which spec is live
 
 ```bash
-kubectl get deploy edge-relay -n edge
+kubectl get deploy edge-relay -n edge -o wide
 ```{{exec}}
 
-`READY 1/1` — that's the lab spec (one replica). The prod promotion never applied. Reproduce it in the foreground and read what the API server says:
+`READY` 1/1 and `IMAGES` nginx:1.25: the lab spec. Prod wants 3 replicas on nginx:1.27.
+
+## Ask the API server first
+
+`kubectl diff -k` sends the render as a dry run, so it fails the same way the apply did, and changes nothing:
 
 ```bash
 cd /root/edge-relay
-kubectl apply -k overlays/prod
+kubectl diff -k overlays/prod
 ```{{exec}}
 
-```text
-The Deployment "edge-relay" is invalid: spec.selector: Invalid value:
-  v1.LabelSelector{MatchLabels:map[string]string{"app":"edge-relay", "tier":"prod"}, ...}:
-  field is immutable
-```
+The error reads `The Deployment "edge-relay" is invalid: spec.selector: Invalid value: ... field is immutable`. The build worked; the API server refuses the object. A Deployment's selector is immutable after creation, because it is how the Deployment finds the ReplicaSets and Pods it owns.
 
-The build was fine — this is not a `kustomize` error, it's an API-server error. It's refusing to change `spec.selector`. A Deployment's selector is **immutable after creation**: it's the identity link between the Deployment and its Pods/ReplicaSets, and changing it would orphan everything the Deployment already owns.
-
-## Why is a promotion touching the selector?
-
-A replica bump and an image pin shouldn't go near the selector. Compare what's live to what the overlay renders. Live selector:
+## Compare the selectors
 
 ```bash
-kubectl get deploy edge-relay -n edge -o jsonpath='{.spec.selector.matchLabels}{"\n"}'
+kubectl describe deploy edge-relay -n edge
 ```{{exec}}
 
-`{"app":"edge-relay"}`. Now the rendered selector the apply tried to push:
+The `Selector:` line reads `app=edge-relay`. Now the selector in the render:
 
 ```bash
-kubectl kustomize overlays/prod | grep -A2 'matchLabels'
+kubectl kustomize overlays/prod | grep -n -A3 'selector:'
 ```{{exec}}
 
-The render's selector is `{app: edge-relay, tier: prod}` — the overlay is adding `tier: prod` *into the selector*, not just onto metadata. That's the change the API server refuses.
+Both the Service and the Deployment selectors gain `tier: prod`. A Service selector may change. A Deployment selector may not.
+
+## Why calls fail
+
+`apply -k` is not a transaction. It sends each object on its own, and only the Deployment was rejected:
+
+```bash
+kubectl describe svc edge-relay -n edge
+```{{exec}}
+
+`Selector:` reads `app=edge-relay,tier=prod`, and `Endpoints:` reads `<none>`. The Service update succeeded. The running Pods carry no `tier` label, so the Service selects none of them.
 
 ## Find the transformer
 
-A `tier` label that lands in selectors, metadata, *and* templates is the signature of `commonLabels`. Look at the prod overlay:
-
 ```bash
-grep -A1 'commonLabels' overlays/prod/kustomization.yaml
+cat overlays/prod/kustomization.yaml
 ```{{exec}}
 
-There it is. `commonLabels` applies its labels to **every** selector in the build — including the Deployment's immutable one. On a fresh namespace that's harmless (the selector is being set for the first time). Promoting onto an already-running Deployment, it's fatal. The lab overlay avoided this by using the `labels:` transformer with `includeSelectors: false`; prod used `commonLabels` and got bitten. On to the fix.
+The overlay sets `tier: prod` with `commonLabels`. `commonLabels` writes its labels into metadata, Pod templates, and every selector. On a first create that is harmless. Over a running Deployment it changes an immutable field. (Newer `kubectl` versions also print a deprecation warning for `commonLabels`.)
